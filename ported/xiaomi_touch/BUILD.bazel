@@ -1,0 +1,26 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF).  Providers: miev.ko (real port, //re/miev) and a CRC stub of panel_event_notifier.ko
+ddk_headers(name = "xt_headers", hdrs = glob(["xt_inc/**/*.h"]), includes = ["xt_inc"])
+
+ddk_module(
+    name = "xiaomi_touch",
+    srcs = glob(["*.c", "*.h"]),
+    out = "xiaomi_touch.ko",
+    defconfig = "xiaomi_touch_defconfig",
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_DRM=1",
+        "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1",
+        "CONFIG_MIEV=1",
+        "TOUCH_STYLUS_SUPPORT=1",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        ":xt_headers",
+        "//re/miev:miev",
+        "//re/stubs_a17D:panel_event_notifier_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

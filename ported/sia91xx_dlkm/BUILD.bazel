@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "sia91xx_dlkm",
+    srcs = glob(["*.c", "*.h"]),
+    out = "sia91xx_dlkm.ko",
+    includes = ["."],
+    defconfig = "sia91xx_dlkm_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MIEV=1", "SIA91XX_TYPE=1", "SIPA_COMPILE_TO_MODULE=1"],
+    copts = ["-ffunction-sections", "-fdata-sections", "-include", "sia_compat.h", "-Wno-incompatible-pointer-types", "-Wno-unused-function"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_miev",
+        "//re/stubs_a17C:stub_machine",
+        "//common:all_headers_aarch64",
+    ],
+)

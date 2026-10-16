@@ -46,7 +46,7 @@ Because genksyms expands `struct tas25xx_priv` completely, the two CRCs depend o
 Xiaomi members, and on the spelling of the return type (`int` vs `int32_t`). Offsets/types of all members are verified by the identical code; only names
 (and typedef spelling) of the new members are unknown: stock offsets 0x600 pointer (`struct pinctrl *`, NULL-tested), 0x608/0x610 pointers
 (`struct pinctrl_state *`, active/sleep), 0x618 32-bit flag, 0x61c `int` (value of the control).
-Brute force tools (offline, exact): `genksyms -D` dump of the stream, whose `zlib.crc32` equals the SYMVER (script in the agent scratchpad: crcsearch2.py,
+Brute force tools (offline, exact): `genksyms -D` dump of the stream, whose `zlib.crc32` equals the SYMVER (script in the : crcsearch2.py,
 ~2 million candidates/s). Tried without a hit: ~350M separate-field name combinations (16 prefixes x 13 stems for the pinctrl pointer, ~25 active/sleep name pairs x 18
 prefixes, ~55 flag names, ~45 value names), array forms `pinctrl_state[2]` and `pinctrl_state[ARRAY_SIZE(<names>)]`, both with return type `int` and `int32_t`.
 No public Xiaomi source for these fields exists (not in MiCode, not in TI's repo). The current names (`rcv_pinctrl`, `rcv_gpio_active`, `rcv_gpio_sleep`,

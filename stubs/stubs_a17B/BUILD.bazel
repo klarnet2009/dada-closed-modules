@@ -1,0 +1,20 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# reconstructed Xiaomi MCA public headers (include/mca/...), shared by the mcaB modules
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+# One stub provider for every vendor symbol the mcaB modules import.  It only exists so that modpost resolves the imports
+# of the module under test with the stock CRCs; each stub_*.c is its own translation unit because the genksyms CRC of a
+# prototype depends on which kernel struct definitions the TU has seen (include set of the original provider).
+ddk_module(name = "stub_all", srcs = glob(["stub_*.c"]), out = "mca_stub_all.ko", kernel_build = _K,
+           deps = [":mca_headers", _G])
+
+# One module per stub file, so that a real module of the port task can depend on exactly the providers it imports
+# (and not on a stub of itself).  Name: st_<stub file without stub_ and .c>.
+[ddk_module(name = "st_" + s[5:-2], srcs = [s, "stub_license.c"], out = "mca_st_" + s[5:-2] + ".ko", kernel_build = _K,
+            deps = [":mca_headers", _G])
+ for s in glob(["stub_*.c"], exclude = ["stub_license.c"])]

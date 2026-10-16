@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "stm_nfc_i2c",
+    srcs = ["stm_nfc_i2c.c"] + glob(["inc/*.h"]),
+    out = "stm_nfc_i2c.ko",
+    includes = ["inc"],
+    defconfig = "stm_nfc_i2c_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "NFC_SECURE_PERIPHERAL_ENABLED=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_smcinvoke",
+        "//re/stubs_a17C:stub_pinctrl_msm",
+        "//common:all_headers_aarch64",
+    ],
+)

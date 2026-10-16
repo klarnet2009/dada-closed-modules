@@ -1,0 +1,15 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# stub providers (only the export CRCs matter) for the a17D port modules
+ddk_headers(name = "a17D_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+_M = "//re/stubs_mcaA:mca_headers"
+
+ddk_module(name = "panel_event_notifier_stub", srcs = ["stub_panel_event_notifier.c"], out = "panel_event_notifier.ko",
+           kernel_build = _K, deps = [":a17D_headers", _G])
+ddk_module(name = "mca_event_stub", srcs = ["stub_mca_event.c"], out = "mca_event.ko", kernel_build = _K, deps = [_M, _G])
+ddk_module(name = "mca_smart_charge_stub", srcs = ["stub_mca_smart_charge.c"], out = "mca_smart_charge.ko", kernel_build = _K, deps = [_G])
+ddk_module(name = "qcom_dcvs_stub", srcs = ["stub_qcom_dcvs.c"], out = "qcom-dcvs.ko", kernel_build = _K, deps = [_G])

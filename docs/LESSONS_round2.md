@@ -1,0 +1,10 @@
+# Lessons from the second round (HyperOS 4.0 stock binaries as reference)
+
+- **Stub providers with exact export CRCs.** `tools/gen_stubs.py` generates one stub module per stock module that has the right export CRCs without knowing the prototypes: genksyms hashes `void sym ( struct tag { UNKNOWN } * )` with crc32 and a short struct tag is searched until the CRC matches. Imports of the module under test then match automatically.
+- **CRC that cannot be reproduced from source.** `tools/padcrc.py` enumerates GENKSYMS-only padding (a `#ifdef __GENKSYMS__` enum value) to hit a given export CRC without changing the code or the ABI.
+- **BTF of OS4 modules.** The base-type ids are not resolvable locally, `tools/btf_dump_startid.py` takes a `START_ID` (141904 for the `mca_*` modules, 141631 for `minet`); local struct member names are available.
+- **`poll_wait` / `smp_mb`.** 6.6.144 headers add a `dmb ish` that the stock modules (built on 6.6.57) do not have: use a local `poll_wait` without the barrier. Same family: `readl/writel_relaxed` under the rwmmio static key.
+- **A different template revision can change the ThinLTO result.** If a function differs by a word or two, try another revision/branch of the same template (for `miev` the declaration style of one `for` loop decided it).
+- **The inventory is not always right.** For several modules the template named in the inventory was wrong (`sla`: XRING `mi_net/slm`, not Unisoc; `miev`: MiCode `piano-w-oss` staging driver; `nxp-nci`: the OnePlus NXP driver, not the upstream one; `aw882xx`: the OnePlus codec tree, not the MTK one).
+- **Missing headers.** The blocked modules (`docs/blocked/`) all stop at definitions that exist in no public tree (`smart_batt_spec`, `mca_smem.h`, many enum values, `wls_adapter_power_cap`): they have to be recovered from the disassembly.
+- **Practical.** Shell heredocs halve backslashes (`\n` in C strings): write C files with a file tool. A fast compile loop without Bazel (ThinLTO emulation, about 10 s per module) is worth building before starting.

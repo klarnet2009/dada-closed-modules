@@ -1,0 +1,26 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF).  SAFETY: charging module, source for the community only - never flash it.
+ddk_module(
+    name = "mca_ibat_ocp_monitor",
+    srcs = ["mca_ibat_ocp_monitor.c", "inc/mca_ibat_ocp_monitor.h"],
+    out = "mca_ibat_ocp_monitor.ko",
+    defconfig = "mca_ibat_ocp_monitor_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17A:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/mca_sysfs:mca_sysfs",
+        "//re/stubs_mcaA:mca_event_stub",
+        "//re/stubs_mcaA:mca_parse_dts_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//re/stubs_a17A:st_mca_platform_wireless_class",
+        "//re/stubs_a17A:st_mca_strategy_fg_class",
+        "//re/mca_platform_loadsw_class:mca_platform_loadsw_class",
+        "//re/stubs_a17A:st_mca_platform_fg_ic_ops",
+        "//re/stubs_mcaB:st_mca_charge_mievent",
+        "//common:all_headers_aarch64",
+    ],
+)

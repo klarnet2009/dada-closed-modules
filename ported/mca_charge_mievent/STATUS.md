@@ -1,4 +1,4 @@
-# mca_charge_mievent - EQUIVALENT (agent mcaA, port task)
+# mca_charge_mievent - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_charge_mievent.c (function bodies); the event table is NOT from the template (the stock has 50 events, the template 42)
 Result: EQUIVALENT: compiles on 6.6.144; function set (2), bytes + relocs, exports + CRC (2), imports + CRC (13), modinfo (depends mca_log,mca_event,miev), 3 data objects (28000-byte event table + plug/time upload tables) identical

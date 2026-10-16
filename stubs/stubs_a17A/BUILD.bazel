@@ -1,0 +1,21 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# reconstructed MCA headers for the a17A modules (merge of stubs_mcaA/B + extensions), and stub providers (only their export CRCs matter)
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+ddk_module(name = "st_mca_protocol_pd_class", srcs = ["stub_mca_protocol_pd_class.c"], out = "mca_protocol_pd_class.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "st_mca_platform_wireless_class", srcs = ["stub_mca_platform_wireless_class.c"], out = "mca_platform_wireless_class.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "st_mca_strategy_fg_class", srcs = ["stub_mca_strategy_fg_class.c"], out = "mca_strategy_fg_class.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "st_mca_platform_fg_ic_ops", srcs = ["stub_mca_platform_fg_ic_ops.c"], out = "mca_platform_fg_ic_ops.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "st_mca_wireless_revchg", srcs = ["stub_mca_wireless_revchg.c"], out = "mca_wireless_revchg.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "st_mca_strategy_class", srcs = ["stub_mca_strategy_class.c"], out = "mca_strategy_class.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])

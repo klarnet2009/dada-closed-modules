@@ -1,4 +1,4 @@
-# mca_charge_interface - EQUIVALENT (agent mcaA, port task)
+# mca_charge_interface - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_charge_interface.c (unchanged)
 Result: EQUIVALENT: compiles on 6.6.144; function set (7), bytes, relocs, export mca_charge_if_ops_register + CRC, imports + CRC (21), modinfo (depends mca_log,mca_sysfs,mca_event), 8 data objects identical

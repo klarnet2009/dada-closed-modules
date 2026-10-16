@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "aw882xx_dlkm",
+    srcs = glob(["*.c", "*.h"]),
+    out = "aw882xx_dlkm.ko",
+    includes = ["."],
+    defconfig = "aw882xx_dlkm_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MIEV=1", "OPLUS_FEATURE_SPEAKER_MUTE=1"],
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-visibility", "-Wno-incompatible-pointer-types"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_miev",
+        "//re/stubs_a17C:stub_machine",
+        "//common:all_headers_aarch64",
+    ],
+)

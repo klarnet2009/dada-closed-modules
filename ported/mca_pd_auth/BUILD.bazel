@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF).  SAFETY: charging module, source for the community only - never flash it.
+ddk_module(
+    name = "mca_pd_auth",
+    srcs = ["mca_pd_auth.c", "pd_auth.h"],
+    out = "mca_pd_auth.ko",
+    defconfig = "mca_pd_auth_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17A:mca_headers",
+        "//re/stubs_a17A:st_mca_protocol_pd_class",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_sysfs_stub",
+        "//re/stubs_mcaA:mca_event_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//re/stubs_mcaB:st_mca_charge_mievent",
+        "//common:all_headers_aarch64",
+    ],
+)

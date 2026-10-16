@@ -1,4 +1,4 @@
-# mca_log - EQUIVALENT (agent mcaA, port task)
+# mca_log - EQUIVALENT (port task)
 
 Template: XRING tree `work/re/xiaomi-modules/mca/mca_common/mca_log.c` (builds unchanged on 6.6.144; only the vendor headers `mca/common/*.h` come from `src/stubs_mcaA/include`).
 Result: (a) compiles on 6.6.144, (b) function set (10), exports + CRC (5), imports + CRC (23), modinfo (depends mca_event,mca_sysfs) OK, (c) function bytes + relocations identical, 11 data objects identical (`cmpdata_mcaA.py`).

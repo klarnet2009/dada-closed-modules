@@ -1,4 +1,4 @@
-# mca_platform_buckchg_class - EQUIVALENT (agent mcaA, port task)
+# mca_platform_buckchg_class - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_platform/mca_platform_buckchg_class.c
 Result: EQUIVALENT: compiles on 6.6.144; function set (85), bytes, relocs, 83 exports + CRC (incl. the 82-op struct platform_class_buckchg_ops reconstructed from the stock BTF), imports + CRC (3), modinfo (no depends), 3 data objects identical

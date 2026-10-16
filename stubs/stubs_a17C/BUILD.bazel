@@ -1,0 +1,32 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+ddk_headers(name = "a17C_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+# provider of hwid.ko exports (product_name_get) imported by the NFC/audio/touch modules
+ddk_module(name = "stub_hwid", srcs = ["stub_hwid.c"], out = "hwid.ko", kernel_build = _K, deps = [":a17C_headers", _G])
+
+# provider of get_client_env_object (smcinvoke_dlkm)
+ddk_module(name = "stub_smcinvoke", srcs = ["stub_smcinvoke.c"], out = "smcinvoke_dlkm.ko", kernel_build = _K, deps = [":a17C_headers", _G])
+
+# provider of msm_gpio_mpm_wake_set (pinctrl-msm)
+ddk_module(name = "stub_pinctrl_msm", srcs = ["stub_pinctrl_msm.c"], out = "pinctrl-msm.ko", kernel_build = _K, deps = [_G])
+
+# provider of ipc_log_* (qcom_ipc_logging)
+ddk_module(name = "stub_ipc_logging", srcs = ["stub_ipc_logging.c"], out = "qcom_ipc_logging.ko", local_defines = ["CONFIG_IPC_LOGGING=1"], kernel_build = _K, deps = [_G])
+
+# provider of cdev_tevent_* (miev); real struct misight_mievent header (CONFIG_MIEV=1) so the export CRCs are the real ones
+ddk_module(name = "stub_miev", srcs = ["stub_miev.c"], out = "miev.ko", local_defines = ["CONFIG_MIEV=1"], kernel_build = _K, deps = [":a17C_headers", _G])
+
+# provider of the cs_dsp exports: the GKI cs_dsp.c (copy) + cs_dsp_load_coeff (Cirrus fork export that the GKI source lacks)
+ddk_module(name = "stub_cs_dsp", srcs = ["cs_dsp/cs_dsp.c", "stub_cs_dsp.c"], out = "cs_dsp.ko", local_defines = ["CONFIG_DEBUG_FS=1"],
+           kernel_build = _K, deps = [":a17C_headers", _G])
+
+# provider of qcom_va_md_* (qcom_va_minidump)
+ddk_module(name = "stub_va_minidump", srcs = ["stub_va_minidump.c"], out = "qcom_va_minidump.ko", local_defines = ["CONFIG_QCOM_VA_MINIDUMP=1"], kernel_build = _K, deps = [_G])
+
+# provider of the machine_dlkm smartpa exports (check/set/get_smartpa_type CRCs verified against the stock machine_dlkm.ko; set_smartpa_codec prototype unrecovered)
+ddk_module(name = "stub_machine", srcs = ["stub_machine.c"], out = "machine_dlkm.ko", kernel_build = _K, deps = [":a17C_headers", _G])

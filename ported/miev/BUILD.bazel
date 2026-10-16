@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "miev",
+    srcs = [
+        "midevice.c",
+        "mievent.c",
+        "common.h",
+        "midevice.h",
+        "mievent.h",
+        "a17D_lockkeys.h",
+        "miev/mievent.h",
+    ],
+    out = "miev.ko",
+    visibility = ["//re:__subpackages__"],
+    defconfig = "miev_defconfig",
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MIEV=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

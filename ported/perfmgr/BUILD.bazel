@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF); qcom-dcvs.ko (boost_dcvs_freq) is a CRC stub from //re/stubs_a17D
+ddk_module(
+    name = "perfmgr",
+    srcs = [
+        "perfmgr_gpu.c",
+        "perfmgr_ioctl.c",
+        "perfmgr_main.c",
+        "perfmgr_policy.c",
+        "perfmgr_remap.c",
+        "perfmgr.h",
+        "a17D_lockkeys.h",
+        "a17D_thinlto.h",
+    ],
+    out = "perfmgr.ko",
+    defconfig = "perfmgr_defconfig",
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MI_PERFMGR=1", "CONFIG_MI_PERFMGR_GPU=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_a17D:qcom_dcvs_stub", "//common:all_headers_aarch64"],
+)

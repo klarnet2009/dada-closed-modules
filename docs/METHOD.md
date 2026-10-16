@@ -60,7 +60,7 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
   If a module is stuck after ~40 build iterations, write what you learned and move to the next module.
 - Final answer: per module one line (EQUIVALENT / PARTIAL with the remaining diff) + general lessons that help other modules.
 
-## Lessons added during the run (from agent re-audio, verified on sia91xx_tuning -> EQUIVALENT)
+## Lessons added during the run (from -audio, verified on sia91xx_tuning -> EQUIVALENT)
 - If function bytes differ only in `bl` to a static function of the same module: add `copts = ["-ffunction-sections", "-fdata-sections"]` to the
   `ddk_module` in BUILD.bazel. The stock .ko keeps intra-module calls as `R_AARCH64_CALL26 .text+off` relocations (per-section LTO-style link);
   without function sections the assembler resolves them and the bytes differ.
@@ -69,7 +69,7 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
   so each key is `static struct lock_class_key __key __attribute__((section(".bss.somename")))` (one shared section => identical codegen).
   Working example: `work/re/src/sia91xx_tuning/sia91xx_tuning.c` (SIA_KEY_SECTION).
 
-## Tools/lessons from agent re-misc (verified: qcom_adsp_pd_protocol EQUIVALENT incl. its exported ops CRC)
+## Tools/lessons from -misc (verified: qcom_adsp_pd_protocol EQUIVALENT incl. its exported ops CRC)
 - Stock modules WITH BTF and ground-truth export CRCs are in `work/dada-devel/device_xiaomi_dada-kernel/vendor_dlkm/*.ko` (e.g. `mca_protocol_pd_class.ko`):
   `python -I work/scripts/btf_dump.py local <that .ko>` prints full struct/ops definitions with member names; `from crctool import exported` gives the stock CRC of every export,
   so a stub/header prototype can be verified per function.
@@ -90,9 +90,9 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
   `-I<build-dir>` and the module's first .c: COPY and edit for your own paths. IR dumps: `-S -emit-llvm`, `-mllvm -print-after=dse -mllvm -filter-print-funcs=<fn>`.
 - Per-function stock-vs-built disassembly diff with resolved reloc targets: `python3 <build-dir> <mod> [func...]`. genksyms: `<build-dir>`
   plus `genksyms -D` dump: `zlib.crc32` of the dumped stream equals the SYMVER (fast offline brute force of type/field spellings).
-- NEVER pass extra flags to the Kleaf bazel build (`--debug_make_verbosity`, `--subcommands`...): it invalidates the kernel build and blocks every agent for 10-20 minutes.
+- NEVER pass extra flags to the Kleaf bazel build (`--debug_make_verbosity`, `--subcommands`...): it invalidates the kernel build and blocks every 10-20 minutes.
 
-## Lessons from agent re-audio (tas25xx: 117 functions identical; verified)
+## Lessons from -audio (tas25xx: 117 functions identical; verified)
 - BEST way to get the stock's ThinLTO behaviour (cross-file inlining, which statics get promoted): in the module's BUILD.bazel add `defconfig = "<mod>_defconfig"` to `ddk_module`; the file holds
   `# CONFIG_LTO_NONE is not set` and `CONFIG_LTO_CLANG_THIN=y`. The module then builds with the kernel's own LTO flags (`-flto=thin -fsplit-lto-unit`, link `-mllvm -import-instr-limit=5`) without
   rebuilding the kernel (first build ~9 min, later ~15 s). `copts = -flto=thin` alone imports far more than the stock. Working example: `work/re/src/tas25xx/`.
@@ -101,4 +101,4 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
 - In a multi-line macro call (dev_err(...) over several lines) `__LINE__` is the line of the closing parenthesis. A source line can be pinned with `#line N` or padding comments.
 - Writing code through the bash tool: backslashes in heredocs are halved (a `\n` inside a python heredoc string became a real newline); create/edit C files with Write/Edit.
 - Export CRC debugging: `genksyms -D` dumps the exact stream; `zlib.crc32(stream)` equals the SYMVER, so field/type spellings can be brute forced at ~2M candidates/s in Python
-  (see <build-dir> audio_fdiff.py on the server; scripts in the agent scratchpad). The return-type spelling (`int` vs `int32_t`, header prototype visible or not) changes the prefix.
+  (see <build-dir> audio_fdiff.py on the server; scripts in the ). The return-type spelling (`int` vs `int32_t`, header prototype visible or not) changes the prefix.

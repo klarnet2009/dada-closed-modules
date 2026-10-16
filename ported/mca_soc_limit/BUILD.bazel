@@ -1,0 +1,20 @@
+load("/<build-dir>", "ddk_module")
+
+package(default_visibility = ["//re:__subpackages__"])  # other real modules depend on this one
+
+ddk_module(
+    name = "mca_soc_limit",
+    srcs = ["mca_soc_limit.c", "mca_soc_limit.h"],
+    out = "mca_soc_limit.ko",
+    defconfig = "mca_soc_limit_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17B:mca_headers",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",
+        "//common:all_headers_aarch64",
+    ],
+)

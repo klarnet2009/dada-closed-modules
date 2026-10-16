@@ -1,4 +1,4 @@
-# mca_common - EQUIVALENT (agent mcaA, port task)
+# mca_common - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_voter.c (mca_common.ko = mca_voter.o)
 Result: EQUIVALENT: compiles on 6.6.144; function set (23), bytes, relocs, exports + CRC (18), imports + CRC (31), modinfo, 6 data objects identical

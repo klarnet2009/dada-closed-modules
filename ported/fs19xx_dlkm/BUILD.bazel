@@ -1,0 +1,17 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "fs19xx_dlkm",
+    srcs = ["fs19xx.c", "fsm_core.c", "fsm_i2c.c", "fsm_firmware.inc.h", "fsm_misc.inc.h", "fsm_codec.inc.h", "fsm_public.h", "fsm-dev.h"],
+    out = "fs19xx_dlkm.ko",
+    includes = ["."],
+    defconfig = "fs19xx_dlkm_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_machine",
+        "//common:all_headers_aarch64",
+    ],
+)

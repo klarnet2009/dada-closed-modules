@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "minet",
+    srcs = [
+        "minet_core.c",
+        "minet_nl.c",
+        "minet_nl.h",
+        "minet_debug.h",
+    ],
+    out = "minet.ko",
+    defconfig = "minet_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

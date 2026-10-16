@@ -1,0 +1,23 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF).  SAFETY: charging module, source for the community only - never flash it.
+ddk_module(
+    name = "mca_path_control",
+    srcs = ["mca_path_control.c", "inc/mca_path_control.h"],
+    out = "mca_path_control.ko",
+    defconfig = "mca_path_control_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17A:mca_headers",
+        "//re/stubs_a17A:st_mca_wireless_revchg",
+        "//re/stubs_a17A:st_mca_platform_wireless_class",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/mca_sysfs:mca_sysfs",
+        "//re/stubs_mcaA:mca_parse_dts_stub",
+        "//re/stubs_mcaA:mca_platform_cp_class_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

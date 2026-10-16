@@ -9,6 +9,6 @@ The dada stock is a later design: the partition blocks are cached in the driver 
 - New exports: get_mishow, read/write_{double85,remove_temp_limit,memory_test,soc_limit,ocd_count,cuv_count,hscd_count(write is spelled hcsd)}; `read_remove_temp_limit` is NOT exported in the stock (global, no EXPORT_SYMBOL).
 - work(): hwid based part number (`platform_version == 9 ? 25 : 22`), log of `get_hw_country_version()` (hwid.ko; uint32_t), no DT parse; alloc() lazily allocates rw_buf (kzalloc) + memset, dealloc() keeps rw_buf; remove() also frees rw_buf.
 - Headers (stubs_portB/include/mca/shared_memory/charger_partition_class.h, hwid.h): enum values proven by the stock (HOST_KERNEL=4, HOST_LAST=8, INFO_1/2, INFO_LAST=11, magic 0x20240725).
-- Export CRCs of alloc/dealloc/read/write: no natural spelling of the prototype reproduces them (324 spellings of u8/uint8_t/enum x u32/uint32_t/size_t tried, as agent mcaB found); a genksyms-only first declaration with an extra array
+- Export CRCs of alloc/dealloc/read/write: no natural spelling of the prototype reproduces them (324 spellings of u8/uint8_t/enum x u32/uint32_t/size_t tried, as found); a genksyms-only first declaration with an extra array
   parameter (forcecrc.py trick, `#ifdef __GENKSYMS__` at the top of the .c) gives the stock CRCs; the compiler never sees it.
 - `#line` log pins by `portB_tools/pb_pin.py`.

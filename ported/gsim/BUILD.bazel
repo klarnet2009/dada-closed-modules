@@ -1,0 +1,25 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "gsim",
+    srcs = glob(["*.c", "*.h", "inc/linux/*.h"]),
+    out = "gsim.ko",
+    includes = [".", "inc"],
+    defconfig = "gsim_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_DEBUG_FS=1",
+        "CONFIG_IPC_LOGGING=1",
+        "CONFIG_QCOM_VA_MINIDUMP=1",
+        "CONFIG_GSI=1",
+        "GSI_TRACE_INCLUDE_PATH=.",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections", "-include", "gsim_force.h"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_ipc_logging",
+        "//re/stubs_a17C:stub_va_minidump",
+        "//common:all_headers_aarch64",
+    ],
+)

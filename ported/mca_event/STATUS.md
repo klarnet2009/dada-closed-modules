@@ -1,4 +1,4 @@
-# mca_event - EQUIVALENT (agent mcaA, port task)
+# mca_event - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_event.c (builds unchanged on 6.6.144)
 Result: EQUIVALENT: compiles on 6.6.144; function set (7), bytes, resolved relocs, exports + CRC (4), imports + CRC (20), modinfo (depends mca_sysfs), 8 data objects identical

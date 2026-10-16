@@ -1,0 +1,24 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "nxp-nci",
+    srcs = glob(["*.c", "*.h", "inc/*.h"]),
+    out = "nxp-nci.ko",
+    includes = ["inc", "."],
+    defconfig = "nxp-nci_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_NXP_NFC_I2C=1",
+        "NFC_SECURE_PERIPHERAL_ENABLED=1",
+        "CONFIG_IPC_LOGGING=1",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_smcinvoke",
+        "//re/stubs_a17C:stub_pinctrl_msm",
+        "//re/stubs_a17C:stub_ipc_logging",
+        "//common:all_headers_aarch64",
+    ],
+)

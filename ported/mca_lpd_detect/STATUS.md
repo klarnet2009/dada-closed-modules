@@ -1,4 +1,4 @@
-# mca_lpd_detect - EQUIVALENT (agent mcaA, port task)
+# mca_lpd_detect - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_hardware_monitor/mca_lpd_detect.c + inc/mca_lpd_detect.h
 Result: EQUIVALENT: compiles on 6.6.144; function set (8), bytes (incl. __LINE__), relocs, export lpd_is_charging_limit + CRC, imports + CRC (26), modinfo (depends mca_sysfs,mca_platform_buckchg_class,mca_log), 7 data objects identical

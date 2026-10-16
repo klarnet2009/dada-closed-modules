@@ -1,0 +1,23 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF); providers are stubs (CRC-only) from //re/stubs_a17D
+ddk_module(
+    name = "mi_thermal_interface",
+    srcs = ["mi_thermal_interface.c", "base.h", "panel_event_notifier.h"],
+    out = "mi_thermal_interface.ko",
+    defconfig = "mi_thermal_interface_defconfig",
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_DRM_PANEL=1",
+        "CONFIG_MI_THERMAL_MULTI_CHARGE=1",
+        "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17D:panel_event_notifier_stub",
+        "//re/stubs_a17D:mca_event_stub",
+        "//re/stubs_a17D:mca_smart_charge_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

@@ -1,4 +1,4 @@
-# mca_hwid - EQUIVALENT (agent mcaA, port task)
+# mca_hwid - EQUIVALENT (port task)
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_hwid.c
 Result: EQUIVALENT: compiles on 6.6.144; function set (1), bytes, relocs, export + CRC, imports + CRC (13), modinfo (depends mca_log,hwid), data identical
