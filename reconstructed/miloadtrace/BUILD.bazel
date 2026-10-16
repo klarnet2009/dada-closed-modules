@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "miloadtrace",
+    srcs = [
+        "cpugov_mi.h", "cpugov_mi.c", "frame_weight.h", "frame_weight.c", "miload_trace.c", "miload_trace.h",
+        "mi_sched.h", "walt_ext.h",
+    ],
+    out = "miloadtrace.ko",
+    includes = ["."],
+    defconfig = "miloadtrace_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file imports, import-instr-limit=5)
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-unused-function", "-Wno-unused-variable"],
+    local_defines = ["PERFC_FORGE_CRC=1"],  # export CRC of group_frame_cpufreq_transition forced to the stock value (see frame_weight.c)
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_perfC:perfC_headers",
+        "//re/stubs_perfC:mi_schedule_stub",
+        "//re/stubs_perfC:sched_walt_stub",
+        "//re/stubs_perfC:metis_stub",
+    ],
+)

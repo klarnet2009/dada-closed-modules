@@ -1,0 +1,16 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "hl7603",
+    srcs = ["hl7603.c", "inc/hl7603.h"],
+    out = "hl7603.ko",
+    defconfig = "hl7603_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_portB:mca_headers",
+        "//re/stubs_portB:stub_all",
+        "//common:all_headers_aarch64",
+    ],
+)

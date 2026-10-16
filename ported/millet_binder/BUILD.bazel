@@ -1,0 +1,24 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF); needs millet_core / millet_pkg exports and the binder_gki stub
+ddk_module(
+    name = "millet_binder",
+    srcs = [
+        "millet_binder.c",
+        "millet.h",
+        "binder_oem.h",
+        "uapi/millet.h",
+    ],
+    out = "millet_binder.ko",
+    defconfig = "millet_binder_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/millet_core:millet_core",
+        "//re/millet_pkg:millet_pkg",
+        "//re/stubs_portD:binder_gki_stub",
+    ],
+)

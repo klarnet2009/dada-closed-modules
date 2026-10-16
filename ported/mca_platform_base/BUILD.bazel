@@ -1,0 +1,17 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "mca_platform_base",
+    srcs = ["mca_platform_base.c"],
+    out = "mca_platform_base.ko",
+    defconfig = "mca_platform_base_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

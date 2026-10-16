@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mca_strategy_fg_comp",
+    srcs = [
+        "strategy_fg.h",
+        "mca_battery_shutdown.h",
+        "mca_strategy_fg.c",
+        "mca_soc_smooth.c",
+        "mca_battery_shutdown.c",
+    ],
+    out = "mca_strategy_fg_comp.ko",
+    defconfig = "mca_strategy_fg_comp_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file imports, import-instr-limit=5)
+    local_defines = ["CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaB:mca_headers",
+        "//re/stubs_mcaB:stub_all",
+        "//common:all_headers_aarch64",
+    ],
+)

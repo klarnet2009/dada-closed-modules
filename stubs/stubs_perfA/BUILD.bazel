@@ -1,0 +1,12 @@
+load("/<build-dir>", "ddk_module")
+
+# perfA lab: every v_*.c is built as its own module so variants of a source can be compared with the stock module in one bazel run
+[ddk_module(
+    name = f[:-2],
+    srcs = [f],
+    out = f[:-2] + ".ko",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],  # keep intra-module calls as relocations like the stock per-section link
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+) for f in glob(["v_*.c"])]

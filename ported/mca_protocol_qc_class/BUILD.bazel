@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+package(default_visibility = ["//re:__subpackages__"])  # other real modules depend on this one
+
+ddk_module(
+    name = "mca_protocol_qc_class",
+    srcs = ["mca_protocol_qc_class.c"],
+    out = "mca_protocol_qc_class.ko",
+    defconfig = "mca_protocol_qc_class_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaB:mca_headers",
+        "//re/mca_protocol_class:mca_protocol_class",
+        "//common:all_headers_aarch64",
+    ],
+)

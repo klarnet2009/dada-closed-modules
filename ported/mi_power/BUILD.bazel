@@ -1,0 +1,20 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mi_power",
+    srcs = ["mi_power.c", "mi_power.h"],
+    out = "mi_power.ko",
+    defconfig = "mi_power_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_QCOM_SMEM=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs:smem_stub",
+        "//re/stubs_portC:clk_qcom_stub",
+        "//re/stubs_portC:pinctrl_msm_stub",
+        "//re/stubs_portC:debug_regulator_stub",
+        "//re/stubs_portC:qcom_scm_stub",
+        "//re/stubs_portC:portC_headers",
+        "//common:all_headers_aarch64",
+    ],
+)

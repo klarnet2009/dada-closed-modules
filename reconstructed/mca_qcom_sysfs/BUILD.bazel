@@ -1,0 +1,27 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "mca_qcom_sysfs",
+    srcs = ["mca_qcom_sysfs.c"],
+    out = "mca_qcom_sysfs.ko",
+    defconfig = "mca_qcom_sysfs_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_protocol_class_stub",
+        "//re/stubs_mcaA:mca_basic_wireless_stub",
+        "//re/stubs_mcaA:mca_strategy_class_stub",
+        "//re/stubs_mcaA:mca_strategy_fg_class_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//re/stubs_mcaA:mca_protocol_pd_class_stub",
+        "//re/stubs_mcaA:mca_platform_cp_class_stub",
+        "//re/stubs_mcaA:mca_platform_wireless_class_stub",
+        "//re/stubs_mcaA:mca_wireless_revchg_stub",
+        "//re/stubs_mcaA:mca_charger_thermal_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

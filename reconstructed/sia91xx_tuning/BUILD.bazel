@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "sia91xx_tuning",
+    srcs = ["sia91xx_tuning.c"],
+    out = "sia91xx_tuning.ko",
+    local_defines = ["CONFIG_LTO=1"],  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs, zero-size lock keys share one address
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

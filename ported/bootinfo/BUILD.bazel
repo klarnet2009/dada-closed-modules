@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "bootinfo",
+    srcs = ["bootinfo.c", "bootinfo.h"],
+    out = "bootinfo.ko",
+    defconfig = "bootinfo_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

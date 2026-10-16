@@ -1,0 +1,8 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_module(name = "qcom_dma_heaps_stub", srcs = ["qcom_dma_heaps_stub.c"], out = "qcom_dma_heaps.ko",
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+ddk_module(name = "debug_symbol_stub", srcs = ["debug_symbol_stub.c"], out = "debug_symbol.ko",
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

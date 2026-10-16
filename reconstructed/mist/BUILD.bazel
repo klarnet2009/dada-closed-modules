@@ -1,0 +1,19 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mist",
+    srcs = ["mist.h", "mist_dflt.h", "mist_dflt.c", "mist_gflt.c", "mist_lc.c"],
+    out = "mist.ko",
+    defconfig = "mist_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file imports, import-instr-limit=5)
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = ["CONFIG_QCOM_DCVS=1", "CONFIG_QCOM_PMU_LIB=1", "CONFIG_QTI_SCMI_VENDOR_PROTOCOL=1",
+                     "PERFC_FORGE_CRC=1"],  # export CRC of mi_soc_register_freq_adjhook forced to the stock value (see mist_gflt.c)
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_perfC:perfC_headers",
+        "//re/stubs_perfC:qcom_pmu_lib_stub",
+        "//re/stubs_perfC:qcom_dcvs_stub",
+        "//re/stubs_perfC:clk_qcom_stub",
+    ],
+)

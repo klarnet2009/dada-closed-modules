@@ -1,0 +1,36 @@
+#ifndef __MIICMPFILTER_NL_H__
+#define __MIICMPFILTER_NL_H__
+
+#include <linux/types.h>
+
+#define ICMP_UNREACH_GENL_NAME "icmp_unreach"
+#define ICMP_UNREACH_GENL_VERSION 1
+#define ICMP_UNREACH_MULTICAST_GROUP_EVENT       "events"
+
+enum icmp_unreach_GENL_commands {
+	ICMP_UNREACH_GENL_CMD_UNSPEC,
+	ICMP_UNREACH_GENL_EVENT_OPEN,
+	ICMP_UNREACH_GENL_EVENT_CLOSE,
+	ICMP_UNREACH_GENL_EVENT_ICMP_UNREACH,
+	__ICMP_UNREACH_GENL_CMD_MAX,
+};
+
+#define ICMP_UNREACH_GENL_CMD_MAX (__ICMP_UNREACH_GENL_CMD_MAX - 1)
+
+#define IP_MAX_LEN 16
+#define INTERFACE_MAX_LEN 16
+enum {
+	ICMP_UNREACH_GENL_ATTR_UNSPEC,
+	ICMP_UNREACH_GENL_ATTR_PORT,
+	ICMP_UNREACH_GENL_ATTR_IP,
+	ICMP_UNREACH_GENL_ATTR_INTERFACE,
+	__ICMP_UNREACH_GENL_ATTR_MAX,
+};
+
+#define ICMP_UNREACH_GENL_ATTR_MAX (__ICMP_UNREACH_GENL_ATTR_MAX - 1)
+
+bool send_nl_msg(u_int16_t port, const char* ip, const char* interface);
+bool register_genl_family(void);
+void unregister_genl_family(void);
+
+#endif //__MIICMPFILTER_NL_H__

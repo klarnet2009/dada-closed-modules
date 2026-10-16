@@ -1,0 +1,19 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "mca_lpd_detect",
+    srcs = ["mca_lpd_detect.c", "inc/mca_lpd_detect.h"],
+    out = "mca_lpd_detect.ko",
+    defconfig = "mca_lpd_detect_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_sysfs_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

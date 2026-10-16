@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "scene_swappiness",
+    srcs = ["scene_swappiness.c"],
+    out = "scene_swappiness.ko",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],  # keep intra-module calls as relocations like the stock per-section link  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

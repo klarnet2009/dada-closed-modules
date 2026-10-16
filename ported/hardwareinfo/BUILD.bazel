@@ -1,0 +1,16 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF)
+ddk_module(
+    name = "hardwareinfo",
+    srcs = ["hardwareinfo.c"],
+    out = "hardwareinfo.ko",
+    defconfig = "hardwareinfo_defconfig",
+    local_defines = ["CONFIG_LTO=1", "CONFIG_QCOM_MINIDUMP=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_portD:minidump_stub",
+    ],
+)

@@ -1,0 +1,21 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF); needs the millet_core exports
+ddk_module(
+    name = "millet_hs",
+    srcs = [
+        "millet_hs.c",
+        "millet.h",
+        "uapi/millet.h",
+    ],
+    out = "millet_hs.ko",
+    defconfig = "millet_hs_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/millet_core:millet_core",
+    ],
+)

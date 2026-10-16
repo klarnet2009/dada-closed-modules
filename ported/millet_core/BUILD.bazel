@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock (see AGENT_BRIEF); headers shared with millet_hs/pkg/sig/binder
+ddk_module(
+    name = "millet_core",
+    srcs = [
+        "millet_core.c",
+        "millet.h",
+        "uapi/millet.h",
+    ],
+    out = "millet_core.ko",
+    defconfig = "millet_core_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    visibility = ["//visibility:public"],
+    deps = ["//common:all_headers_aarch64"],
+)

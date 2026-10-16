@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "typec_analog_acc",
+    srcs = ["typec_analog_acc.c"],
+    out = "typec_analog_acc.ko",
+    defconfig = "typec_analog_acc_defconfig",  # stock modules are ThinLTO builds
+    local_defines = ["CONFIG_LTO=1", "CONFIG_UCSI_QTI_GLINK=1"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_misc:ucsi_stub", "//common:all_headers_aarch64"],
+)

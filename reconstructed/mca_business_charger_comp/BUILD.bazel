@@ -1,0 +1,16 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mca_business_charger_comp",
+    srcs = ["mca_business_charger_comp.c"],
+    out = "mca_business_charger_comp.ko",
+    defconfig = "mca_business_charger_comp_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaB:mca_headers",
+        "//re/stubs_mcaB:stub_all",
+        "//common:all_headers_aarch64",
+    ],
+)

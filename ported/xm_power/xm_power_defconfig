@@ -1,0 +1,2 @@
+# CONFIG_LTO_NONE is not set
+CONFIG_LTO_CLANG_THIN=y

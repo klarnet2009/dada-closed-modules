@@ -1,0 +1,16 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mca_qcom_panel",
+    srcs = ["mca_qcom_panel.c"],
+    out = "mca_qcom_panel.ko",
+    local_defines = ["CONFIG_LTO=1"],  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_event_stub",
+        "//re/stubs_mcaA:panel_event_notifier_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

@@ -1,0 +1,10 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_headers(name = "re_headers", hdrs = ["mca_log.h"], includes = ["."])
+
+ddk_module(name = "smem_stub", srcs = ["smem_stub.c"], out = "smem.ko", local_defines = ["CONFIG_QCOM_SMEM=1"],
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+ddk_module(name = "mca_log_stub", srcs = ["mca_log_stub.c"], out = "mca_log.ko",
+           kernel_build = "//common:kernel_aarch64", deps = [":re_headers", "//common:all_headers_aarch64"])

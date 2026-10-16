@@ -1,0 +1,10 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "millet_oem_cgroup",
+    srcs = ["millet_oem_cgroup.c"],
+    out = "millet_oem_cgroup.ko",
+    local_defines = ["CONFIG_LTO=1"],  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

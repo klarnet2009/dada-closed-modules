@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mi_damon",
+    srcs = glob(["*.c", "*.h"]),
+    out = "mi_damon.ko",
+    includes = ["."],
+    defconfig = "mi_damon_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file inlining, .llvm. promoted statics)
+    local_defines = ["CONFIG_LTO=1"],  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

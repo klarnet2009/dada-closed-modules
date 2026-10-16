@@ -1,0 +1,24 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# Stand-ins (exports with the same prototypes, same module names) for the vendor modules imported by portC modules.
+ddk_headers(name = "portC_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+ddk_module(name = "socinfo_stub", srcs = ["socinfo_stub.c"], out = "socinfo.ko",
+           local_defines = ["CONFIG_QCOM_SOCINFO=1"], kernel_build = _K, deps = [":portC_headers", _G])
+
+# metis: only the symbols imported by speed_touch (extended as needed by other portC modules)
+ddk_module(name = "metis_stub", srcs = ["metis_stub.c"], out = "metis.ko",
+           kernel_build = _K, deps = [":portC_headers", _G])
+
+ddk_module(name = "clk_qcom_stub", srcs = ["clk_qcom_stub.c"], out = "clk-qcom.ko",
+           kernel_build = _K, deps = [":portC_headers", _G])
+ddk_module(name = "pinctrl_msm_stub", srcs = ["pinctrl_msm_stub.c"], out = "pinctrl-msm.ko",
+           kernel_build = _K, deps = [":portC_headers", _G])
+ddk_module(name = "debug_regulator_stub", srcs = ["debug_regulator_stub.c"], out = "debug-regulator.ko",
+           kernel_build = _K, deps = [":portC_headers", _G])
+ddk_module(name = "qcom_scm_stub", srcs = ["qcom_scm_stub.c"], out = "qcom-scm.ko",
+           kernel_build = _K, deps = [":portC_headers", _G])

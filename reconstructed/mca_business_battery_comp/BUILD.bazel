@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+# stock module = mca_business_battery.o + mca_battery_psy.o (see XRING Kbuild); ThinLTO build like the stock
+ddk_module(
+    name = "mca_business_battery_comp",
+    srcs = ["mca_business_battery.c", "mca_battery_psy.c", "inc/mca_business_battery.h", "inc/mca_battery_psy.h"],
+    out = "mca_business_battery_comp.ko",
+    defconfig = "mca_business_battery_comp_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_event_stub",
+        "//re/stubs_mcaA:mca_parse_dts_stub",
+        "//re/stubs_mcaA:mca_common_stub",
+        "//re/stubs_mcaA:mca_strategy_fg_class_stub",
+        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

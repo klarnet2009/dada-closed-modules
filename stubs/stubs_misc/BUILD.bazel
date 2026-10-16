@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_module(name = "ucsi_stub", srcs = ["ucsi_stub.c"], out = "ucsi_qti_glink.ko", local_defines = ["CONFIG_UCSI_QTI_GLINK=1"],
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+# reconstructed Xiaomi MCA headers for qcom_adsp_pd_protocol (own copy, independent of the other agents' stubs)
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+ddk_module(name = "stub_mca", srcs = ["stub_mca.c"], out = "mca_pd_stub.ko", kernel_build = "//common:kernel_aarch64",
+           deps = [":mca_headers", "//common:all_headers_aarch64"])

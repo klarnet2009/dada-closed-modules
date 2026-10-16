@@ -1,0 +1,23 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# soc/qcom/mist_ext.h: prototypes of vendor symbols (clk-qcom debugcc) imported by mist; pmu_lib.h/dcvs.h come from the GKI tree (need CONFIG_QCOM_PMU_LIB/QCOM_DCVS defines)
+ddk_headers(name = "perfC_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+ddk_module(name = "qcom_pmu_lib_stub", srcs = ["qcom_pmu_lib_stub.c"], out = "qcom-pmu-lib.ko",
+           local_defines = ["CONFIG_QCOM_PMU_LIB=1", "CONFIG_QTI_SCMI_VENDOR_PROTOCOL=1"], kernel_build = _K, deps = [":perfC_headers", _G])
+ddk_module(name = "qcom_dcvs_stub", srcs = ["qcom_dcvs_stub.c"], out = "qcom-dcvs.ko",
+           local_defines = ["CONFIG_QCOM_DCVS=1"], kernel_build = _K, deps = [":perfC_headers", _G])
+ddk_module(name = "clk_qcom_stub", srcs = ["clk_qcom_stub.c"], out = "clk-qcom.ko",
+           kernel_build = _K, deps = [":perfC_headers", _G])
+
+# providers of the mi_schedule / sched-walt / metis symbols imported by miloadtrace (stand-ins for the stock modules)
+ddk_module(name = "mi_schedule_stub", srcs = ["mi_schedule_stub.c"], out = "mi_schedule.ko",
+           kernel_build = _K, deps = [":perfC_headers", _G])
+ddk_module(name = "sched_walt_stub", srcs = ["sched_walt_stub.c"], out = "sched-walt.ko",
+           kernel_build = _K, deps = [":perfC_headers", _G])
+ddk_module(name = "metis_stub", srcs = ["metis_stub.c"], out = "metis.ko",
+           kernel_build = _K, deps = [":perfC_headers", _G])

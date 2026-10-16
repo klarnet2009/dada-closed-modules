@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "lb",
+    srcs = ["lb.h", "lb_main.c", "lb_cold.c", "lb_hot.c", "lb_pkg.c"],
+    out = "lb.ko",
+    defconfig = "lb_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file imports, import-instr-limit=5)
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

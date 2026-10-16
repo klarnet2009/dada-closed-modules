@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "stm_core",
+    srcs = glob(["*.c", "*.h"]),
+    out = "stm_core.ko",
+    defconfig = "stm_core_defconfig",
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = ["CONFIG_LTO=1"],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_portA:portA_headers", "//common:all_headers_aarch64"],
+)

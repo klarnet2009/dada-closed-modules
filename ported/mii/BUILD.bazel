@@ -1,0 +1,12 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mii",
+    srcs = glob(["*.c", "*.h"]),
+    out = "mii.ko",
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = [],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_portA:portA_headers", "//common:all_headers_aarch64"],
+)

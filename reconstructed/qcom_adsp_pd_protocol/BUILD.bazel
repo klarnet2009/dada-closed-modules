@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "qcom_adsp_pd_protocol",
+    srcs = ["qcom_adsp_pd_protocol.c"],
+    out = "qcom_adsp_pd_protocol.ko",
+    defconfig = "qcom_adsp_pd_protocol_defconfig",  # stock modules are ThinLTO builds
+    local_defines = ["CONFIG_LTO=1"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_misc:mca_headers", "//re/stubs_misc:stub_mca", "//common:all_headers_aarch64"],
+)

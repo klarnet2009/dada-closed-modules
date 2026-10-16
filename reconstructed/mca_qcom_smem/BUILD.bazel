@@ -1,0 +1,10 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mca_qcom_smem",
+    srcs = ["mca_qcom_smem.c"],
+    out = "mca_qcom_smem.ko",
+    local_defines = ["CONFIG_QCOM_SMEM=1"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs:re_headers", "//re/stubs:smem_stub", "//re/stubs:mca_log_stub", "//common:all_headers_aarch64"],
+)

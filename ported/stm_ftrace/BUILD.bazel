@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "stm_ftrace",
+    srcs = glob(["*.c", "*.h"]),
+    out = "stm_ftrace.ko",
+    defconfig = "stm_ftrace_defconfig",
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = ["CONFIG_LTO=1"],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stm_core:stm_core", "//common:all_headers_aarch64"],
+)

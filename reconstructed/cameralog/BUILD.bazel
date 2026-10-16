@@ -1,0 +1,11 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "cameralog",
+    srcs = ["cameralog.c"],
+    out = "cameralog.ko",
+    defconfig = "cameralog_defconfig",  # stock modules are ThinLTO builds
+    local_defines = ["CONFIG_LTO=1"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

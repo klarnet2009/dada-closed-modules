@@ -1,0 +1,12 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mi_ubt_test",
+    srcs = ["mi_ubt_test.c"],
+    out = "mi_ubt_test.ko",
+    defconfig = "mi_ubt_test_defconfig",
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MI_UBT=1"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_portA:portA_headers", "//re/mi_ubt:mi_ubt", "//common:all_headers_aarch64"],
+)

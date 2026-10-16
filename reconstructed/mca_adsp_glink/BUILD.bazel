@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+# Stock modules are ThinLTO builds: the defconfig makes the DDK module use the kernel's own LTO flags (no kernel rebuild).
+ddk_module(
+    name = "mca_adsp_glink",
+    srcs = ["mca_adsp_glink.c", "mca_adsp_glink_msg.h"],
+    out = "mca_adsp_glink.ko",
+    defconfig = "mca_adsp_glink_defconfig",
+    local_defines = ["CONFIG_LTO=1", "CONFIG_QTI_PMIC_GLINK=1"],  # READ_ONCE as ldar/ldapr like the stock; vendor config
+    copts = ["-ffunction-sections", "-fdata-sections"],  # stock was linked per function/data section
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:qti_pmic_glink_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

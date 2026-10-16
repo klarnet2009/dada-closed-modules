@@ -1,0 +1,37 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# reconstructed Xiaomi MCA / Qualcomm headers shared by the mcaA modules (include/mca/common/*.h, include/soc/dada/*.h)
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+ddk_module(name = "mca_log_stub", srcs = ["mca_log_stub.c"], out = "mca_log.ko", kernel_build = _K,
+           deps = [":mca_headers", _G])
+ddk_module(name = "mca_event_stub", srcs = ["mca_event_stub.c"], out = "mca_event.ko", kernel_build = _K,
+           deps = [":mca_headers", _G])
+ddk_module(name = "panel_event_notifier_stub", srcs = ["panel_event_notifier_stub.c"], out = "panel_event_notifier.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "qti_pmic_glink_stub", srcs = ["qti_pmic_glink_stub.c"], out = "qti_pmic_glink.ko", kernel_build = _K,
+           local_defines = ["CONFIG_QTI_PMIC_GLINK=1"], deps = [":mca_headers", _G])
+ddk_module(name = "mca_common_stub", srcs = ["mca_common_stub.c"], out = "mca_common.ko", kernel_build = _K,
+           deps = [":mca_headers", ":mca_log_stub", _G])
+ddk_module(name = "mca_parse_dts_stub", srcs = ["mca_parse_dts_stub.c"], out = "mca_parse_dts.ko", kernel_build = _K,
+           deps = [":mca_headers", _G])
+ddk_module(name = "mca_strategy_fg_class_stub", srcs = ["mca_strategy_fg_class_stub.c"], out = "mca_strategy_fg_class.ko",
+           kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_platform_buckchg_class_stub", srcs = ["mca_platform_buckchg_class_stub.c"],
+           out = "mca_platform_buckchg_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_protocol_class_stub", srcs = ["mca_protocol_class_stub.c"], out = "mca_protocol_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_protocol_pd_class_stub", srcs = ["mca_protocol_pd_class_stub.c"], out = "mca_protocol_pd_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_platform_cp_class_stub", srcs = ["mca_platform_cp_class_stub.c"], out = "mca_platform_cp_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_platform_wireless_class_stub", srcs = ["mca_platform_wireless_class_stub.c"], out = "mca_platform_wireless_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_strategy_class_stub", srcs = ["mca_strategy_class_stub.c"], out = "mca_strategy_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_basic_wireless_stub", srcs = ["mca_basic_wireless_stub.c"], out = "mca_basic_wireless.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_wireless_revchg_stub", srcs = ["mca_wireless_revchg_stub.c"], out = "mca_wireless_revchg.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_charger_thermal_stub", srcs = ["mca_charger_thermal_stub.c"], out = "mca_charger_thermal.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_adsp_glink_stub", srcs = ["mca_adsp_glink_stub.c"], out = "mca_adsp_glink.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_hwid_stub", srcs = ["mca_hwid_stub.c"], out = "mca_hwid.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_platform_bc12_class_stub", srcs = ["mca_platform_bc12_class_stub.c"], out = "mca_platform_bc12_class.ko", kernel_build = _K, deps = [":mca_headers", _G])
+ddk_module(name = "mca_protocol_qc_class_stub", srcs = ["mca_protocol_qc_class_stub.c"], out = "mca_protocol_qc_class.ko", kernel_build = _K, deps = [":mca_headers", _G])

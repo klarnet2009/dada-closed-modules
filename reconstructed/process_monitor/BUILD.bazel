@@ -1,0 +1,15 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "process_monitor",
+    srcs = [
+        "process_monitor.h",
+        "pm_main.c",
+        "d_task.c",
+        "sig_record.c",
+    ],
+    out = "process_monitor.ko",
+    defconfig = "process_monitor_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//common:all_headers_aarch64"],
+)

@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+# provider of the binder_gki exports imported by millet_binder (the real binder_gki is not part of this port)
+ddk_module(name = "binder_gki_stub", srcs = ["binder_gki_stub.c", "binder_oem.h", "uapi/millet.h"], out = "binder_gki.ko",
+           kernel_build = _K, deps = [_G])
+
+# provider of msm_minidump_add_region (stock minidump.ko) imported by hardwareinfo
+ddk_module(name = "minidump_stub", srcs = ["minidump_stub.c"], out = "minidump.ko", local_defines = ["CONFIG_QCOM_MINIDUMP=1"],
+           kernel_build = _K, deps = [_G])

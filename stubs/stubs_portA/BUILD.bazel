@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_headers(name = "portA_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+ddk_module(name = "minidump_stub", srcs = ["minidump_stub.c"], out = "minidump.ko", local_defines = ["CONFIG_QCOM_MINIDUMP=1"],
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+ddk_module(name = "si_core_stub", srcs = ["si_core_stub.c"], out = "si_core_stub.ko",
+           local_defines = ["CONFIG_QSEECOM_PROXY=1"],
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+ddk_module(name = "pinctrl_msm_stub", srcs = ["pinctrl_msm_stub.c"], out = "pinctrl-msm.ko",
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+
+ddk_module(name = "minidump_deps_stub", srcs = ["minidump_deps_stub.c"], out = "minidump_deps_stub.ko",
+           local_defines = ["CONFIG_QCOM_SMEM=1", "CONFIG_GH_RM_DRV=1", "CONFIG_QCOM_DEBUG_SYMBOL=1"],
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

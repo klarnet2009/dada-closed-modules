@@ -1,0 +1,17 @@
+load("/<build-dir>", "ddk_module")
+
+# stock module = mca_business_misc.o + mca_business_votable.o (see XRING Kbuild)
+ddk_module(
+    name = "mca_business_misc_comp",
+    srcs = ["mca_business_misc.c", "mca_business_votable.c", "inc/mca_business_misc.h"],
+    out = "mca_business_misc_comp.ko",
+    local_defines = ["CONFIG_LTO=1"],  # stock modules were built with LTO: READ_ONCE becomes ldar/ldapr
+    copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_mcaA:mca_log_stub",
+        "//re/stubs_mcaA:mca_common_stub",
+        "//common:all_headers_aarch64",
+    ],
+)
