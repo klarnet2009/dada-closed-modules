@@ -235,6 +235,8 @@ void fsm_set_cfg_flag(int pos, int mark);
 void fsm_init(void);
 void fsm_speaker_onn(void);
 void fsm_speaker_off(void);
+int fsm_get_index_by_position(uint16_t pos);
+int fs_mievent_report(unsigned int eventid, const char *value, struct device *dev);
 void fsm_set_calib_mode(void);
 void fsm_stereo_rotation(int next_angle);
 void fsm_batv_monitor(void);

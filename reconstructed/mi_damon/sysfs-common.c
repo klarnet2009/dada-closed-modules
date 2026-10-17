@@ -100,7 +100,7 @@ static struct attribute *damon_sysfs_ul_range_attrs[] = {
 static const struct attribute_group damon_sysfs_ul_range_group = {
 	.attrs = damon_sysfs_ul_range_attrs,
 };
-const struct attribute_group *damon_sysfs_ul_range_groups[] __asm__("damon_sysfs_ul_range_groups.llvm.5825719517917485047") __attribute__((visibility("hidden"))) = {
+const struct attribute_group *damon_sysfs_ul_range_groups[] __asm__("damon_sysfs_ul_range_groups.llvm.10995319723490364896") __attribute__((visibility("hidden"))) = {
 	&damon_sysfs_ul_range_group,
 	NULL,
 };

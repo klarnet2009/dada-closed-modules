@@ -1,0 +1,14 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "dcvs_main",
+    srcs = ["dcvs_main.c"],
+    out = "dcvs_main.ko",
+    local_defines = ["DCVS_FORGE_CRC=1"],
+    defconfig = "dcvs_main_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_g4:os4_qcom_aoss",  # stat_data, is_ready_send, mi_wait_queue (forged OS4 CRCs)
+    ],
+)

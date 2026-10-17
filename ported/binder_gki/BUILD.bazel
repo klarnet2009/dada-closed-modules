@@ -1,0 +1,23 @@
+load("/<build-dir>", "ddk_module")
+
+# Millet binder provider. In-tree (intree=Y) in the stock; built here as a DDK module. Needs the GKI private header drivers/android/binder_internal.h.
+ddk_module(
+    name = "binder_gki",
+    srcs = [
+        "binder_gki.c",
+        "binder_oem.h",
+        "uapi/millet.h",
+        "binder_internal.h",  # copies of the GKI private headers drivers/android/binder_{internal,alloc}.h (6.6.144)
+        "binder_alloc.h",
+        "dbitmap.h",
+    ],
+    out = "binder_gki.ko",
+    local_defines = ["CONFIG_LTO=1", "BINDER_FORGE_CRC=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    defconfig = "binder_gki_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_g4:os4_millet_core",  # millet_debug, millet_binder_switch (forged OS4 CRCs)
+    ],
+)

@@ -1,0 +1,22 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "sc8581_sy6541",
+    srcs = ["sc8581.c", "sy6541.c"] + glob(["inc/*.h"]),
+    out = "sc8581_sy6541.ko",
+    defconfig = "sc8581_sy6541_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_portB:mca_headers",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_charge_mievent",
+        "//re/stubs_a17B/os4:os4_mca_sysfs",
+        "//re/stubs_a17B/os4:os4_mca_platform_cp_class",
+        "//re/stubs_a17B/os4:os4_mca_hwid",
+        "//re/stubs_a17B/os4:os4_mca_parse_dts",
+        "//common:all_headers_aarch64",
+    ],
+)

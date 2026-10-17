@@ -1216,7 +1216,7 @@ static int wm_adsp_compr_attach(struct wm_adsp_compr *compr)
 		return -EINVAL;
 
 	list_for_each_entry(tmp, &compr->dsp->buffer_list, list) {
-		if (tmp != NULL && (!tmp->name || !strcmp(compr->name, tmp->name))) {
+		if (!tmp->name || !strcmp(compr->name, tmp->name)) {
 			buf = tmp;
 			break;
 		}
@@ -1560,6 +1560,8 @@ static int wm_adsp_buffer_parse_legacy(struct wm_adsp *dsp)
 	return 0;
 
 err:
+	if (buf->regions)
+		kfree(buf->regions);
 	kfree(buf);
 
 	return ret;
@@ -1633,6 +1635,8 @@ done:
 	return version;
 
 err:
+	if (buf->regions)
+		kfree(buf->regions);
 	kfree(buf);
 
 	return ret;
@@ -1644,7 +1648,7 @@ static int wm_adsp_buffer_init(struct wm_adsp *dsp)
 	int ret;
 
 	list_for_each_entry(cs_ctl, &dsp->cs_dsp.ctl_list, list) {
-		if (cs_ctl != NULL && cs_ctl->type != WMFW_CTL_TYPE_HOST_BUFFER)
+		if (cs_ctl->type != WMFW_CTL_TYPE_HOST_BUFFER)
 			continue;
 
 		if (!cs_ctl->enabled)
@@ -1681,14 +1685,12 @@ static int wm_adsp_buffer_free(struct wm_adsp *dsp)
 	struct wm_adsp_compr_buf *buf = NULL, *tmp = NULL;
 
 	list_for_each_entry_safe(buf, tmp, &dsp->buffer_list, list) {
-		if (buf != NULL) {
-			wm_adsp_compr_detach(buf->compr);
+		wm_adsp_compr_detach(buf->compr);
 
-			kfree(buf->name);
-			kfree(buf->regions);
-			list_del(&buf->list);
-			kfree(buf);
-                }
+		kfree(buf->name);
+		kfree(buf->regions);
+		list_del(&buf->list);
+		kfree(buf);
 	}
 
 	return 0;

@@ -131,6 +131,11 @@ struct fp_ioc_chip_info {
 };
 
 
+/* lockdep keys: the stock link merges every zero-size `static struct lock_class_key` onto the address of the next .bss object */
+#define MIFP_SEC(n) __attribute__((section(".bss.mifp_k" #n)))
+#define MIFP_MUTEX_INIT(m, n) do { static struct lock_class_key __key MIFP_SEC(n); __mutex_init((m), #m, &__key); } while (0)
+#define MIFP_WQ_INIT(w, n) do { static struct lock_class_key __key MIFP_SEC(n); __init_waitqueue_head((w), #w, &__key); } while (0)
+
 /**********************IO Magic**********************/
 #define FP_IOC_MAGIC	         'g'
 #define FP_IOC_INIT			     _IOR(FP_IOC_MAGIC, 0, u8)
@@ -179,6 +184,7 @@ struct fp_ioc_chip_info {
 #define FP_IOC_REGULATOR_ENABLE_PWM     _IO(FP_IOC_MAGIC, 42)
 #define FP_IOC_REGULATOR_DISABLE_PWM    _IO(FP_IOC_MAGIC, 43)
 #define FP_IOC_RESET_TIME_MS            _IOW(FP_IOC_MAGIC, 44, uint32_t)
+#define FP_IOC_INTR2_SIDE_CONFIG        _IOR(FP_IOC_MAGIC, 45, uint32_t)
 
 
 
@@ -219,6 +225,7 @@ struct fp_device {
 
     struct workqueue_struct *screen_state_wq;
     struct delayed_work screen_state_dw;
+	struct wakeup_source *wakesrc;
 	struct input_dev *input;
 	struct notifier_block notifier;
 	const char *vendor_names;
@@ -232,6 +239,8 @@ struct fp_device {
 	wait_queue_head_t fp_wait_queue;
 	u_int32_t rst_high_delay;
 	u_int32_t rst_low_delay;
+	u_int32_t rst_pull_flag[5];
+	u_int32_t intr2_side_config;
 /**************************Pin******************************/
 	signed irq_gpio;
 	int irq_num;
@@ -274,13 +283,13 @@ struct fp_device {
 	struct mutex	mutex;
 	struct mutex	fd_events_mutex;
 	struct mutex	ipc_events_mutex;
-	spinlock_t	intr2_events_lock;
 	DECLARE_KFIFO(fd_events, struct fd_event, MAX_FW_EVENTS);
 	DECLARE_KFIFO(ipc_events, struct ipc_event, MAX_FW_EVENTS);
 	wait_queue_head_t read_wait_queue_fd;
 	wait_queue_head_t read_wait_queue_ipc;
 	struct fd_userspace_buf scrath_buf;
 	struct fp_position position;
+	struct work_struct intr2_work;
 #endif
 /**************************CONFIG_QCOM_ULTRA******************************/
 };
@@ -297,6 +306,8 @@ int fp_netlink_destroy(struct fp_device *fp_dev);
 /*fp_platform function refererce */
 int fp_parse_dts(struct fp_device *fp_dev);
 int fp_power_on(struct fp_vreg *vreg);
+extern uint32_t get_hw_id_value(void);
+extern uint32_t get_hw_version_platform(void);
 int fp_power_off(struct fp_vreg *vreg);
 void fp_power_config(struct fp_device *fp_dev);
 void fp_hw_reset(struct fp_device *fp_dev);

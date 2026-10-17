@@ -1,0 +1,17 @@
+load("/<build-dir>", "ddk_module")
+
+# ThinLTO build like the stock; provider of the Xiaomi mi_ufs exports = CRC stub //re/stubs_g3:stub_ufs_qcom
+ddk_module(
+    name = "mi_memory",
+    srcs = glob(["*.c", "*.h"]),
+    out = "mi_memory.ko",
+    includes = ["."],
+    defconfig = "mi_memory_defconfig",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_g3:stub_ufs_qcom",
+        "//common:all_headers_aarch64",
+    ],
+)

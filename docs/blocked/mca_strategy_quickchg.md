@@ -11,3 +11,5 @@ Compile blockers (36 distinct errors with the headers present): same classes as 
 missing prototypes of mca_strategy_class / platform_cp / platform_fg_ic_ops / protocol_pd extras), plus `mca/smartchg/smart_chg_class.h` (reconstructed in stubs_a17B for the OS3 layout of `mca_smartchg_if_ops`).
 
 Biggest module of the group; do it last, after mca_smart_charge, mca_wireless_revchg and mca_protocol_pd_class have provided the shared headers.
+
+G2: `stubs_a17B` now has the OS4 `struct mca_smartchg_if_ops` layout (88 bytes) and the `mca_smartchg_set_scene` void prototype, see mca_charger_thermal/STATUS.md.

@@ -62,7 +62,6 @@ static int fsm_misc_open(struct inode *inode, struct file *filp)
 
 	pr_debug("enter");
 	if (xchg(&g_misc_opened, 1)) {
-			pr_warn("device busy now");
 			return -EBUSY;
 	}
 	fsm_misc = fsm_alloc_mem(sizeof(struct fsm_misc));
@@ -190,7 +189,8 @@ int fsm_get_dev_info(int *arg)
 static long fsm_misc_ioctl(struct file *filp, unsigned int cmd,
 		unsigned long arg)
 {
-	struct fsm_misc_args misc_args;
+	struct fsm_misc_args misc_args = {0};
+	uint8_t re_buf[20] = {0};
 	struct fsm_misc *fsm_misc;
 	int count;
 	int ret;
@@ -206,7 +206,6 @@ static long fsm_misc_ioctl(struct file *filp, unsigned int cmd,
 		return ret;
 	}
 
-	pr_debug("cmd:%X, arg:%lX", cmd, arg);
 	switch (cmd) {
 	case FSM_IOC_SET_SLAVE:
 	case FSM_IOC_SET_ADDR:
@@ -242,9 +241,17 @@ static long fsm_misc_ioctl(struct file *filp, unsigned int cmd,
 		fsm_speaker_off();
 		break;
 	case FSM_IOC_GET_RESULT:
+	case FSM_IOC_SEND_APR:
 		break;
 	case FSM_IOC_GET_INFO:
 		ret = fsm_get_dev_info((int *)arg);
+		break;
+	case FSM_IOC_SET_RE:
+		ret = copy_from_user(re_buf, (void *)arg, sizeof(re_buf));
+		if (ret) {
+			pr_err("cmd:%X, copy from user fail:%d", cmd, ret);
+			return -EFAULT;
+		}
 		break;
 	default:
 		pr_err("unknown cmd:%X", cmd);
@@ -305,7 +312,10 @@ static ssize_t fsm_misc_read(struct file *filp, char __user *buf,
 	}
 	fsm_misc = filp->private_data;
 	if (fsm_misc->addr == 0 || fsm_misc->index < 0)
+	{
+		fsm_free_mem((void **)&tmp);
 		return -ENODEV;
+	}
 	do {
 		fsm_dev = fsm_misc->fsm_dev[fsm_misc->index];
 		if (fsm_dev == NULL || fsm_dev->i2c == NULL) {
@@ -359,7 +369,10 @@ static ssize_t fsm_misc_write(struct file *filp, const char __user *buf,
 	}
 	fsm_misc = filp->private_data;
 	if (fsm_misc->addr == 0 || fsm_misc->index < 0)
+	{
+		kfree(tmp);
 		return -ENODEV;
+	}
 	do {
 		fsm_dev = fsm_misc->fsm_dev[fsm_misc->index];
 		if (fsm_dev == NULL || fsm_dev->i2c == NULL) {
@@ -422,7 +435,7 @@ int fsm_misc_init(void)
 	return ret;
 }
 
-void fsm_misc_deinit(void)
+noinline void fsm_misc_deinit(void)
 {
 	struct miscdevice *misc = &g_fsm_misc;
 

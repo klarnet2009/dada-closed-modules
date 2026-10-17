@@ -40,6 +40,7 @@
 
 #define LOG_TAG						"[MI_TP"
 #define COMMON_DATA_BUF_SIZE    10
+#define TOUCH_MODE_NUM          42 /* OS4 stock: 42 modes (was 35): common data tables are 1008 bytes per panel */
 #define MAX_TOUCH_PANEL_COUNT   2
 #define MAX_TOUCH_ID 10
 #define HAL_VERSION_LENGTH  128
@@ -147,6 +148,12 @@ typedef enum {
 #endif
 
 extern enum MI_TP_LOG_LEVEL current_log_level;
+
+/* The stock link merges zero-size lock keys onto the address of the next .bss object (compare_ko names such an address after the first symbol):
+ * share one section between a key and that object to reproduce it. */
+#define XT_SEC(n) __attribute__((section(".bss.xt_k" #n)))
+#define XT_MUTEX_INIT(m, n) do { static struct lock_class_key __key XT_SEC(n); __mutex_init((m), #m, &__key); } while (0)
+#define XT_WQ_INIT(w, n) do { static struct lock_class_key __key XT_SEC(n); __init_waitqueue_head((w), #w, &__key); } while (0)
 
 #define LOG_ALWAYS(fmt, args...)\
 		do {\
@@ -276,6 +283,7 @@ typedef struct hardware_operation {
 	int (*ic_data_collect)(char *buf, int *length);
 	int (*ic_get_lockdown_info)(u8 lockdown_info[8]);
 	int (*ic_get_fw_version)(char fw_version[64]);
+	int (*get_limit_csv_version)(char version[64]); /* OS4 (BTF) */
 
 	void (*set_mode_value)(int mode, int *value);
 	void (*get_mode_value)(common_data_t *common_data);
@@ -283,7 +291,7 @@ typedef struct hardware_operation {
 	void (*reset_mode)(common_data_t *common_data);
 	void (*ic_switch_mode)(u8 gesture_type);
 	void (*ic_enable_irq)(bool enable);
-	void (*cmd_update_func)(long mode_update_flag, int mode_value[DATA_MODE_35]);
+	void (*cmd_update_func)(long mode_update_flag, int mode_value[TOUCH_MODE_NUM]);
 	void (*set_mode_long_value)(s32 value[], int length);
 
 	int (*palm_sensor_write)(int on);
@@ -297,6 +305,11 @@ typedef struct hardware_operation {
 	int (*touch_log_level_control)(bool value);
 	int (*touch_log_level_control_v2)(int value);
 	void (*set_nfc_to_touch_event)(u8 val);
+#ifdef __GENKSYMS__
+	int (*fcrcJm8GAFVey8)(void); /* genksyms-only name: export CRC of register_touch_panel == stock */
+#else
+	int (*display_suspend_ready)(void); /* OS4 (BTF) */
+#endif
 	int (*htc_ic_setModeValue)(common_data_t *common_data);
 	int (*htc_ic_getModeValue)(common_data_t *common_data);
 
@@ -305,6 +318,8 @@ typedef struct hardware_operation {
 	void (*ic_set_fod_value)(s32 value[], int length);
 #ifdef TOUCH_FOD_SUPPORT
 	void (*xiaomi_touch_fod_test)(int value);
+	void (*xiaomi_touch_fod_attn_test)(int value);
+	void (*xiaomi_touch_fod_low_attn)(int value);
 #endif
 	int (*set_thermal_temp)(int temp, bool force);
 #if IS_ENABLED(CONFIG_MIEV)
@@ -315,6 +330,7 @@ typedef struct hardware_operation {
 typedef struct xiaomi_touch_driver_param {
 	s8 touch_id;
 	char hal_version[HAL_VERSION_LENGTH];
+	char limit_csv_version[31]; /* OS4 (BTF): between hal_version and hardware_param (stock hardware_param at +0xa0) */
 	hardware_param_t hardware_param;
 	hardware_operation_t hardware_operation;
 } xiaomi_touch_driver_param_t;
@@ -357,9 +373,6 @@ typedef struct htc_ic_polldata {
 #pragma pack()
 
 /* export for other module and xiaomi_touch module */
-#ifdef TOUCH_STYLUS_SUPPORT
-int update_stylus_connect_status_value(int value);
-#endif
 #ifdef TOUCH_FOD_SUPPORT
 int update_fod_press_status(int value);
 #endif
@@ -378,7 +391,7 @@ void schedule_resume_suspend_work(s8 touch_id, bool resume_work);
 void xiaomi_touch_mievent_report_int(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name, long error_code);
 void xiaomi_touch_mievent_report_str(unsigned int code, int panel_id, const char *fault_name, const char *vendor_name);
 #endif
-void driver_update_touch_mode(s8 touch_id, int touch_mode[DATA_MODE_35], long update_mode_mask);
+void driver_update_touch_mode(s8 touch_id, int touch_mode[TOUCH_MODE_NUM], long update_mode_mask);
 u8 xiaomi_get_gesture_type(s8 touch_id);
 int driver_get_touch_mode(s8 touch_id, int mode);
 #ifdef TOUCH_SENSORHUB_SUPPORT
@@ -435,4 +448,5 @@ dma_addr_t get_report_point_info_phy_addr(void);
 void enable_temperature_detection_func(bool is_resume);
 int get_bms_temp_common(void);
 void nfc_to_touch_event(s8 touch_id,u8 val);
+
 #endif

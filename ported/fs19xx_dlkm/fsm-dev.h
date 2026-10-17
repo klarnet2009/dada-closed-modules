@@ -558,13 +558,13 @@ struct fsm_config {
 	uint16_t cur_angle;
 	uint16_t next_angle;
 	uint16_t next_scene;
+	uint16_t cur_scene; /* v4.0.7: last applied scene (inserted before test_type) */
 	uint16_t test_type;
 	uint16_t test_freq;
 	uint16_t freq_start;
 	uint16_t freq_end;
 	uint16_t freq_step;
 	uint16_t freq_count;
-	uint16_t unrecovered_u16; /* v4.0.7 */
 	uint16_t volume;
 	uint16_t amb_tempr;
 	uint16_t state     : 8;
@@ -573,7 +573,8 @@ struct fsm_config {
 	uint16_t rsvd      : 8;
 	unsigned int i2s_bclk;
 	unsigned int i2s_srate;
-	unsigned int unrecovered_a[2]; /* added in v4.0.7, members not recovered */
+	int spksw_gpio;  /* v4.0.7: FS19XX_SPKSW gpio number (DT spksw-gpio) */
+	int spksw_level; /* v4.0.7: cached switch level */
 
 	// flags
 	uint32_t codec_inited : 3;
@@ -592,8 +593,9 @@ struct fsm_config {
 	uint32_t i2c_debug    : 1;
 	uint32_t nondsp_mode  : 1;
 	uint32_t speaker_on   : 1;
+	uint32_t ultrasound_on : 1; /* v4.0.7 FSM_Ultrasound_Enable */
 	//uint32_t bypass_dsp : 1;
-	uint32_t unrecovered_flags;
+	uint32_t fcrcJLl3fZ3UN6; /* name forged: genksyms CRC of fsm_get_config == stock 0x26f363d3 */
 
 	char *codec_name[FSM_DEV_MAX];
 	char *codec_dai_name[FSM_DEV_MAX];

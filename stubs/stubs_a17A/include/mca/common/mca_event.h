@@ -24,6 +24,7 @@ enum mca_event_type {
 	MCA_EVENT_TYPE_CHARGE_STATUS = 5,
 	MCA_EVENT_TYPE_THERMAL_TEMP = 6,
 	MCA_EVENT_TYPE_PANEL = 7,
+	MCA_EVENT_TYPE_TYPEC_PORT_STATUS = 8,
 	MCA_EVENT_TYPE_DEBUG = 9,
 };
 
@@ -33,6 +34,11 @@ enum mca_event_ele {
 	MCA_EVENT_WIRELESS_DISCONNECT = 2,
 	MCA_EVENT_WIRELESS_CONNECT = 3,
 	MCA_EVENT_WIRELESS_REVCHG = 4,
+	MCA_EVENT_WIRELESS_THERMAL_PHONE_FLAG = 0xf,	/* G2: immediate of mca_strategy_func_process() in the stock mca_charger_thermal */
+	MCA_EVENT_WIRELESS_EPP_MODE = 0x4e,	/* G2: shares a switch case with 0x4c in the stock mca_charger_thermal process_event (which of the two is EPP is a guess) */
+	MCA_EVENT_WIRELESS_INT_CHANGE = 8,
+	MCA_EVENT_WIRELESS_PEN_HALL_CHANGE = 0x51,
+	MCA_EVENT_WIRELESS_PEN_PPE_HALL_CHANGE = 0x52,
 	MCA_EVENT_CHARGE_TYPE_CHANGE = 5,
 	MCA_EVENT_CHARGE_CAP_CHANGE = 6,
 	MCA_EVENT_CHARGE_VERIFY_PROCESS_END = 7,

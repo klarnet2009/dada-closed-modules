@@ -13,6 +13,9 @@
 #include <linux/miscdevice.h>
 #include <sound/soc.h>
 #include <sound/tlv.h>
+#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
+#include <miev/mievent.h>
 #include <linux/version.h>
 
 
@@ -149,6 +152,92 @@ int fsm_rotation_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+int fsm_amp_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	fsm_config_t *cfg = fsm_get_config();
+	long on = cfg->speaker_on;
+
+	ucontrol->value.integer.value[0] = on;
+	pr_info("amp_on: %ld", on);
+
+	return 0;
+}
+
+int fsm_amp_put(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	int enable = ucontrol->value.integer.value[0];
+
+	pr_info("enable: %d", enable);
+	if (enable)
+		fsm_speaker_onn();
+	else
+		fsm_speaker_off();
+
+	return 0;
+}
+
+int fsm_ultrasound_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	fsm_config_t *cfg = fsm_get_config();
+
+	ucontrol->value.integer.value[0] = cfg->ultrasound_on;
+
+	return 0;
+}
+
+int fsm_ultrasound_put(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	fsm_config_t *cfg = fsm_get_config();
+	int val = ucontrol->value.integer.value[0];
+
+	cfg->ultrasound_on = val;
+	pr_info("ultrasound_on: %d", val & 1);
+	if (cfg->ultrasound_on) {
+		if (cfg->next_scene == 0x1)
+			fsm_set_scene(4);
+	} else {
+		if (cfg->next_scene == 0x10)
+			fsm_set_scene(0);
+	}
+
+	return 0;
+}
+
+int fsm_spksw_gpio_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	fsm_config_t *cfg = fsm_get_config();
+	int level;
+
+	level = gpiod_get_raw_value_cansleep(gpio_to_desc(cfg->spksw_gpio));
+	pr_info("spksw level cached = %d, actual = %d\n", cfg->spksw_level, level);
+	if (level >= 0)
+		cfg->spksw_level = level;
+	else
+		level = cfg->spksw_level;
+	ucontrol->value.enumerated.item[0] = level;
+
+	return 0;
+}
+
+int fsm_spksw_gpio_put(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	fsm_config_t *cfg = fsm_get_config();
+	unsigned int val = ucontrol->value.enumerated.item[0];
+	bool on;
+
+	pr_err("spksw = %d\n", val);
+	on = val != 0;
+	gpiod_set_raw_value_cansleep(gpio_to_desc(cfg->spksw_gpio), on);
+
+	return 0;
+}
+
 static const struct snd_kcontrol_new fsm_snd_controls[] =
 {
 	SOC_SINGLE_EXT("FSM_Scene", SND_SOC_NOPM, 0, FSM_SCENE_MAX, 0,
@@ -157,8 +246,14 @@ static const struct snd_kcontrol_new fsm_snd_controls[] =
 			fsm_volume_get, fsm_volume_put),
 	SOC_SINGLE_EXT("FSM_Stop", SND_SOC_NOPM, 0, 1, 0,
 			fsm_stop_get, fsm_stop_put),
+	SOC_SINGLE_EXT("FSM_AMP_ON", SND_SOC_NOPM, 0, 1, 0,
+			fsm_amp_get, fsm_amp_put),
 	SOC_SINGLE_EXT("FSM_Rotation", SND_SOC_NOPM, 0, 360, 0,
 			fsm_rotation_get, fsm_rotation_put),
+	SOC_SINGLE_EXT("FSM_Ultrasound_Enable", SND_SOC_NOPM, 0, 1, 0,
+			fsm_ultrasound_get, fsm_ultrasound_put),
+	SOC_SINGLE_EXT("FSM_SW_GPIO", SND_SOC_NOPM, 0, 1, 0,
+			fsm_spksw_gpio_get, fsm_spksw_gpio_put),
 };
 
 static struct snd_soc_dapm_widget fsm_dapm_widgets_common[] =
@@ -289,6 +384,7 @@ static int fsm_hw_params(struct snd_pcm_substream *substream,
 	int format;
 	int srate;
 	int bclk;
+	int chn = 4;
 
 	format = params_format(params);
 	pr_debug("format:%X", format);
@@ -304,10 +400,10 @@ static int fsm_hw_params(struct snd_pcm_substream *substream,
 
 	srate = params_rate(params);
 	chn_size = snd_pcm_format_physical_width(format);
-	bclk = srate * chn_size * 2;
+	bclk = srate * chn_size * chn;
 	fsm_set_i2s_clocks(srate, bclk);
 	pr_info("srate:%d, chn:%d, chn_size:%d, bclk:%d", srate,
-			params_channels(params), chn_size, bclk);
+			chn, chn_size, bclk);
 
 	return 0;
 }
@@ -413,7 +509,7 @@ static int fsm_codec_probe(struct snd_soc_codec *codec)
 		return -EINVAL;
 	}
 	if (fsm_dev->id == 0) {
-		fsm_set_pdev(codec->dev);
+		[[clang::__noinline__]] fsm_set_pdev(codec->dev);
 		ret = fsm_firmware_init(cfg->fw_name);
 		if (ret) {
 			// firmware init fail, it will retry in speaker on
@@ -493,6 +589,22 @@ static char *fmt_single_name(struct device *dev, int *id)
 	return kstrdup(name, GFP_KERNEL);
 }
 
+noinline int fs_mievent_report(unsigned int eventid, const char *value, struct device *dev)
+{
+	struct misight_mievent *mievent;
+	char i2c_info[20] = {0};
+
+	__builtin_strcpy(i2c_info, dev->kobj.name);
+	dev_info(dev, "%s: reg = %s, KeyWord = %s DFS report\n", __func__, i2c_info, value);
+	mievent = cdev_tevent_alloc(eventid);
+	cdev_tevent_add_str(mievent, "I2cAddress", i2c_info);
+	cdev_tevent_add_str(mievent, "Keyword", value);
+	cdev_tevent_write(mievent);
+	cdev_tevent_destroy(mievent);
+
+	return 0;
+}
+
 int fsm_codec_register(struct device *dev, int id)
 {
 	fsm_config_t *cfg = fsm_get_config();
@@ -513,6 +625,7 @@ int fsm_codec_register(struct device *dev, int id)
 			&fsm_aif_dai[id], 1);
 	if (ret < 0) {
 		dev_err(dev, "failed to register CODEC DAI: %d", ret);
+		fs_mievent_report(906001352, "PA detection exception", dev);
 		return ret;
 	}
 	cfg->codec_inited++;
@@ -523,7 +636,7 @@ int fsm_codec_register(struct device *dev, int id)
 	return ret;
 }
 
-void fsm_codec_unregister(struct device *dev)
+noinline void fsm_codec_unregister(struct device *dev)
 {
 	fsm_config_t *cfg = fsm_get_config();
 

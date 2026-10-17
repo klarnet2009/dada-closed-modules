@@ -1,5 +1,16 @@
-# lb (perfC) -- status: PARTIAL, 42/46 functions byte-identical
+# lb - PARTIAL vs the OS4 stock: OS4 grew new code (13 functions + vendor hooks) that our HyperOS 3 based source lacks (g4 re-check 17.10.2026); vs HyperOS 3 it was 42/46
 
+Re-checked against `<work-dir>` (real Kleaf build of the unchanged source): the module changed in OS4.
+- function set: OS4 has 13 functions that we do not have: `adjust_readahead`, `adjust_readaround`, `dex_files_for_bitmap_record`, `file_sequential_free_one_fileinfo`, `file_sequential_get_fileinfo`, `is_real_timing_package`,
+  `lb_file_path`, `mi_lb_remove_package_info_from_list`, `mi_lb_skip_async_mmap_readahead`, `real_timing_file_range_cmp`, `real_timing_lookup_file_index`, `real_timing_package_init`, `should_skip_fault_around`;
+  we have 2 that OS4 dropped (`free_one_fileinfo`, `mi_lb_dealwith_get_app_names`).
+- new imports (OS4): vendor hooks `android_vh_tune_mmap_readaround`, `android_vh_do_async_mmap_readahead`, `android_vh_ra_tuning_max_page`, `android_vh_should_fault_around` (readahead / fault-around tuning), `list_sort`, `strstr`,
+  `d_path`, `dentry_path_raw`, `prepare_to_wait_event`, `init_wait_entry`, `device_destroy`; dropped: `autoremove_wake_function`, `prepare_to_wait`, `strnlen`, `__bitmap_weight`.
+- new global objects (stock names): `g_real_timing_supported`, `g_skip_background_readahead_enable`, `g_background_faultaround_disable`, `g_max_real_timing_apps`, `g_max_file_sequential_apps`, `g_max_gap_range`, `g_max_merge_range`.
+- 23 of the remaining 33 shared functions differ in bytes (the new code changed shared structures), relocation lists are identical for the rest.
+So lb in OS4 needs a re-recovery of the real-timing / file-sequential preread features (about 13 functions, 4 TUs); not started. Nothing of this was recoverable by tweaking the old source.
+
+## Earlier rounds (HyperOS 3 binary as reference)
 Build: Kleaf ddk_module, `lb_defconfig` = ThinLTO (`# CONFIG_LTO_NONE is not set` + `CONFIG_LTO_CLANG_THIN=y`), 4 TUs
 (`lb_main.c lb_cold.c lb_hot.c lb_pkg.c`) because stock is multi-TU ThinLTO (cross-file return values are not folded,
 only `noinline` cross-file functions stay un-imported). `-ffunction-sections -fdata-sections` as in stock.

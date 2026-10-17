@@ -414,21 +414,33 @@ static int fsm_request_irq(fsm_dev_t *fsm_dev)
 //#ifdef CONFIG_OF
 static int fsm_parse_dts(struct i2c_client *i2c, fsm_dev_t *fsm_dev)
 {
+	fsm_config_t *cfg = fsm_get_config();
 	struct device_node *np = i2c->dev.of_node;
+	char *rst_name;
+	int spksw_gpio;
 	int ret;
 
 	if (fsm_dev == NULL || np == NULL) {
 		return -EINVAL;
 	}
+	rst_name = devm_kzalloc(&i2c->dev, 32, GFP_KERNEL);
 
-	fsm_dev->rst_gpio = of_get_named_gpio(np, "fsm,rst-gpio", 0);
+	fsm_dev->rst_gpio = of_get_named_gpio(np, "reset-gpio", 0);
+	pr_info("rst_gpio = %d \n", fsm_dev->rst_gpio);
 	if (gpio_is_valid(fsm_dev->rst_gpio)) {
+		snprintf(rst_name, 32, "FS19XX_RST_%02X", i2c->addr);
 		ret = devm_gpio_request_one(&i2c->dev, fsm_dev->rst_gpio,
-			GPIOF_OUT_INIT_LOW, "FS19XX_RST");
-		if (ret)
-			return ret;
+			GPIOF_OUT_INIT_LOW, rst_name);
+		if (ret) {
+			pr_err("FS19XX_RST_%02X request failed", i2c->addr);
+			if (ret == -EBUSY) {
+				return -EPROBE_DEFER;
+			}
+		}
+	} else {
+		pr_info("0x%02x: fsm,rst-gpio cannot find", i2c->addr);
 	}
-	fsm_dev->irq_gpio = of_get_named_gpio(np, "fsm,irq-gpio", 0);
+	fsm_dev->irq_gpio = of_get_named_gpio(np, "interrupts", 0);
 	if (gpio_is_valid(fsm_dev->irq_gpio)) {
 		ret = devm_gpio_request_one(&i2c->dev, fsm_dev->irq_gpio,
 			GPIOF_OUT_INIT_LOW, "FS19XX_IRQ");
@@ -440,13 +452,26 @@ static int fsm_parse_dts(struct i2c_client *i2c, fsm_dev_t *fsm_dev)
 		fsm_dev->re25_dft = 0;
 	}
 	pr_info("re25 default:%d", fsm_dev->re25_dft);
+	spksw_gpio = of_get_named_gpio(np, "spksw-gpio", 0);
+	pr_info("spksw_gpio = %d \n", spksw_gpio);
+	if (gpio_is_valid(spksw_gpio)) {
+		ret = devm_gpio_request_one(&i2c->dev, spksw_gpio,
+			GPIOF_OUT_INIT_LOW, "FS19XX_SPKSW");
+		if (ret) {
+			pr_err("0x%02x: spksw-gpio request failed", i2c->addr);
+			return ret;
+		}
+		cfg->spksw_gpio = spksw_gpio;
+	} else {
+		pr_info("0x%02x: spksw-gpio cannot find", i2c->addr);
+	}
 
 	return 0;
 }
 
 static struct of_device_id fsm_match_tbl[] =
 {
-	{ .compatible = "foursemi,fs19xx" },
+	{ .compatible = "foursemi,fs16xx" },
 	{},
 };
 MODULE_DEVICE_TABLE(of, fsm_match_tbl);
@@ -458,14 +483,14 @@ static int fsm_i2c_probe(struct i2c_client *i2c)
 	fsm_dev_t *fsm_dev;
 	int ret;
 
-	pr_debug("enter");
+	dev_info(&i2c->dev, "fsm i2c probe enter");
 	if (!i2c_check_functionality(i2c->adapter, I2C_FUNC_I2C)) {
 		dev_err(&i2c->dev, "check I2C_FUNC_I2C failed");
 		return -EIO;
 	}
 	if (!check_smartpa_type("fs19xx")) {
 		dev_err(&i2c->dev, "other smartpa type already set, no need to probe");
-		return -EIO;
+		return 0;
 	}
 
 	fsm_dev = devm_kzalloc(&i2c->dev, sizeof(struct fsm_dev), GFP_KERNEL);
@@ -476,70 +501,40 @@ static int fsm_i2c_probe(struct i2c_client *i2c)
 
 	memset(fsm_dev, 0, sizeof(struct fsm_dev));
 	mutex_init(&fsm_dev->i2c_lock);
-
-	if (i2c->addr == 0x36) {
-		i2c->addr = 0x34;
-	} else if (i2c->addr == 0x37) {
-		i2c->addr = 0x35;
-	} else {
-		devm_kfree(&i2c->dev, fsm_dev);
-		dev_err(&i2c->dev, "invalid i2c addr");
-	}
-		
-
 	fsm_dev->i2c = i2c;
 
-#ifdef CONFIG_OF
 	ret = fsm_parse_dts(i2c, fsm_dev);
 	if (ret) {
 		dev_err(&i2c->dev, "failed to parse DTS node");
-	}
-#endif
-#if defined(CONFIG_FSM_REGMAP)
-	fsm_dev->regmap = fsm_regmap_i2c_init(i2c);
-	if (fsm_dev->regmap == NULL) {
 		devm_kfree(&i2c->dev, fsm_dev);
-		dev_err(&i2c->dev, "regmap init fialed");
-		return -EINVAL;
+		return ret;
 	}
-#endif
 
 	fsm_vddd_on(&i2c->dev);
 	fsm_ext_reset(fsm_dev);
 	ret = fsm_probe(fsm_dev, i2c->addr);
 	if (ret) {
-		dev_err(&i2c->dev, "detect device failed");
-#if defined(CONFIG_FSM_REGMAP)
-		fsm_regmap_i2c_deinit(fsm_dev->regmap);
-#endif
+		dev_err(&i2c->dev, "detect device failed [TF-NOSOUND]");
+		fs_mievent_report(906001353, "PA i2c exception", &i2c->dev);
 		fsm_vddd_off();
-		if (gpio_is_valid(fsm_dev->irq_gpio)) {
-		}
 		if (gpio_is_valid(fsm_dev->rst_gpio)) {
-			/*reset 异常拉高，设置0*/
 			gpio_set_value(fsm_dev->rst_gpio, 1);
 		}
 		devm_kfree(&i2c->dev, fsm_dev);
 		return ret;
-	} else { //bug 682191, baoshulin@wingtech.com, 20210831, add mmitest and smartpa info
-		pr_info("%s audiock fsm detect device seccess\n",__func__);
-		set_smartpa_type("fs19xx", 7);
 	}
-	fsm_dev->id = cfg->dev_count - 1;
 	i2c_set_clientdata(i2c, fsm_dev);
+	fsm_dev->id = cfg->dev_count - 1;
 	pr_addr(info, "index:%d", fsm_dev->id);
 	fsm_dev->fsm_wq = create_singlethread_workqueue("fs19xx");
 	INIT_DELAYED_WORK(&fsm_dev->monitor_work, fsm_work_monitor);
 	INIT_DELAYED_WORK(&fsm_dev->interrupt_work, fsm_work_interrupt);
 	fsm_request_irq(fsm_dev);
+	set_smartpa_type("fs19xx", 7);
 
 	if(fsm_dev->id == 0) {
 		// reigster only in the first device
-#if !defined(CONFIG_FSM_CODEC)
-		fsm_set_pdev(&i2c->dev);
-#endif
 		fsm_misc_init();
-		fsm_sysfs_init(&i2c->dev);
 		fsm_codec_register(&i2c->dev, fsm_dev->id);
 	}
 
@@ -569,7 +564,7 @@ static void fsm_i2c_remove(struct i2c_client *i2c)
 		fsm_codec_unregister(&i2c->dev);
 		fsm_sysfs_deinit(&i2c->dev);
 		fsm_misc_deinit();
-		fsm_set_pdev(NULL);
+		[[clang::__always_inline__]] fsm_set_pdev(NULL);
 	}
 
 	fsm_remove(fsm_dev);
@@ -586,7 +581,7 @@ static void fsm_i2c_remove(struct i2c_client *i2c)
 
 static const struct i2c_device_id fsm_i2c_id[] =
 {
-	{ "fs19xx", 0 },
+	{ "fs16xx", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, fsm_i2c_id);

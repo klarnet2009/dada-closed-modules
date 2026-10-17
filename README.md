@@ -4,8 +4,8 @@ Reverse-engineered and ported source code for the closed-source kernel modules o
 
 Xiaomi's stock kernel for this phone loads roughly 630 GPL-licensed modules, but for many of them no public source exists. That makes it hard to build custom ROMs and kernels with full control over the device. This repository collects what we could recover:
 
-- **`reconstructed/`**: 26 modules that have no public source in any place we looked (all 267 branches of Xiaomi's public MiCode repositories, the OnePlus and LineageOS Qualcomm trees). We rebuilt their C source from the stock `.ko` binaries (HyperOS 3.0.6, `OS3.0.6.0.WOCMIXM`) and compiled them against a GKI 6.6.144 tree with ThinLTO. **15 are EQUIVALENT to the stock binary, 11 are PARTIAL.**
-- **`ported/`**: 76 modules whose source exists in older public Xiaomi trees (MiCode `*-oss` branches, XRING `xiaomi-modules`, OnePlus). We ported them to 6.6.144 and verified them the same way (64 EQUIVALENT, 8 PARTIAL, 4 COMPILES-only). Original copyright headers are kept. The table below says which stock binaries each one was compared against: the first round against HyperOS 3.0.6, the second round (25 modules) against the HyperOS 4.0 (Android 17) stock modules.
+- **`reconstructed/`**: 26 modules that have no public source in any place we looked (all 267 branches of Xiaomi's public MiCode repositories, the OnePlus and LineageOS Qualcomm trees). We rebuilt their C source from the stock `.ko` binaries (HyperOS 3.0.6, `OS3.0.6.0.WOCMIXM`) and compiled them against a GKI 6.6.144 tree with ThinLTO. **16 are EQUIVALENT to the stock binary, 10 are PARTIAL.**
+- **`ported/`**: 98 modules whose source exists in older public Xiaomi trees (MiCode `*-oss` branches, XRING `xiaomi-modules`, OnePlus). We ported them to 6.6.144 and verified them the same way (81 EQUIVALENT, 15 PARTIAL, 2 COMPILES-only). Original copyright headers are kept. The table below says which stock binaries each one was compared against: the first round against HyperOS 3.0.6, the second round (47 modules) against the HyperOS 4.0 (Android 17) stock modules.
 - **`docs/blocked/`**: the notes (`STATUS.md`) of the modules we could not get to compile yet, with what exactly is missing (usually headers or definitions that exist in no public tree).
 - **`stubs/`**: tiny stand-in provider modules used only to satisfy export/import CRCs when a module is built on its own.
 - **`tools/`**: `compare_ko.py` (the equivalence check), `crctool.py`, `crc_patch.py`, `btf_dump.py`, `btf_dump_startid.py`, `gen_stubs.py` (stub providers with exact export CRCs), `padcrc.py`, plus `payload_extract.py` and `vendor_boot_extract.py` (stdlib-only extractors for OTA `payload.bin` and `vendor_boot` images).
@@ -35,51 +35,57 @@ Known hacks, documented per module:
 
 ## Reconstructed modules (no public source anywhere)
 
-| module | status |
-|---|---|
-| cameralog | PARTIAL: 10/11 functions byte-identical |
-| cameramsger | PARTIAL: 14/22 functions byte-identical |
-| debug_ext | PARTIAL: 28/28 functions identical; only the import CRC of qcom_is_dma_buf_file differs (provider built on 6.6.57 headers) |
-| lb | PARTIAL: 42/46 functions byte-identical |
-| mca_adsp_glink | EQUIVALENT |
-| mca_business_battery_comp | EQUIVALENT |
-| mca_business_charger_comp | EQUIVALENT |
-| mca_business_misc_comp | EQUIVALENT |
-| mca_qcom_panel | EQUIVALENT |
-| mca_qcom_smem | EQUIVALENT |
-| mca_qcom_subpmic_proxy | EQUIVALENT |
-| mca_qcom_sysfs | EQUIVALENT |
-| mca_strategy_fg_comp | PARTIAL: 73/76 functions byte-identical |
-| mi_damon | PARTIAL: 187/188 functions byte-identical |
-| mi_perf_memory | EQUIVALENT |
-| mi_schedule | PARTIAL: 90/100 functions byte-identical |
-| mibbr | PARTIAL: 26/27 functions byte-identical |
-| millet_oem_cgroup | EQUIVALENT |
-| miloadtrace | PARTIAL: 74/83 functions byte-identical |
-| mist | PARTIAL: 67/70 functions byte-identical |
-| process_monitor | PARTIAL: 38/42 functions byte-identical |
-| qcom_adsp_pd_protocol | EQUIVALENT |
-| scene_swappiness | EQUIVALENT |
-| sia91xx_tuning | EQUIVALENT |
-| tas25xx | EQUIVALENT (stock export CRCs applied with tools/crc_patch.py) |
-| typec_analog_acc | EQUIVALENT |
+| module | status | compared against |
+|---|---|---|
+| cameralog | PARTIAL | HyperOS 4.0 |
+| cameramsger | PARTIAL | HyperOS 4.0 |
+| debug_ext | EQUIVALENT | HyperOS 4.0 |
+| lb | PARTIAL | HyperOS 4.0 |
+| mca_adsp_glink | EQUIVALENT | HyperOS 3.0.6 |
+| mca_business_battery_comp | EQUIVALENT | HyperOS 3.0.6 |
+| mca_business_charger_comp | EQUIVALENT | HyperOS 3.0.6 |
+| mca_business_misc_comp | EQUIVALENT | HyperOS 3.0.6 |
+| mca_qcom_panel | EQUIVALENT | HyperOS 3.0.6 |
+| mca_qcom_smem | EQUIVALENT | HyperOS 3.0.6 |
+| mca_qcom_subpmic_proxy | EQUIVALENT | HyperOS 3.0.6 |
+| mca_qcom_sysfs | EQUIVALENT | HyperOS 3.0.6 |
+| mca_strategy_fg_comp | PARTIAL | HyperOS 4.0 |
+| mi_damon | PARTIAL | HyperOS 4.0 |
+| mi_perf_memory | EQUIVALENT | HyperOS 3.0.6 |
+| mi_schedule | PARTIAL: 90/100 functions byte-identical | HyperOS 3.0.6 |
+| mibbr | PARTIAL | HyperOS 4.0 |
+| millet_oem_cgroup | EQUIVALENT | HyperOS 3.0.6 |
+| miloadtrace | PARTIAL: 74/83 functions byte-identical | HyperOS 3.0.6 |
+| mist | PARTIAL | HyperOS 4.0 |
+| process_monitor | PARTIAL | HyperOS 4.0 |
+| qcom_adsp_pd_protocol | EQUIVALENT | HyperOS 3.0.6 |
+| scene_swappiness | EQUIVALENT | HyperOS 3.0.6 |
+| sia91xx_tuning | EQUIVALENT | HyperOS 3.0.6 |
+| tas25xx | EQUIVALENT (stock export CRCs applied with tools/crc_patch.py) | HyperOS 3.0.6 |
+| typec_analog_acc | EQUIVALENT | HyperOS 3.0.6 |
 
 ## Ported modules
 
 | module | status | compared against |
 |---|---|---|
 | aw882xx_dlkm | COMPILES-only | HyperOS 4.0 |
+| binder_gki | PARTIAL | HyperOS 4.0 |
 | bootinfo | EQUIVALENT | HyperOS 3.0.6 |
 | charger_partition | EQUIVALENT | HyperOS 3.0.6 |
-| cs35l43_dlkm | PARTIAL | HyperOS 4.0 |
+| cs35l43_dlkm | EQUIVALENT | HyperOS 4.0 |
+| dcvs_main | PARTIAL | HyperOS 4.0 |
+| dump_binder | PARTIAL | HyperOS 4.0 |
+| dynamic_readahead | EQUIVALENT | HyperOS 4.0 |
+| fault_report | PARTIAL | HyperOS 4.0 |
 | fs19xx_dlkm | PARTIAL | HyperOS 4.0 |
 | gsim | EQUIVALENT | HyperOS 4.0 |
 | hardwareinfo | EQUIVALENT | HyperOS 3.0.6 |
 | hl7603 | EQUIVALENT | HyperOS 3.0.6 |
 | hwid | EQUIVALENT | HyperOS 3.0.6 |
-| mca_bmd | PARTIAL | HyperOS 4.0 |
+| mca_bmd | EQUIVALENT | HyperOS 4.0 |
 | mca_charge_interface | EQUIVALENT | HyperOS 3.0.6 |
 | mca_charge_mievent | EQUIVALENT | HyperOS 3.0.6 |
+| mca_charger_thermal | EQUIVALENT | HyperOS 4.0 |
 | mca_common | EQUIVALENT | HyperOS 3.0.6 |
 | mca_event | EQUIVALENT | HyperOS 3.0.6 |
 | mca_hwid | EQUIVALENT | HyperOS 3.0.6 |
@@ -97,16 +103,18 @@ Known hacks, documented per module:
 | mca_platform_loadsw_class | EQUIVALENT | HyperOS 3.0.6 |
 | mca_platform_wireless_class | EQUIVALENT | HyperOS 4.0 |
 | mca_protocol_class | EQUIVALENT | HyperOS 3.0.6 |
-| mca_protocol_pd_class | PARTIAL | HyperOS 4.0 |
+| mca_protocol_pd_class | EQUIVALENT | HyperOS 4.0 |
 | mca_protocol_qc_class | EQUIVALENT | HyperOS 3.0.6 |
+| mca_pwm_fan | PARTIAL | HyperOS 4.0 |
 | mca_soc_limit | EQUIVALENT | HyperOS 4.0 |
 | mca_strategy_class | EQUIVALENT | HyperOS 3.0.6 |
 | mca_strategy_fg_class | EQUIVALENT | HyperOS 3.0.6 |
 | mca_sysfs | EQUIVALENT | HyperOS 3.0.6 |
 | mca_vbat_ovp_monitor | EQUIVALENT | HyperOS 4.0 |
-| mca_wireless_revchg | COMPILES-only | HyperOS 4.0 |
+| mca_wireless_revchg | PARTIAL | HyperOS 4.0 |
 | mca_workqueue | EQUIVALENT | HyperOS 3.0.6 |
-| mi_fp | PARTIAL | HyperOS 4.0 |
+| mi_fp | EQUIVALENT | HyperOS 4.0 |
+| mi_memory | EQUIVALENT | HyperOS 4.0 |
 | mi_mempool | PARTIAL | HyperOS 4.0 |
 | mi_power | EQUIVALENT | HyperOS 3.0.6 |
 | mi_stack | EQUIVALENT | HyperOS 3.0.6 |
@@ -115,6 +123,7 @@ Known hacks, documented per module:
 | mi_ubt | EQUIVALENT | HyperOS 3.0.6 |
 | mi_ubt_test | EQUIVALENT | HyperOS 3.0.6 |
 | mi_wmark | EQUIVALENT | HyperOS 3.0.6 |
+| mi_wq_dynamic_priority | EQUIVALENT | HyperOS 4.0 |
 | miev | EQUIVALENT | HyperOS 4.0 |
 | mii | EQUIVALENT | HyperOS 3.0.6 |
 | miicmpfilter | EQUIVALENT | HyperOS 3.0.6 |
@@ -123,15 +132,23 @@ Known hacks, documented per module:
 | millet_hs | EQUIVALENT | HyperOS 3.0.6 |
 | millet_pkg | EQUIVALENT | HyperOS 3.0.6 |
 | millet_sig | EQUIVALENT | HyperOS 3.0.6 |
-| minet | COMPILES-only | HyperOS 4.0 |
+| minet | PARTIAL | HyperOS 4.0 |
+| miscore | PARTIAL | HyperOS 4.0 |
 | nxp-nci | EQUIVALENT | HyperOS 4.0 |
 | perfC_mst | PARTIAL | HyperOS 3.0.6 |
+| perf_actuator | EQUIVALENT | HyperOS 4.0 |
 | perfmgr | EQUIVALENT | HyperOS 4.0 |
+| plat_common | EQUIVALENT | HyperOS 4.0 |
 | rsmc_driver | EQUIVALENT | HyperOS 3.0.6 |
+| rss_monitor | PARTIAL | HyperOS 4.0 |
+| rtg | EQUIVALENT | HyperOS 4.0 |
 | sc8581 | EQUIVALENT | HyperOS 3.0.6 |
+| sc8581_sy6541 | EQUIVALENT | HyperOS 4.0 |
 | sched-penalty | EQUIVALENT | HyperOS 3.0.6 |
+| sched_entity_freq | PARTIAL | HyperOS 4.0 |
 | si_core_module | EQUIVALENT | HyperOS 3.0.6 |
 | sia91xx_dlkm | COMPILES-only | HyperOS 4.0 |
+| sia91xx_tuning_dlkm | EQUIVALENT | HyperOS 4.0 |
 | sla | EQUIVALENT | HyperOS 4.0 |
 | speed_touch | EQUIVALENT | HyperOS 3.0.6 |
 | stm_console | EQUIVALENT | HyperOS 3.0.6 |
@@ -141,11 +158,16 @@ Known hacks, documented per module:
 | stm_nfc_i2c | EQUIVALENT | HyperOS 4.0 |
 | stm_p_ost | EQUIVALENT | HyperOS 3.0.6 |
 | stm_st54se_gpio | EQUIVALENT | HyperOS 4.0 |
-| xiaomi_touch | PARTIAL | HyperOS 4.0 |
+| tango32 | EQUIVALENT | HyperOS 4.0 |
+| typec_analog_acc_dlkm | EQUIVALENT | HyperOS 4.0 |
+| vip_sched | EQUIVALENT | HyperOS 4.0 |
+| xiaomi_touch | EQUIVALENT | HyperOS 4.0 |
 | xiaomi_wifi_gpio | EQUIVALENT | HyperOS 3.0.6 |
 | xm_power | EQUIVALENT | HyperOS 3.0.6 |
+| xr_qi | PARTIAL | HyperOS 4.0 |
+| xr_qs | PARTIAL | HyperOS 4.0 |
 
-Modules still blocked: `bq27z561`, `mca_basic_wireless`, `mca_buckchg_jeita`, `mca_charger_thermal`, `mca_connector_antiburn`, `mca_quick_wireless`, `mca_smart_charge`, `mca_strategy_buckchg`, `mca_strategy_quickchg`, `mi_memory`, `nuvolta_1652`, `synaptics_tcm2`, `tfa98xx_dlkm` (details in `docs/blocked/`).
+Modules still blocked: `bq27z561`, `mca_basic_wireless`, `mca_buckchg_jeita`, `mca_connector_antiburn`, `mca_quick_wireless`, `mca_smart_charge`, `mca_strategy_buckchg`, `mca_strategy_quickchg`, `nuvolta_1652`, `synaptics_tcm2`, `tfa98xx_dlkm` (details in `docs/blocked/`).
 
 ## Building
 

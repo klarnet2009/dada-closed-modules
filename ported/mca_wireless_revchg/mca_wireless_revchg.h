@@ -87,7 +87,19 @@ enum mca_rev_chg_attr_list {
 	MCA_REV_CHG_WIRELESS_CHIP_FW = 0,
 	MCA_REV_CHG_WLS_FW_STATE,
 	MCA_REV_CHG_REVERSE_CHG_MODE,
-	MCA_REV_CHG_REVERSE_CHG_STATE
+	MCA_REV_CHG_REVERSE_CHG_STATE,
+	MCA_REV_CHG_PEN_SOC,
+	MCA_REV_CHG_PEN_HALL3,
+	MCA_REV_CHG_PEN_HALL4,
+	MCA_REV_CHG_PEN_HALL3_S,
+	MCA_REV_CHG_PEN_HALL4_S,
+	MCA_REV_CHG_PEN_PPE_HALL_N,
+	MCA_REV_CHG_PEN_PPE_HALL_S,
+	MCA_REV_CHG_PEN_SS_VOLTAGE,
+	MCA_REV_CHG_TX_VOUT,
+	MCA_REV_CHG_TX_IOUT,
+	MCA_REV_CHG_TX_TDIE,
+	MCA_REV_CHG_PEN_PLACE_ERR
 };
 
 struct mca_wireless_rev_proc_data {
@@ -110,7 +122,11 @@ struct mca_wireless_rev_proc_data {
 	bool wls_sleep_fw_update;
 	bool wls_sleep_usb_insert;
 	int firmware_update_state;
+	bool fw_update_pen_online;
+	int pen_ss_voltage;
+	bool revchg_config_close;
 };
+_Static_assert(sizeof(struct mca_wireless_rev_proc_data) == 44, "proc_data");
 
 struct mca_wireless_revchg {
 	struct device *dev;
@@ -148,6 +164,8 @@ struct mca_wireless_revchg {
 	bool wait_for_reverse_test;
 	int force_stop;
 	bool tx_timeout_flag;
+	int full_soc_count;
 };
+_Static_assert(sizeof(struct mca_wireless_revchg) == 2296, "mca_wireless_revchg");
 
 #endif /* __WIRELESS_REVCHG_H__ */

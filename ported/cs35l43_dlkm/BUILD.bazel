@@ -12,7 +12,7 @@ ddk_module(
     deps = [
         "//re/stubs_a17C:a17C_headers",
         "//re/stubs_a17C:stub_miev",
-        "//re/stubs_a17C:stub_cs_dsp",
+        "//re/stubs_g3:stub_cs_dsp",
         "//common:all_headers_aarch64",
     ],
 )

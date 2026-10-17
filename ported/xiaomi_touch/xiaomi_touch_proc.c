@@ -23,7 +23,7 @@
 
 #define PROC_COUNT_FOR_PANEL	(4)
 #define DUMP_DATA_BUF_SIZE		(PAGE_SIZE * 3)
-#define NORMAL_DATA_BUF_SIZE	(256)
+#define NORMAL_DATA_BUF_SIZE	(350)
 
 typedef struct xiaomi_touch_proc_data {
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param;
@@ -50,6 +50,7 @@ static int proc_open(struct inode *inode, struct file *file)
 
 	xiaomi_touch_proc_data = kvzalloc_retry(sizeof(xiaomi_touch_proc_data_t), 3);
 	if (!xiaomi_touch_proc_data) {
+#line 53
 		LOG_ERROR("alloc tp proc data memory error");
 		return -EFAULT;
 	}
@@ -60,21 +61,26 @@ static int proc_open(struct inode *inode, struct file *file)
 	file->private_data = xiaomi_touch_proc_data;
 	
 	if (!strncmp("tp_data_dump", name, 12)) {
+#line 63
 		LOG_DEBUG("alloc dump data memory");
 		xiaomi_touch_proc_data->tp_proc_result_buf = kvzalloc_retry(DUMP_DATA_BUF_SIZE, 3);
 		if (!xiaomi_touch_proc_data->tp_proc_result_buf) {
+#line 66
 			LOG_ERROR("alloc tp proc dump memory error");
 			return -1;
 		}
 	} else {
+#line 70
 		LOG_DEBUG("alloc proc data memory");
 		xiaomi_touch_proc_data->tp_proc_result_buf = kvzalloc_retry(NORMAL_DATA_BUF_SIZE, 3);
 		if (!xiaomi_touch_proc_data->tp_proc_result_buf) {
+#line 73
 			LOG_ERROR("alloc tp proc data memory error");
 			return -1;
 		}
 	}
 
+#line 78
 	LOG_DEBUG("open %s", name);
 	return 0;
 }
@@ -94,17 +100,20 @@ static int proc_release(struct inode *inode, struct file *file)
 		return -EFAULT;
 
 	if (xiaomi_touch_proc_data->tp_proc_result_buf) {
+#line 97
 		LOG_DEBUG("free proc data buf memory");
 		kvzalloc_free(xiaomi_touch_proc_data->tp_proc_result_buf);
 		xiaomi_touch_proc_data->tp_proc_result_buf = NULL;
 	}
 
 	if (xiaomi_touch_proc_data) {
+#line 103
 		LOG_DEBUG("free proc data buf memory");
 		kvzalloc_free(xiaomi_touch_proc_data->tp_proc_result_buf);
 		xiaomi_touch_proc_data = NULL;
 	}
 
+#line 108
 	LOG_DEBUG("release %s", name);
 	return 0;
 }
@@ -126,6 +135,7 @@ static ssize_t proc_tp_read(struct file *file, char __user *buf, size_t count, l
 	if (IS_TOUCH_ID_INVALID(touch_id))
 		return -EFAULT;
 
+#line 129
 	LOG_DEBUG("*pos is %lld", *pos);
 	if (*pos && *pos >= xiaomi_touch_proc_data->tp_proc_result_length) {
 		return 0;
@@ -135,8 +145,10 @@ static ssize_t proc_tp_read(struct file *file, char __user *buf, size_t count, l
 		goto copy_data_to_user;
 	}
 
+#line 138
 	LOG_DEBUG("open proc tp node name is %s", name);
 	if (!strncmp("tp_fw_version", name, 10)) {
+#line 140
 		LOG_DEBUG("read tp_fw_version");
 		if (xiaomi_touch_driver_param->hardware_operation.ic_get_fw_version)
 			xiaomi_touch_driver_param->hardware_operation.ic_get_fw_version(xiaomi_touch_driver_param->hardware_param.fw_version);
@@ -144,13 +156,19 @@ static ssize_t proc_tp_read(struct file *file, char __user *buf, size_t count, l
 		n += snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n, "driver version: %s\n", xiaomi_touch_driver_param->hardware_param.driver_version);
 		n += snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n, "hal version: %s\n", xiaomi_touch_driver_param->hal_version);
 		n += snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n, "xiaomi-touch version: %s\n", XIAOMI_TOUCH_VERSION);
+		if (xiaomi_touch_driver_param->hardware_operation.get_limit_csv_version) {
+			xiaomi_touch_driver_param->hardware_operation.get_limit_csv_version(xiaomi_touch_driver_param->limit_csv_version);
+			n += snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n, "limit version: %s\n", xiaomi_touch_driver_param->limit_csv_version);
+		}
 		xiaomi_touch_proc_data->tp_proc_result_length = n;
 	} else if (!strncmp("tp_lockdown_info", name, 16)) {
 		u8 *lockdown_info = xiaomi_touch_driver_param->hardware_param.lockdown_info;
+#line 154
 		LOG_DEBUG("read tp_lockdown_info");
 		if (xiaomi_touch_driver_param->hardware_operation.ic_get_lockdown_info) {
 			ret = xiaomi_touch_driver_param->hardware_operation.ic_get_lockdown_info(lockdown_info);
 			if (ret < 0)
+#line 158
 				LOG_ERROR("read tp_lockdown_info error");
 			n = snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n,
 					"0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X,0x%02X\n",
@@ -161,10 +179,12 @@ static ssize_t proc_tp_read(struct file *file, char __user *buf, size_t count, l
 		}
 		xiaomi_touch_proc_data->tp_proc_result_length = n;
 	} else if (!strncmp("tp_selftest", name, 11)) {
+#line 168
 		LOG_DEBUG("read tp_selftest result %d", self_test_result[touch_id]);
 		n = snprintf(xiaomi_touch_proc_data->tp_proc_result_buf + n, NORMAL_DATA_BUF_SIZE - n, "%d\n", self_test_result[touch_id]);
 		xiaomi_touch_proc_data->tp_proc_result_length = n;
 	} else if (!strncmp("tp_data_dump", name, 12)) {
+#line 172
 		LOG_DEBUG("read tp_data_dump");
 		if (xiaomi_touch_driver_param->hardware_operation.ic_data_collect)
 			xiaomi_touch_driver_param->hardware_operation.ic_data_collect(xiaomi_touch_proc_data->tp_proc_result_buf, &n);
@@ -175,8 +195,10 @@ copy_data_to_user:
 
 	valid_length = xiaomi_touch_proc_data->tp_proc_result_length - *pos;
 	valid_length = valid_length < count ? valid_length : count;
+#line 182
 	LOG_DEBUG("result length %ld, valid length %d, count %zu", xiaomi_touch_proc_data->tp_proc_result_length, valid_length, count);
 	if (valid_length && (ret = copy_to_user(buf, xiaomi_touch_proc_data->tp_proc_result_buf + *pos, valid_length))) {
+#line 184
 		LOG_ERROR("copy result to user failed, result is %d", ret);
 		return -EFAULT;
 	}
@@ -196,38 +218,56 @@ static ssize_t proc_tp_write(struct file *file, const char __user *buf, size_t c
 	touch_id = xiaomi_touch_driver_param->touch_id;
 	if (IS_TOUCH_ID_INVALID(touch_id))
 		return -EFAULT;
+#line 203
 	LOG_DEBUG("open proc tp node name is %s", name);
 
 	if (!strncmp("tp_fw_version", name, 10)) {
 		size_t temp_count = count;
 		memset(xiaomi_touch_driver_param->hal_version, 0x00, HAL_VERSION_LENGTH);
 		if (temp_count >= HAL_VERSION_LENGTH) {
+#line 209
 			LOG_ERROR("write hal version length too long, current length is %zu", temp_count);
 			temp_count = HAL_VERSION_LENGTH - 1;
 		}
 		if (copy_from_user(xiaomi_touch_driver_param->hal_version, buf, temp_count)) {
+#line 213
 			LOG_ERROR("copy hal version to buf has error");
 			return -EFAULT;
 		}
+#line 216
 		LOG_INFO("hal version is %s", xiaomi_touch_driver_param->hal_version);
+#line 217
 		LOG_INFO("fw version is %s", xiaomi_touch_driver_param->hardware_param.fw_version);
+#line 218
 		LOG_INFO("driver version is %s", xiaomi_touch_driver_param->hardware_param.driver_version);
+#line 219
 		LOG_INFO("xiaomi-touch version is %s", XIAOMI_TOUCH_VERSION);
 	} else if (!strncmp("tp_selftest", name, 11)) {
 		static char self_test_cmd[64];
 		size_t temp_count = count;
 		memset(self_test_cmd, 0, 64);
 		if (temp_count >= 64) {
+#line 227
 			LOG_ERROR("write self test cmd length too long, current length is %zu", temp_count);
 			temp_count = 64 - 1;
 		}
 		if (copy_from_user(self_test_cmd, buf, temp_count)) {
+#line 231
 			LOG_ERROR("copy self test has error");
 			return -EFAULT;
 		}
-		if (xiaomi_touch_driver_param->hardware_operation.ic_self_test)
-			xiaomi_touch_driver_param->hardware_operation.ic_self_test(self_test_cmd, &self_test_result[touch_id]);
-		LOG_ERROR("start self test cmd: %s", self_test_cmd);
+		if (xiaomi_touch_driver_param->hardware_operation.ic_self_test) {
+			int retry;
+			for (retry = 0; retry <= 5; retry++) {
+				xiaomi_touch_driver_param->hardware_operation.ic_self_test(self_test_cmd, &self_test_result[touch_id]);
+#line 237
+				LOG_ERROR("start self test cmd: %s", self_test_cmd);
+				if (self_test_result[touch_id] == 2 || retry == 5)
+					break;
+#line 239
+				LOG_ERROR("self test failed, result is %d, retry %d times", self_test_result[touch_id], retry);
+			}
+		}
 	}
 
 	return count;
@@ -248,6 +288,7 @@ static struct proc_dir_entry *create_proc_node(char *name, const struct proc_ops
 	kgid_t gid;
 
 	if (!pde) {
+#line 264
 		LOG_ERROR("proc_create_data has error, exit!");
 		return NULL;
 	}
@@ -273,8 +314,10 @@ int xiaomi_touch_create_proc(xiaomi_touch_driver_param_t *xiaomi_touch_driver_pa
 		return -1;
 
 	touch_id = xiaomi_touch_driver_param->touch_id;
+#line 289
 	LOG_DEBUG("touch id is %d", touch_id);
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 291
 		LOG_DEBUG("invalid touch id %d", touch_id);
 		return -1;
 	}
@@ -309,6 +352,7 @@ int xiaomi_touch_remove_proc(s8 touch_id)
 	int i = 0;
 
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 325
 		LOG_ERROR("touch id is invalid, return!");
 		return -1;
 	}
@@ -316,6 +360,7 @@ int xiaomi_touch_remove_proc(s8 touch_id)
 	for (i = 0; i < PROC_COUNT_FOR_PANEL; i++) {
 		if (!tp_pde[touch_id][i])
 			continue;
+#line 332
 		LOG_DEBUG("remove proc node %p", tp_pde[touch_id][i]);
 		proc_remove(tp_pde[touch_id][i]);
 		tp_pde[touch_id][i] = NULL;

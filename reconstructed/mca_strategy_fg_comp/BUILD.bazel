@@ -8,6 +8,7 @@ ddk_module(
         "mca_strategy_fg.c",
         "mca_soc_smooth.c",
         "mca_battery_shutdown.c",
+        "mca_battery_safe.c",
     ],
     out = "mca_strategy_fg_comp.ko",
     defconfig = "mca_strategy_fg_comp_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN (cross-file imports, import-instr-limit=5)

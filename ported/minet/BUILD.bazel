@@ -6,6 +6,9 @@ ddk_module(
     srcs = [
         "minet_core.c",
         "minet_nl.c",
+        "minet_idletimer.c",
+        "minet_tc.c",
+        "minet_tc.h",
         "minet_nl.h",
         "minet_debug.h",
     ],

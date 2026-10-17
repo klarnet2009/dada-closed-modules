@@ -1,0 +1,12 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+_K = "//common:kernel_aarch64"
+_G = "//common:all_headers_aarch64"
+
+# provider of the cs_dsp exports: GKI cs_dsp.c copy (all CRCs equal to the OS4 stock cs_dsp.ko) + cs_dsp_load_coeff with the forged stock CRC
+ddk_module(name = "stub_cs_dsp", srcs = ["cs_dsp/cs_dsp.c", "stub_cs_dsp_g3.c"], out = "cs_dsp.ko", local_defines = ["CONFIG_DEBUG_FS=1"],
+           kernel_build = _K, deps = ["//re/stubs_a17C:a17C_headers", _G])
+
+# provider of mi_ufshcd_read_desc_param / mi_ufshcd_query_descriptor_retry / get_ufs_data (OS4 stock ufs_qcom.ko), forged genksyms CRCs
+ddk_module(name = "stub_ufs_qcom", srcs = ["stub_ufs_qcom.c"], out = "ufs-qcom.ko", kernel_build = _K, deps = [_G])

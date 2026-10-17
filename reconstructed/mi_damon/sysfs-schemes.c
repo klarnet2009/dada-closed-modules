@@ -1548,7 +1548,7 @@ static ssize_t nr_schemes_store(struct kobject *kobj,
 }
 
 /* ThinLTO promoted statics of the stock build: GLOBAL HIDDEN name.llvm.<hash> */
-void damon_sysfs_schemes_release(struct kobject *kobj) __asm__("damon_sysfs_schemes_release.llvm.15383242390503458081") __attribute__((visibility("hidden")));
+void damon_sysfs_schemes_release(struct kobject *kobj) __asm__("damon_sysfs_schemes_release.llvm.14731241909622278991") __attribute__((visibility("hidden")));
 void damon_sysfs_schemes_release(struct kobject *kobj)
 {
 	kfree(container_of(kobj, struct damon_sysfs_schemes, kobj));
@@ -1564,7 +1564,7 @@ static struct attribute *damon_sysfs_schemes_attrs[] = {
 static const struct attribute_group damon_sysfs_schemes_group = {
 	.attrs = damon_sysfs_schemes_attrs,
 };
-const struct attribute_group *damon_sysfs_schemes_groups[] __asm__("damon_sysfs_schemes_groups.llvm.15383242390503458081") __attribute__((visibility("hidden"))) = {
+const struct attribute_group *damon_sysfs_schemes_groups[] __asm__("damon_sysfs_schemes_groups.llvm.14731241909622278991") __attribute__((visibility("hidden"))) = {
 	&damon_sysfs_schemes_group,
 	NULL,
 };
@@ -1706,8 +1706,8 @@ void damon_sysfs_schemes_update_stats(
  * damon_sysfs_schemes that need to update its schemes regions dir.  Protected
  * by damon_sysfs_lock
  */
-struct damon_sysfs_schemes *damon_sysfs_schemes_for_damos_callback __asm__("damon_sysfs_schemes_for_damos_callback.llvm.15383242390503458081") __attribute__((visibility("hidden")));
-int damon_sysfs_schemes_region_idx __asm__("damon_sysfs_schemes_region_idx.llvm.15383242390503458081") __attribute__((visibility("hidden")));
+struct damon_sysfs_schemes *damon_sysfs_schemes_for_damos_callback __asm__("damon_sysfs_schemes_for_damos_callback.llvm.14731241909622278991") __attribute__((visibility("hidden")));
+int damon_sysfs_schemes_region_idx __asm__("damon_sysfs_schemes_region_idx.llvm.14731241909622278991") __attribute__((visibility("hidden")));
 static bool damos_regions_upd_total_bytes_only;
 
 /*

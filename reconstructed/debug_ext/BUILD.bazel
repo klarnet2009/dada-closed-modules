@@ -7,7 +7,7 @@ ddk_module(
     defconfig = "debug_ext_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_perfB:qcom_dma_heaps_stub",
+        "//re/stubs_g4:qcom_dma_heaps_stub",
         "//re/stubs_perfB:debug_symbol_stub",
         "//common:all_headers_aarch64",
     ],

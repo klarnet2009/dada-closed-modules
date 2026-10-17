@@ -9,3 +9,5 @@ OS3 -> OS4 stock: OS4 adds `strategy_buckchg_exit_wireless_revchg`, `strategy_bu
 
 First blocker: `#include <mca/common/mca_smem.h>` (absent public header of the smem provider: prototypes of the `mca_qcom_smem` exports, see `work/re/src/mca_qcom_smem` and `stubs_a17B/include/mca/qcom/mca_qcom_smem.h`),
 then the same classes of missing enumerators as in mca_quick_wireless/STATUS.md (not enumerated yet, the fatal include stops clang).
+
+G2: `stubs_a17B` now has the OS4 `struct mca_smartchg_if_ops` (88 bytes, `is_support_pps_100w` callback = `bool f(void)`; the stock `strategy_buckchg_is_support_pps_100w` (kCFI 0x36b1c5a6, reads `g_buckchg_info->support_pps_100w` at +0x830 / mca_get_hwid_info()) is that callback) and 6 `enum mca_smartchg_if_chg_type` values, see mca_charger_thermal/STATUS.md for the list of header changes. The `mca/common/mca_smem.h` blocker is unchanged.

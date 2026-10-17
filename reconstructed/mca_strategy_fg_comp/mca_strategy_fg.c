@@ -23,6 +23,7 @@
 #include <linux/types.h>
 #include <linux/ktime.h>
 #include <linux/jiffies.h>
+#include <linux/reboot.h>
 #include <linux/timekeeping.h>
 #include <mca/common/mca_log.h>
 #include <mca/common/mca_event.h>
@@ -57,15 +58,25 @@
 
 void onewire_check_auth_pass(bool *auth_pass)
 {
-	*auth_pass = true;
+	*auth_pass = false;
 }
 
 void onewire_check_chip_ok(bool *chip_ok)
 {
-	*chip_ok = true;
+	*chip_ok = false;
 }
 
-#line 462
+int onewire_get_shutdown_uisoc(int *uisoc)
+{
+	*uisoc = 15;
+	return -1;
+}
+
+int onewire_set_shutdown_uisoc(int uisoc)
+{
+	return -1;
+}
+
 void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 {
 	static int vol_i = 0, voltage_nums[MEAN_VOL_NUM] = {0};
@@ -74,6 +85,7 @@ void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 	int empty_count_th = DISCHARGING_MAX_EMPTY_COUNT;
 	struct timespec64 ts;
 	static int is_zero_speed = 0;
+	int data[3] = { 0 };
 
 	if (!fg || !fg->fg_init_flag)
 		return;
@@ -81,7 +93,7 @@ void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 		return;
 
 	voltage_nums[vol_i] = fg->batt_voltage;
-#line 473
+#line 491
 	mca_log_debug("record_i:%d record_vol [0]= %d, [1]= %d, [2]= %d, [3]= %d, [4]= %d\n",
 		vol_i, voltage_nums[0], voltage_nums[1], voltage_nums[2], voltage_nums[3], voltage_nums[4]);
 	vol_i = (vol_i + 1) % MEAN_VOL_NUM;
@@ -96,7 +108,7 @@ void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 		fg->batt_voltage_mean = 0;
 	else
 		fg->batt_voltage_mean = sum / cnt_i;
-#line 487
+#line 505
 	mca_log_info("mean_vol:%d\n", fg->batt_voltage_mean);
 
 	if (fg->chg_status != POWER_SUPPLY_STATUS_CHARGING)
@@ -108,20 +120,26 @@ void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 	if (!is_zero_speed && fg->chg_status == POWER_SUPPLY_STATUS_CHARGING && (u64)ts.tv_sec < 120)
 		get_smem_battery_info(&is_zero_speed);
 	if (fg->chg_status == POWER_SUPPLY_STATUS_CHARGING && is_zero_speed && (u64)ts.tv_sec < 120) {
-#line 498
+#line 516
 		mca_log_err("chg_status = %d, is_zero_speed = %d, tv_sec = %u, ignore vbatt_empty...\n",
 			fg->chg_status, is_zero_speed, (u64)ts.tv_sec);
 	} else {
 		if (fg->batt_voltage_mean <= fg->vcutoff_sw) {
 			empty_count++;
 			fg->vbatt_empty = (empty_count > empty_count_th) ? true : false;
+			if (fg->vbatt_empty) {
+				data[0] = fg->batt_voltage_mean;
+				data[1] = fg->batt_current;
+				data[2] = fg->batt_temperature;
+				mca_charge_mievent_report(0x35, data, 3);
+			}
 		} else if (fg->batt_voltage_mean > (fg->vcutoff_sw + VABTT_EMPTY_HY)) {
 			empty_count = 0;
 			fg->vbatt_empty = false;
 		}
 	}
 
-#line 510
+#line 534
 	mca_log_info("empty_count_th: %d, vbatt_empty: %d\n", empty_count_th, fg->vbatt_empty);
 }
 
@@ -184,7 +202,6 @@ void strategy_fg_update_batt_info(struct strategy_fg *fg)
 	strategy_fg_update_rm(fg);
 }
 
-#line 3009
 int strategy_lossless_rechg_parse_dt(struct strategy_fg *fg)
 {
 	struct device_node *node = fg->dev->of_node;
@@ -193,14 +210,14 @@ int strategy_lossless_rechg_parse_dt(struct strategy_fg *fg)
 
 	ret = mca_parse_dts_u32(node, "support-lossless-rechg", &(fg->cfg.support_lossless_rechg), 0);
 	if (ret < 0) {
-#line 3010
+#line 3482
 		mca_log_err("parse support-lossless-rechg failed %d\n", ret);
 		return ret;
 	}
 	if (fg->cfg.support_lossless_rechg) {
 		ret = mca_parse_dts_u32_array(node, "lossless_rechg_cfg", idata, 3);
 		if (ret < 0) {
-#line 3016
+#line 3488
 			mca_log_err("parse lossless-rechg_cfg failed %d\n", ret);
 			return ret;
 		}
@@ -248,7 +265,7 @@ int strategy_fg_ops_is_chip_ok(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
 
-	if (!fg->fg_init_flag)
+	if (!fg->fg_init_flag && !fg->onewire_init_flag)
 		return 0;
 
 	return !fg->fg_error;
@@ -278,7 +295,6 @@ enum mca_quick_charge_temp_para_ele {
 	MCA_FG_ITERM_PARA_MAX,
 };
 
-#line 3085
 static int strategy_parse_term_curr_para(struct device_node *node,
 	int batt_role, const char *name, struct strategy_fg *fg)
 {
@@ -291,7 +307,7 @@ static int strategy_parse_term_curr_para(struct device_node *node,
 		TEMP_PARA_MAX_GROUP,
 		MCA_FG_ITERM_PARA_MAX);
 	if (array_len < 0) {
-#line 3098
+#line 3570
 		mca_log_err("parse %s failed\n", name);
 		return -1;
 	}
@@ -299,7 +315,7 @@ static int strategy_parse_term_curr_para(struct device_node *node,
 	iterm_para->iterm_para_size = array_len / MCA_FG_ITERM_PARA_MAX;
 	iterm_para->iterm_data = kcalloc(iterm_para->iterm_para_size, sizeof(*iterm_data), GFP_KERNEL);
 	if (!iterm_para->iterm_data) {
-#line 3105
+#line 3577
 		mca_log_err("iterm para no mem\n");
 		return -ENOMEM;
 	}
@@ -333,7 +349,7 @@ static int strategy_parse_term_curr_para(struct device_node *node,
 	}
 
 	for (i = 0; i < iterm_para->iterm_para_size; i++)
-#line 3138
+#line 3610
 		mca_log_err("iterm para %d %d %d %d\n",
 			iterm_data[i].batt_temp, iterm_data[i].batt_temp_offset, iterm_data[i].normal_iterm,
 			iterm_data[i].ffc_iterm);
@@ -352,7 +368,6 @@ enum mca_fg_iterm_para_ele {
 };
 #define ITERM_PARA_MAX_GROUP 3
 
-#line 3150
 static int strategy_term_curr_parse_dt(struct strategy_fg *fg)
 {
 	struct device_node *node = fg->dev->of_node;
@@ -364,7 +379,7 @@ static int strategy_term_curr_parse_dt(struct strategy_fg *fg)
 		ITERM_PARA_MAX_GROUP,
 		MCA_FG_BATT_PARA_MAX);
 	if (array_len < 0) {
-#line 3166
+#line 3638
 		mca_log_err("parse batt_para failed\n");
 		return -1;
 	}
@@ -392,13 +407,13 @@ static int strategy_term_curr_parse_dt(struct strategy_fg *fg)
 	}
 
 	if (!fg->cfg.term_curr_data[FG_IC_MASTER].iterm_data) {
-#line 3193
+#line 3665
 		mca_log_err("parse master iterm para failed\n");
 		return -1;
 	}
 
 	if (!fg->cfg.term_curr_data[FG_IC_SLAVE].iterm_data) {
-#line 3198
+#line 3670
 		mca_log_err("parse slave iterm para failed\n");
 		return -1;
 	}
@@ -411,7 +426,7 @@ static int strategy_term_curr_parse_dt(struct strategy_fg *fg)
 #define STRATEGY_FG_SOC_PROPORTION_C 96
 #define STRATEGY_FG_DEFAULT_HIGH_TEMP_VTERM 4400
 
-static int strategy_fg_parse_extreme_cold_dt(struct strategy_fg *fg)
+static noinline int strategy_fg_parse_extreme_cold_dt(struct strategy_fg *fg)
 {
 	struct device_node *node = fg->dev->of_node;
 	int row, col, len;
@@ -420,7 +435,7 @@ static int strategy_fg_parse_extreme_cold_dt(struct strategy_fg *fg)
 	len = mca_parse_dts_string_array(node, "extreme_cold_temp_compemsation", data,
 		FG_EXTREME_COLD_MAX_GROUP, FG_EXTREME_COLD_SIZE);
 	if (len < 0) {
-#line 3056
+#line 3528
 		mca_log_err("parse extreme_cold_temp_compemsation failed\n");
 		return -1;
 	}
@@ -433,7 +448,7 @@ static int strategy_fg_parse_extreme_cold_dt(struct strategy_fg *fg)
 		fg->cfg.extreme_cold_para[row].temp_max = data[col];
 		col = row * FG_EXTREME_COLD_SIZE + FG_EXTREME_COLD_COMPENSATION;
 		fg->cfg.extreme_cold_para[row].compensation = data[col];
-#line 3068
+#line 3540
 		mca_log_err("extreme_cold_para[%d]: %d, %d, %d\n",
 			row, fg->cfg.extreme_cold_para[row].cycle_count_max,
 			fg->cfg.extreme_cold_para[row].temp_max,
@@ -443,7 +458,6 @@ static int strategy_fg_parse_extreme_cold_dt(struct strategy_fg *fg)
 	return 0;
 }
 
-#line 3200
 static int strategy_fg_parse_dt(struct strategy_fg *fg)
 {
 	struct device_node *node = fg->dev->of_node;
@@ -453,7 +467,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 	int soc_decimal[SOC_DECIMAL_MAX_LEVEL * SOC_DECIMAL_MAX] = { 0 };
 
 	if (!node) {
-#line 3214
+#line 3688
 		mca_log_err("No DT data Failing Probe\n");
 		return -EINVAL;
 	}
@@ -482,7 +496,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 	if (fg->support_normal_force_full)
 		ret |= mca_parse_dts_u32(node, "normal_force_full_hys", &(fg->cfg.normal_force_full_hys), 0);
 	if (ret) {
-#line 3242
+#line 3717
 		mca_log_err("strategy fg parse dt failed, ret=%d\n", ret);
 	}
 
@@ -490,7 +504,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 	if (fg->cfg.support_fl4p0) {
 		len = mca_parse_dts_u32_count(node, "fl4p0_ffc_safe_iterm", SAFE_ITERM_CYCLE_LEVEL, SAFE_ITERM_TEMP_LEVEL);
 		if (len < 0) {
-#line 3250
+#line 3725
 			mca_log_err("parse fl4p0_ffc_safe_iterm failed\n");
 			return -1;
 		}
@@ -501,13 +515,13 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 
 	len = mca_parse_dts_u32_count(node, "soc_decimal", SOC_DECIMAL_MAX_LEVEL, SOC_DECIMAL_MAX);
 	if (len < 0) {
-#line 3260
+#line 3735
 		mca_log_err("parse soc_decimal len failed\n");
 		return -1;
 	}
 	ret = mca_parse_dts_u32_array(node, "soc_decimal", soc_decimal, len);
 	if (ret < 0) {
-#line 3265
+#line 3740
 		mca_log_err("parse soc_decimal cfg failed\n");
 		return -1;
 	}
@@ -520,14 +534,14 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 
 	ret = mca_battery_shutdown_parse_dt(fg);
 	if (ret < 0) {
-#line 3277
+#line 3752
 		mca_log_err("parse battery shutdown failed %d\n", ret);
 		return ret;
 	}
 
 	ret = strategy_lossless_rechg_parse_dt(fg);
 	if (ret < 0) {
-#line 3283
+#line 3758
 		mca_log_err("parse lossless recharging failed %d\n", ret);
 		return 0;
 	}
@@ -536,7 +550,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 
 	ret = strategy_soc_smooth_parse_dt(fg);
 	if (ret < 0) {
-#line 3295
+#line 3770
 		mca_log_err("parse soc smooth failed %d\n", ret);
 		fg->smooth.suppot_RSOC_0_smooth = 0;
 		return 0;
@@ -544,7 +558,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 
 	ret = strategy_fg_parse_extreme_cold_dt(fg);
 	if (ret < 0) {
-#line 3302
+#line 3777
 		mca_log_err("parse extreme cold dt failed %d\n", ret);
 		return 0;
 	}
@@ -555,7 +569,7 @@ static int strategy_fg_parse_dt(struct strategy_fg *fg)
 	if (fg->cfg.fg_type != MCA_FG_TYPE_SINGLE) {
 		ret = strategy_term_curr_parse_dt(fg);
 		if (ret < 0) {
-#line 3312
+#line 3787
 			mca_log_err("parse iterm failed %d\n", ret);
 			return 0;
 		}
@@ -578,7 +592,7 @@ static int strategy_fg_get_dod_count(void *data, int *value)
 	int slave_dod_count;
 	int ret = 0;
 
-	if (!fg->support_dod_vcutoff)
+	if (!fg->support_dod_vcutoff && !fg->support_dod_vcutoff_v2)
 		return 0;
 
 	if (fg->fake_dod_count) {
@@ -604,7 +618,7 @@ static int strategy_fg_get_dod_count(void *data, int *value)
 		slave_dod_count = (fg->weight[WEIGHT_LEVEL_1] * slave_count_level1 +
 			fg->weight[WEIGHT_LEVEL_2] * slave_count_level2 +
 			fg->weight[WEIGHT_LEVEL_3] * slave_count_level3) / WEIGHT_SCALE;
-#line 616
+#line 640
 		mca_log_info("master_dod_count: %d, slave_dod_count:%d", *value, slave_dod_count);
 		*value = max(*value, slave_dod_count);
 	}
@@ -742,7 +756,7 @@ static int strategy_fg_ops_get_curr(void *data, int *curr)
 		return 0;
 	}
 
-	if (fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST) {
+	if (!fg->cfg.support_fast_mode_when_charging && fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST) {
 		*curr = fg->batt_current;
 		return 0;
 	}
@@ -789,7 +803,7 @@ static int strategy_fg_update_batt_volt(struct strategy_fg *fg)
 	if (!fg || !fg->fg_init_flag)
 		return -1;
 
-	if (fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST)
+	if (!fg->cfg.support_fast_mode_when_charging && fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST)
 		return 0;
 
 	switch (fg->cfg.fg_type) {
@@ -890,7 +904,6 @@ static bool strategy_fg_ops_get_charging_done(void *data)
 	return fg->charging_done;
 }
 
-#line 3350
 static int strategy_fg_ops_set_charging_done(void *data, bool charging_done)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -898,7 +911,7 @@ static int strategy_fg_ops_set_charging_done(void *data, bool charging_done)
 	if (!fg || !fg->fg_init_flag)
 		return -1;
 
-#line 3362
+#line 3985
 	mca_log_info("set charging_done: %d\n", charging_done);
 	if (charging_done) {
 		mca_vote(fg->en_voter, "term_recharge", true, 0);
@@ -910,11 +923,11 @@ static int strategy_fg_ops_set_charging_done(void *data, bool charging_done)
 		if (fg->is_eu_model) {
 			if (fg->batt_rsoc < 100) {
 				fg->en_smooth_full = true;
-#line 3373
+#line 3997
 				mca_log_info("charging_done start en_smooth_full\n");
 			} else {
 				fg->en_smooth_full = false;
-#line 3376
+#line 4000
 				mca_log_info("charging_done stop en_smooth_full\n");
 			}
 			fg->keep_full_flag = false;
@@ -937,7 +950,7 @@ static int strategy_fg_ops_set_charging_done(void *data, bool charging_done)
 		}
 
 		fg->charging_done_time = ktime_get_boottime_seconds();
-#line 3388
+#line 4015
 		mca_log_info("charging_done_time: %lld\n", fg->charging_done_time);
 	} else {
 		fg->charging_done = false;
@@ -948,7 +961,6 @@ static int strategy_fg_ops_set_charging_done(void *data, bool charging_done)
 	return 0;
 }
 
-#line 2880
 static int strategy_fg_ops_get_model_name(void *data, const char **model_name)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -964,12 +976,12 @@ static int strategy_fg_ops_get_model_name(void *data, const char **model_name)
 		platform_fg_ops_get_device_name(FG_IC_MASTER, &device_name);
 		if (device_name && !strncmp(device_name, "BP4U", 4)) {
 			*model_name = fg->cfg.model_name;
-#line 2896
+#line 3366
 			mca_log_info("project O3 matched BP4U, set cn model name\n");
 		} else if (device_name && (!strncmp(device_name, "BP4V", 4) || !strcmp("5XM31", device_name) ||
 			   !strncmp("5@BP", device_name, 4))) {
 			*model_name = fg->cfg.model_name_gl;
-#line 2900
+#line 3370
 			mca_log_info("Not cn project, set global model name\n");
 		} else {
 			*model_name = fg->cfg.model_name;
@@ -1011,7 +1023,7 @@ static int strategy_fg_ops_set_fastcharge(void *data, bool en)
 
 	if (!en && fg->cfg.fg_type != MCA_FG_TYPE_SINGLE && mca_is_override_vote_enabled(fg->vterm_voter)) {
 		mca_vote_override(fg->vterm_voter, "para_term", false, 0);
-#line 3446
+#line 4107
 		mca_log_err("cancel para_term vote\n");
 	}
 
@@ -1120,7 +1132,6 @@ static int strategy_fg_ops_get_temp_offset_flag(void *data, int *temp_offset_fla
 }
 
 #define DFS_CHECK_BATT_AUTH_TIME_SEC 300
-#line 2290
 static int fg_check_batt_auth(struct strategy_fg *fg)
 {
 	time64_t time_now;
@@ -1131,7 +1142,7 @@ static int fg_check_batt_auth(struct strategy_fg *fg)
 
 		time_now = ktime_get_boottime_seconds();
 		if (time_now > DFS_CHECK_BATT_AUTH_TIME_SEC) {
-#line 2299
+#line 2511
 			mca_log_err("check batt_auth: %d, time_now: %lld\n", fg->batt_auth, time_now);
 			checked = true;
 			if (fg->cfg.fg_type == MCA_FG_TYPE_PARALLEL) {
@@ -1139,7 +1150,7 @@ static int fg_check_batt_auth(struct strategy_fg *fg)
 					param = 0;
 					mca_charge_mievent_report(CHARGE_DFX_BATTERY_AUTH_FAIL_PARALLEL, &param, 1);
 				}
-#line 2306
+#line 2518
 				mca_log_err("check slave batt auth: %d, time_now: %lld\n", fg->batt_slave_auth, time_now);
 				if (!fg->batt_slave_auth) {
 					param = 1;
@@ -1154,8 +1165,8 @@ static int fg_check_batt_auth(struct strategy_fg *fg)
 	return 0;
 }
 
-#define STRATEGY_FG_STATUS_BATT_POWER_MATCH	0x12
-#define STRATEGY_FG_STATUS_FORCE_FULL_DONE	0x15
+#define STRATEGY_FG_STATUS_BATT_POWER_MATCH	0x15
+#define STRATEGY_FG_STATUS_FORCE_FULL_DONE	0x18
 
 static int strategy_fg_get_status(int status, void *value, void *data)
 {
@@ -1225,13 +1236,13 @@ static void strategy_fg_init_voter(struct strategy_fg *fg)
 
 #define STRATEGY_FG_WORK_INTERVAL_DTPT 5000
 
-#line 2600
 static void strategy_fg_dtpt_monitor_work(struct work_struct *work)
 {
 	struct strategy_fg *fg = container_of(work, struct strategy_fg, dtpt_monitor_work.work);
 	int master_isc_alert = 0, slave_isc_alert = 0, master_soa_alert = 0, slave_soa_alert = 0;
 	int interval = STRATEGY_FG_WORK_INTERVAL_DTPT;
 	static int last_dtpt_status;
+	static int last_isc_alert;
 	int dtpt_status = 0;
 
 	platform_fg_ops_get_isc_alert_level(FG_IC_MASTER, &master_isc_alert);
@@ -1244,8 +1255,28 @@ static void strategy_fg_dtpt_monitor_work(struct work_struct *work)
 	master_isc_alert = max(master_isc_alert, slave_isc_alert);
 	master_soa_alert = max(master_soa_alert, slave_soa_alert);
 
-#line 2617
+#line 2987
 	mca_log_info("isc_alert = %d, soa_alert = %d\n", master_isc_alert, master_soa_alert);
+
+	if (master_isc_alert != last_isc_alert) {
+		switch (master_isc_alert) {
+		case 0:
+			mca_charge_mievent_set_state(MIEVENT_STATE_END, 0x30);
+			mca_charge_mievent_set_state(MIEVENT_STATE_END, 0x31);
+			mca_charge_mievent_set_state(MIEVENT_STATE_END, 0x32);
+			break;
+		case 1:
+			mca_charge_mievent_report(0x30, &master_isc_alert, 1);
+			break;
+		case 2:
+			mca_charge_mievent_report(0x31, &master_isc_alert, 1);
+			break;
+		case 3:
+			mca_charge_mievent_report(0x32, &master_isc_alert, 1);
+			break;
+		}
+		last_isc_alert = master_isc_alert;
+	}
 
 	if (master_isc_alert == 3 || master_soa_alert)
 		dtpt_status = 1;
@@ -1270,7 +1301,7 @@ static void strategy_fl4p0_calibration_work(struct work_struct *work)
 
 	platform_fg_ops_get_real_supplement_energy(FG_IC_MASTER, &supplement_energy);
 	platform_fg_ops_get_calibration_charge_energy(FG_IC_MASTER, &charge_energy);
-#line 2642
+#line 3027
 	mca_log_info("supplement_energy = %d, charge_energy = %d", supplement_energy, charge_energy);
 	if (supplement_energy != 0xffff && supplement_energy < charge_energy &&
 	    fg->batt_temperature >= fg->calibration_temp - 50 && fg->batt_temperature <= fg->calibration_temp + 50) {
@@ -1278,7 +1309,7 @@ static void strategy_fl4p0_calibration_work(struct work_struct *work)
 		return;
 	}
 
-#line 2647
+#line 3032
 	mca_log_info("ok to calibration iterm");
 	strategy_class_fg_ops_set_charging_done(true);
 }
@@ -1290,16 +1321,17 @@ static void strategy_force_report_full_work(struct work_struct *work)
 	struct strategy_fg *fg = container_of(work, struct strategy_fg, force_report_full_work.work);
 	static int count;
 
-	if (fg->power_present && fg->fast_charge && !fg->charging_done) {
+	if (fg->power_present && fg->fast_charge && !fg->charging_done &&
+	    fg->batt_cyclecount < fg->cfg.drop_fv_cycle) {
 		if (fg->batt_rsoc == 100) {
 			count = 0;
-#line 2671
+#line 3057
 			mca_log_info("fg check report full ok");
 			return;
 		}
 
 		platform_fg_ops_set_force_report_full(FG_IC_MASTER);
-#line 2668
+#line 3054
 		mca_log_info("fg not report full, send force_report_full cmd again...");
 		count++;
 		if (count >= FG_FORCE_REPORT_FULL_TIMES) {
@@ -1332,7 +1364,7 @@ static void strategy_nvt1000_ota_monitor_work(struct work_struct *work)
 	}
 
 	if (fg->chg_status == POWER_SUPPLY_STATUS_FULL || fg->chg_status == POWER_SUPPLY_STATUS_CHARGING) {
-#line 2696
+#line 3082
 		mca_log_err("do not ota when charging\n");
 		update_count = 0;
 		return;
@@ -1340,7 +1372,7 @@ static void strategy_nvt1000_ota_monitor_work(struct work_struct *work)
 
 	platform_fg_ops_get_ota_update_flag(FG_IC_MASTER, &ota_flag);
 	if (ota_flag != NVT1000_OTA_NEED_FLAG) {
-#line 2703
+#line 3089
 		mca_log_err("already ota update done\n");
 		update_count = 0;
 		return;
@@ -1354,19 +1386,19 @@ static void strategy_nvt1000_ota_monitor_work(struct work_struct *work)
 	else
 		update_count = 0;
 
-#line 2715
+#line 3101
 	mca_log_err("cid_status = %d, batt_rsoc = %d, batt_temperature = %d, average_current = %d, update_count = %d",
 		cid_status, fg->batt_rsoc, fg->batt_temperature, average_current, update_count);
 
 	if (update_count >= NVT1000_OTA_UPDATE_COUNT) {
-#line 2719
+#line 3105
 		mca_log_err("start nvt1000 ota\n");
 		flag = 1;
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGE_STATUS, MCA_EVENT_FG_OTA_PROCESS, &flag);
 		platform_fg_ops_ota_update_check(FG_IC_MASTER);
 		flag = 0;
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGE_STATUS, MCA_EVENT_FG_OTA_PROCESS, &flag);
-#line 2725
+#line 3111
 		mca_log_err("end nvt1000 ota\n");
 		return;
 	}
@@ -1385,6 +1417,7 @@ struct fg_batt_abnormal_info {
 	int hcuv_info;
 	int hscd_count;
 	int hscd_info;
+	int more0, more1, more2, more3, more4, more5, more6, more7;	/* OS4 grew the structure by 32 bytes (fields unused here) */
 };
 
 static void strategy_batt_abnormal_dfx_work(struct work_struct *work)
@@ -1398,10 +1431,10 @@ static void strategy_batt_abnormal_dfx_work(struct work_struct *work)
 	charger_partition_read_ocd_count(&last_ocd_count, &last_hocd_count);
 	charger_partition_read_cuv_count(&last_cuv_count, &last_hcuv_count);
 	charger_partition_read_hscd_count(&last_hscd_count);
-#line 2748
+#line 3134
 	mca_log_info("last_ocd_count:%d, last_hocd_count:%d, last_cuv_count:%d, last_hcuv_count:%d, last_hscd_count:%d\n",
 		last_ocd_count, last_hocd_count, last_cuv_count, last_hcuv_count, last_hscd_count);
-#line 2750
+#line 3136
 	mca_log_info("ocd_count:%d, hocd_count:%d, cuv_count:%d, hcuv_count:%d, hscd_count:%d\n",
 		info.ocd_count, info.hocd_count, info.cuv_count, info.hcuv_count, info.hscd_count);
 
@@ -1441,7 +1474,6 @@ static void strategy_batt_abnormal_dfx_work(struct work_struct *work)
 #define MCA_EVENT_THERMAL_BOARD_TEMP_CHANGE 0x3e
 #define NTC_SCALE_BOARDTEMP 100
 
-#line 3840
 static int strategy_fg_panel_notifier_cb(struct notifier_block *nb, unsigned long event, void *val)
 {
 	struct strategy_fg *fg = container_of(nb, struct strategy_fg, panel_nb);
@@ -1450,9 +1482,12 @@ static int strategy_fg_panel_notifier_cb(struct notifier_block *nb, unsigned lon
 	switch (event) {
 	case MCA_EVENT_PANEL_SCREEN_STATE_CHANGE:
 		status = *(int *)val;
-#line 3844
+#line 4577
 		mca_log_info("update screen_state: %d => %d\n", fg->screen_status, status);
+		{ bool sup = fg->cfg.support_isc_li_plating;
 		fg->screen_status = !!status;
+		if (sup && status && fg->isc_det_2_info.isDetecting)
+			fg->isc_det_2_info.need_stop = true; }
 		break;
 	default:
 		break;
@@ -1475,7 +1510,6 @@ static int strategy_fg_thermal_notifier_cb(struct notifier_block *nb, unsigned l
 }
 
 #define MEAN_CUR_NUM 5
-#line 440
 static void strategy_fg_record_curr_mean(struct strategy_fg *fg)
 {
 	static int current_nums[MEAN_CUR_NUM] = {0};
@@ -1487,7 +1521,7 @@ static void strategy_fg_record_curr_mean(struct strategy_fg *fg)
 
 	current_nums[cur_num] = fg->batt_current;
 	cur_num = (cur_num + 1) % MEAN_CUR_NUM;
-#line 442
+#line 459
 	mca_log_debug("record_i:%d, record_cur [0]= %d, [1]= %d, [2]= %d, [3]= %d, [4]= %d\n",
 		cur_num, current_nums[0], current_nums[1], current_nums[2], current_nums[3], current_nums[4]);
 
@@ -1495,7 +1529,7 @@ static void strategy_fg_record_curr_mean(struct strategy_fg *fg)
 		sum = sum + current_nums[i];
 
 	fg->batt_current_mean = sum / MEAN_CUR_NUM;
-#line 449
+#line 466
 	mca_log_info("mean_cur:%d\n", fg->batt_current_mean);
 }
 
@@ -1528,7 +1562,6 @@ static int strategy_fg_set_cutoff_voltage(void *data, int value)
 	return 0;
 }
 
-#line 710
 static int strategy_fg_update_vcuttoff_voltage(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -1543,13 +1576,12 @@ static int strategy_fg_update_vcuttoff_voltage(void *data)
 
 	if (vcutoff_reg != fg->vcutoff_fw) {
 		strategy_fg_set_cutoff_voltage(fg, fg->vcutoff_fw);
-#line 717
+#line 743
 		mca_log_err("vcutoff_reg:%d, vcutoff_fw %d", vcutoff_reg, fg->vcutoff_fw);
 	}
 	return 0;
 }
 
-#line 722
 static int strategy_fg_check_extreme_cold_temp_compensation(struct strategy_fg *fg, int real_temp)
 {
 	int temp = real_temp;
@@ -1558,7 +1590,7 @@ static int strategy_fg_check_extreme_cold_temp_compensation(struct strategy_fg *
 		for (int i = 0; i < fg->cfg.extreme_cold_para_size; i++) {
 			if (fg->batt_cyclecount < fg->cfg.extreme_cold_para[i].cycle_count_max &&
 				real_temp < fg->cfg.extreme_cold_para[i].temp_max) {
-#line 730
+#line 756
 				mca_log_err("cc: %d, real_temp: %d, compensation: %d\n",
 					fg->batt_cyclecount, real_temp,
 					fg->cfg.extreme_cold_para[i].compensation);
@@ -1727,7 +1759,6 @@ static int strategy_fg_get_parallel_fcc(struct strategy_fg *fg)
 	return 0;
 }
 
-#line 1060
 static int strategy_fg_get_parallel_batt_info(struct strategy_fg *fg)
 {
 	int ret = 0;
@@ -1746,10 +1777,10 @@ static int strategy_fg_get_parallel_batt_info(struct strategy_fg *fg)
 
 	for (i = 0; i <= fg->cfg.fg_type; i++) {
 		batt_info = i ? fg->slave_batt_info : fg->master_batt_info;
-#line 1092
+#line 1120
 		mca_log_err("fg_index[%d], CURRENT:%d RSOC:%d VOLTAGE:%d TEMP:%d ORIGINAL_TEMP:%d\n",
 			i, batt_info.curr, batt_info.rsoc, batt_info.volt, batt_info.temp, batt_info.original_temp);
-#line 1094
+#line 1122
 		mca_log_info("fg_index[%d], CYCLECOUNT:%d S:%d RM:%d F:%d\n",
 			i, batt_info.cycle_count, batt_info.soh, batt_info.rm, batt_info.fcc);
 	}
@@ -1801,14 +1832,13 @@ static int strategy_fg_set_clear_count_data(struct strategy_fg *fg)
 	return ret;
 }
 
-#line 1150
 static void strategy_fg_report_battery_status_changed(struct strategy_fg *fg)
 {
 	static int last_soc, last_temp;
 	int batt_temp = fg->batt_temperature / 10;
 
 	if (fg->batt_ui_soc != last_soc || batt_temp != last_temp) {
-#line 1151
+#line 1179
 		mca_log_err("ui_soc: %d => %d, temp: %d => %d\n",
 			last_soc, fg->batt_ui_soc, last_temp, batt_temp);
 		last_soc = fg->batt_ui_soc;
@@ -1820,7 +1850,6 @@ static void strategy_fg_report_battery_status_changed(struct strategy_fg *fg)
 
 #define VBAT_DIFF_THRESHOLD 500
 #define VBAT_DIFF_CHECK_START_SEC 180
-#line 1990
 static void dfx_fg_check_vbat_diff(struct strategy_fg *fg)
 {
 	static bool check_started;
@@ -1831,7 +1860,7 @@ static void dfx_fg_check_vbat_diff(struct strategy_fg *fg)
 	if (!check_started) {
 		time_now = ktime_get_boottime_seconds();
 		if (time_now < VBAT_DIFF_CHECK_START_SEC)
-#line 1997
+#line 2121
 			mca_log_err("time_now: %lld\n", time_now);
 		else
 			check_started = true;
@@ -1841,7 +1870,7 @@ static void dfx_fg_check_vbat_diff(struct strategy_fg *fg)
 	diff = fg->master_batt_info.volt > fg->slave_batt_info.volt ?
 		fg->master_batt_info.volt - fg->slave_batt_info.volt :
 		fg->slave_batt_info.volt - fg->master_batt_info.volt;
-#line 2005
+#line 2129
 	mca_log_err("batt volt diff = %d\n", diff);
 	if (diff > VBAT_DIFF_THRESHOLD) {
 		vbat[0] = fg->master_batt_info.volt;
@@ -1876,13 +1905,12 @@ static int strategy_fg_ops_get_fastcharge(void *data)
 	if (!fg || !fg->fg_init_flag)
 		return 0;
 
-	if (fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST)
+	if (!fg->cfg.support_fast_mode_when_charging && fg->update_interval == STRATEGY_FG_WORK_INTERVAL_FAST)
 		return fg->fast_charge;
 
 	return strategy_fg_get_fast_charge(fg);
 }
 
-#line 2180
 static int mca_strategy_update_fg_info(struct strategy_fg *fg)
 {
 	static bool master_i2c_error;
@@ -1900,7 +1928,7 @@ static int mca_strategy_update_fg_info(struct strategy_fg *fg)
 	}
 
 	if (master_i2c_error == true && fg->power_present) {
-#line 2193
+#line 2405
 		mca_log_err("last master i2c error and slave i2c is ok, now dual i2c is ok, so set exit lowpower \n");
 		platform_class_loadsw_set_lowpower_mode(LOADSW_ROLE_MAIN, false);
 		master_i2c_error = false;
@@ -1918,7 +1946,7 @@ static int mca_strategy_update_fg_info(struct strategy_fg *fg)
 		fg->cyclecount_hundred = fg->batt_cyclecount / 100;
 		mca_charge_mievent_report(CHARGE_DFX_BATTERY_CYCLECOUNT, &fg->batt_cyclecount, 1);
 		if (fg->cfg.clear_CC_per_hundred) {
-#line 2211
+#line 2423
 			mca_log_err("clear_CC_per_hundred: %d\n", fg->cyclecount_hundred);
 			strategy_fg_set_clear_count_data(fg);
 		}
@@ -1941,7 +1969,7 @@ static int mca_strategy_update_fg_info(struct strategy_fg *fg)
 		int master_raw_soc = fg->master_batt_info.rm * 10 / (fg->master_batt_info.fcc / 1000);
 		int slave_raw_soc = fg->slave_batt_info.rm * 10 / (fg->slave_batt_info.fcc / 1000);
 		fg->batt_raw_soc = (master_raw_soc * master_weight + slave_raw_soc * slave_weight + 50) / 100;
-#line 2231
+#line 2443
 		mca_log_info("master_rate:%d, slave_rate:%d, master_raw_soc:%d, slave_raw_soc:%d\n",
 			master_weight, slave_weight, master_raw_soc, slave_raw_soc);
 	} else {
@@ -1966,14 +1994,13 @@ enum mievent_battery_temp_abnormal_ele {
 	MIEVENT_BATTERY_TEMP_PARAM_MAX,
 };
 
-#line 2260
 static int fg_abnormal_temp_notify_mievent(struct strategy_fg *fg)
 {
 	int param[MIEVENT_BATTERY_TEMP_PARAM_MAX] = {0};
 
 	if (fg->batt_temperature <= BATTERY_TEMP_HOT_THRESHOLD &&
 		fg->batt_temperature >= BATTERY_TEMP_COLD_THRESHOLD) {
-#line 2271
+#line 2483
 		mca_log_info("battery temp normal ignore");
 		return 0;
 	}
@@ -2020,7 +2047,6 @@ static int fg_update_batt_health(struct strategy_fg *fg)
 	return 0;
 }
 
-#line 1180
 static void strategy_fg_report_batt_ov(struct strategy_fg *fg)
 {
 	unsigned int chg_status;
@@ -2042,14 +2068,13 @@ static void strategy_fg_report_batt_ov(struct strategy_fg *fg)
 	if (chg_status < 5 || chg_status == 8) {
 		vterm = mca_get_effective_result(fg->vterm_voter);
 		if (fg->batt_voltage >= vterm - 10) {
-#line 1190
+#line 1218
 			mca_log_err("batt_voltage: %d, fg_ov_voltage: %d\n", fg->batt_voltage, vterm - 10);
 			mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, 0x4b, 1);
 		}
 	}
 }
 
-#line 2360
 static int fg_update_status(struct strategy_fg *fg, bool prohibit_jump)
 {
 	static bool last_fg_error;
@@ -2065,13 +2090,13 @@ static int fg_update_status(struct strategy_fg *fg, bool prohibit_jump)
 
 	ret = mca_strategy_update_fg_info(fg);
 	if (fg->fg_error != last_fg_error) {
-#line 2367
+#line 2579
 		mca_log_err("fg_error:%d\n", fg->fg_error);
 		last_fg_error = fg->fg_error;
 		mca_strategy_func_process(STRATEGY_FUNC_TYPE_BMD, 0x50, fg->fg_error);
 	}
 	if (ret || fg->fg_error) {
-#line 2373
+#line 2585
 		mca_log_err("get batt info fail\n");
 		return -1;
 	}
@@ -2090,10 +2115,10 @@ static int fg_update_status(struct strategy_fg *fg, bool prohibit_jump)
 
 	fg_abnormal_temp_notify_mievent(fg);
 
-#line 2392
+#line 2607
 	mca_log_err("UISOC:%d CURRENT:%d RSOC:%d VOLTAGE:%d TEMP:%d PVBAT:%d PIBAT:%d PTBAT:%d HEALTH:%d\n",
 		fg->batt_ui_soc, fg->batt_current, fg->batt_rsoc, fg->batt_voltage, fg->batt_temperature, fg->pvbat, fg->pibat, fg->ptbat, fg->batt_health);
-#line 2394
+#line 2609
 	mca_log_info("CC:%d S:%d RM:%d F:%d RAWSOC:%d, DODCOUNT:%d\n",
 		fg->batt_cyclecount, fg->batt_soh, fg->batt_rm, fg->batt_fcc, fg->batt_raw_soc, fg->dod_count);
 
@@ -2107,7 +2132,6 @@ static int fg_update_status(struct strategy_fg *fg, bool prohibit_jump)
 #define STRATEGY_FG_DEFAULT_ITERM 250
 #define STRATEGY_FG_DEFAULT_VTERM 4400
 
-#line 1215
 static int mca_strategy_check_sigle_termination(struct strategy_fg *fg)
 {
 	static int count;
@@ -2147,7 +2171,7 @@ static int mca_strategy_check_sigle_termination(struct strategy_fg *fg)
 			mca_vote_override(fg->buck_input_voter, "pmic_temp_term", false, 0);
 		}
 		strategy_class_fg_ops_set_charging_done(true);
-#line 1235
+#line 1263
 		mca_log_err("vterm: %d, iterm: %d, vbat: %d, ibat: %d, pvbat: %d, chgr_status: %d, charging_done: %d\n",
 			vterm, iterm, fg->batt_voltage, fg->batt_current, fg->pvbat, chgr_status, fg->charging_done);
 	} else if (-fg->batt_current / 1000 < soft_iterm && fg->batt_voltage >= soft_vterm) {
@@ -2160,7 +2184,7 @@ static int mca_strategy_check_sigle_termination(struct strategy_fg *fg)
 			}
 			strategy_class_fg_ops_set_charging_done(true);
 		}
-#line 1247
+#line 1275
 		mca_log_err("soft_vterm: %d, soft_iterm: %d, vbat: %d, ibat: %d, pvbat: %d, count: %d, charging_done: %d\n",
 			soft_vterm, soft_iterm, fg->batt_voltage, fg->batt_current, fg->pvbat, count, fg->charging_done);
 	} else {
@@ -2173,7 +2197,6 @@ static int mca_strategy_check_sigle_termination(struct strategy_fg *fg)
 
 #define MCA_EVENT_QUICK_CHARGE_PMIC_TERM 0x3d
 
-#line 1700
 static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, int fg_index)
 {
 	int force_iterm, force_vterm;
@@ -2229,14 +2252,14 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 	}
 
 
-#line 1708
+#line 1757
 	mca_log_info("fg_index[%d], vterm: %d, iterm: %d, force_iterm: %d, force_vterm: %d, start_force_full: %d\n",
 		fg_index, vterm, iterm, force_iterm, force_vterm, fg->dual_force_full[fg_index]);
 
 	if (fg->power_present && (batt_info.temp < 480) && !fg->charging_done &&
 	    -batt_info.curr / 1000 < force_iterm && batt_info.volt > force_vterm && !fg->dual_force_full[fg_index]) {
 		force_full_count[fg_index]++;
-#line 1714
+#line 1763
 		mca_log_err("force_full_count[%d] =  %d", fg_index, force_full_count[fg_index]);
 		if (force_full_count[fg_index] >= count) {
 			if (!fg->wls_online && fg->cfg.support_base_flip && !fg->fg1_batt_ctr_enabled &&
@@ -2248,7 +2271,7 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 						MCA_EVENT_QUICK_CHARGE_PMIC_TERM, fg->dual_iterm[1]);
 					force_full_count[0] = 0;
 					fg->base_batt_close = true;
-#line 1725
+#line 1774
 					mca_log_err("switch to pmic termination\n");
 					return;
 				}
@@ -2257,7 +2280,7 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 			platform_fg_ops_set_force_report_full(fg_index);
 			force_full_count[fg_index] = 0;
 			fg->dual_force_full[fg_index] = true;
-#line 1733
+#line 1782
 			mca_log_err("start report full");
 			if (fg->self_equal_flag[fg_index]) {
 				fg->self_equal_count[fg_index]++;
@@ -2265,7 +2288,7 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 					fg->self_equal_count[fg_index] = false;
 					fg->self_equal_flag[fg_index] = false;
 				}
-#line 1741
+#line 1790
 				mca_log_err("start equal report full, self_equal_count[fg_index]: %d", fg_index, fg->self_equal_count[fg_index]);
 			} else {
 				fg->self_equal_count[fg_index] = false;
@@ -2277,10 +2300,9 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 	}
 }
 
-#line 1800
 static void mca_strategy_start_recharging(struct strategy_fg *fg)
 {
-#line 1808
+#line 1873
 	mca_log_err("start to recharging\n");
 	strategy_class_fg_ops_set_charging_done(false);
 	strategy_class_fg_set_fastcharge(false);
@@ -2288,9 +2310,12 @@ static void mca_strategy_start_recharging(struct strategy_fg *fg)
 	mca_vote(fg->en_voter, "term_recharge", false, 0);
 
 	mca_mod_delayed_work(&fg->monitor_work, msecs_to_jiffies(1000));
+	if (!fg->cfg.fg_type && fg->cfg.support_isc_li_plating) {
+		cancel_delayed_work_sync(&fg->isc_detect_work);
+		stop_isc_detect_work(&fg->isc_det_info);
+	}
 }
 
-#line 1850
 static int mca_strategy_get_ffc_safe_item(struct strategy_fg *fg)
 {
 	int temp_index = 0, cycle_index = 0;
@@ -2335,7 +2360,7 @@ static int mca_strategy_get_fl4p0_iterm(struct strategy_fg *fg)
 	platform_fg_ops_get_calibration_ffc_iterm(FG_IC_MASTER, &calibration_ffc_iterm);
 	iterm = max(safe_item, calibration_ffc_iterm);
 
-#line 1881
+#line 2004
 	mca_log_info("safe_item: %d, calibration_ffc_iterm: %d, iterm: %d\n", safe_item, calibration_ffc_iterm, iterm);
 
 	return iterm;
@@ -2369,6 +2394,8 @@ static struct mca_sysfs_attr_info strategy_fg_sysfs_field_tbl[] = {
 	mca_sysfs_attr_ro(strategy_fg_sysfs, 0440, FG_PROP_CALC_RVALUE, calc_rvalue),
 	mca_sysfs_attr_ro(strategy_fg_sysfs, 0440, FG_PROP_MANUFACTURING_DATE, manufacturing_date),
 	mca_sysfs_attr_rw(strategy_fg_sysfs, 0664, FG_PROP_FIRST_USAGE_DATE, first_usage_date),
+	mca_sysfs_attr_ro(strategy_fg_sysfs, 0440, FG_PROP_I_AVER_GEAR, i_aver_gear),
+	mca_sysfs_attr_ro(strategy_fg_sysfs, 0440, FG_PROP_SILOSS_GEAR, siloss_gear),
 };
 
 #define FG_ATTRS_SIZE ARRAY_SIZE(strategy_fg_sysfs_field_tbl)
@@ -2390,7 +2417,6 @@ static void strategy_fg_sysfs_remove_group(struct device *dev)
 	mca_sysfs_remove_link_group("fuelgauge", "strategy_fg", dev, &strategy_fg_sysfs_attr_group);
 }
 
-#line 3410
 static int strategy_fg_check_battery_adapt_power(void *data, int *match)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -2416,11 +2442,11 @@ static int strategy_fg_check_battery_adapt_power(void *data, int *match)
 					adapt_power = -1;
 			}
 		}
-#line 3423
+#line 4084
 		mca_log_info("check battery adapt_power: %d, read value %d\n", fg->cfg.adapt_power, adapt_power);
 		*match = fg->cfg.adapt_power == adapt_power;
 	}
-#line 3426
+#line 4087
 	mca_log_info("%s: fake_bap_match: %d, match %d\n", __func__, fg->fake_bap_match, *match);
 
 	return ret;
@@ -2434,7 +2460,6 @@ static void strategy_fg_ops_get_single_soh_new(struct strategy_fg *fg, int *soh_
 	*soh_new = master_ui_soh;
 }
 
-#line 640
 static void strateg_fg_ops_get_parallel_soh_new(struct strategy_fg *fg, int *soh_new)
 {
 	int master_ui_soh = 0, slave_ui_soh = 0;
@@ -2457,7 +2482,7 @@ static void strateg_fg_ops_get_parallel_soh_new(struct strategy_fg *fg, int *soh
 	}
 
 	*soh_new = (master_ui_soh * master_cap + slave_ui_soh * slave_cap) / (master_cap + slave_cap);
-#line 651
+#line 675
 	mca_log_info("master_cap=%d, slave_cap=%d, master_ui_soh=%d, slave_ui_soh=%d, soh_new=%d\n",
 		master_cap, slave_cap, master_ui_soh, slave_ui_soh, *soh_new);
 }
@@ -2479,7 +2504,6 @@ static int strategy_fg_get_soh_new(struct strategy_fg *fg, int *soh_new)
 	return 0;
 }
 
-#line 670
 static unsigned long strateg_fg_ops_get_parallel_calc_rvalue(struct strategy_fg *fg)
 {
 	unsigned long master_rvalue, slave_rvalue, rvalue;
@@ -2488,7 +2512,7 @@ static unsigned long strateg_fg_ops_get_parallel_calc_rvalue(struct strategy_fg 
 	slave_rvalue = platform_fg_ops_get_calc_rvalue(FG_IC_SLAVE);
 
 	rvalue = (master_rvalue > slave_rvalue) ? master_rvalue : slave_rvalue;
-#line 680
+#line 704
 	mca_log_info("rvalue=%d, master_rvalue=%d, slave_rvalue=%d\n",
 		rvalue, master_rvalue, slave_rvalue);
 
@@ -2512,17 +2536,15 @@ static unsigned long strategy_fg_get_calc_rvalue(struct strategy_fg *fg)
 
 #define FG_DATE_LEN 8
 
-#line 2020
 static void strategy_fg_get_parallel_manufacturing_date(struct strategy_fg *fg, unsigned char *manufacturing_date)
 {
-	unsigned char date[FG_IC_MAX][FG_DATE_LEN] = {0};
+	unsigned char date[FG_IC_MAX][FG_DATE_LEN + 1] = {0};
 	bool master_empty = true, slave_empty = true;
 	bool choose_slave = false;
 	int i;
 
 	platform_fg_ops_get_manufacturing_date(FG_IC_MASTER, date[FG_IC_MASTER]);
 	platform_fg_ops_get_manufacturing_date(FG_IC_SLAVE, date[FG_IC_SLAVE]);
-#line 2027
 	mca_log_err("get parallel_manufacturing_date fail: fg_master is %s fg_slave is %s\n", date[FG_IC_MASTER], date[FG_IC_SLAVE]);
 
 	for (i = 0; i < FG_DATE_LEN; i++) {
@@ -2544,7 +2566,7 @@ static void strategy_fg_get_parallel_manufacturing_date(struct strategy_fg *fg, 
 	for (i = 3; i < FG_DATE_LEN; i++) {
 		if (date[FG_IC_MASTER][i] != date[FG_IC_SLAVE][i]) {
 			choose_slave = date[FG_IC_MASTER][i] >= date[FG_IC_SLAVE][i];
-#line 2046
+#line 2170
 			mca_log_info(" Warning: inconsistent fg_master is %s fg_slave is %s, choose %d\n", date[FG_IC_MASTER], date[FG_IC_SLAVE], choose_slave);
 			break;
 		}
@@ -2572,36 +2594,30 @@ static int mca_strategy_get_manufacturing_date(struct strategy_fg *fg, unsigned 
 
 static void strategy_fg_get_parallel_first_usage_date(struct strategy_fg *fg, unsigned char *first_usage_date)
 {
-	unsigned char date[FG_IC_MAX][FG_DATE_LEN] = {0};
+	/* 9-byte buffers (8 digits + NUL): the OS4 stock zeroes 18 bytes and reads the slave date at +9 */
+	unsigned char date[FG_IC_MAX][FG_DATE_LEN + 1] = {0};
 	bool master_valid, slave_valid;
-	int i;
+	int i, idx = 0;
 
 	platform_fg_ops_get_first_usage_date(FG_IC_MASTER, date[FG_IC_MASTER]);
 	platform_fg_ops_get_first_usage_date(FG_IC_SLAVE, date[FG_IC_SLAVE]);
 	master_valid = memcmp(date[FG_IC_MASTER], "99999999", FG_DATE_LEN) != 0;
 	slave_valid = memcmp(date[FG_IC_SLAVE], "99999999", FG_DATE_LEN) != 0;
 
-	if (!master_valid && !slave_valid) {
+	if (master_valid && slave_valid) {
+		for (i = 0; i < FG_DATE_LEN; i++) {
+			if (date[FG_IC_MASTER][i] != date[FG_IC_SLAVE][i])
+				break;
+		}
+		if (!(i == FG_DATE_LEN || date[FG_IC_MASTER][i] > date[FG_IC_SLAVE][i]))
+			idx = 1;
+	} else if (!master_valid && !slave_valid) {
 		memcpy(first_usage_date, "99999999", FG_DATE_LEN);
 		return;
+	} else {
+		idx = slave_valid;
 	}
-	if (!master_valid) {
-		memcpy(first_usage_date, date[FG_IC_SLAVE], FG_DATE_LEN);
-		return;
-	}
-	if (!slave_valid) {
-		memcpy(first_usage_date, date[FG_IC_MASTER], FG_DATE_LEN);
-		return;
-	}
-
-	for (i = 0; i < FG_DATE_LEN; i++) {
-		if (date[FG_IC_MASTER][i] != date[FG_IC_SLAVE][i])
-			break;
-	}
-	if (i == FG_DATE_LEN || date[FG_IC_MASTER][i] > date[FG_IC_SLAVE][i])
-		memcpy(first_usage_date, date[FG_IC_MASTER], FG_DATE_LEN);
-	else
-		memcpy(first_usage_date, date[FG_IC_SLAVE], FG_DATE_LEN);
+	memcpy(first_usage_date, date[idx], FG_DATE_LEN);
 }
 
 static int mca_strategy_get_first_usage_date(struct strategy_fg *fg, unsigned char *first_usage_date)
@@ -2622,10 +2638,9 @@ static int mca_strategy_get_first_usage_date(struct strategy_fg *fg, unsigned ch
 	return 0;
 }
 
-#line 395
 static void strategy_fg_set_fake_soc(struct strategy_fg *fg, int val)
 {
-#line 400
+#line 417
 	mca_log_err("set fake_soc: %d\n", val);
 	if (val == STRATEGY_FG_FAKE_SOC_NONE || (val >= 0 && val <= 100)) {
 		if (val != fg->fake_soc) {
@@ -2639,7 +2654,7 @@ static void strategy_fg_set_fake_soc(struct strategy_fg *fg, int val)
 
 static void strategy_fg_set_fake_temp(struct strategy_fg *fg, int val)
 {
-#line 415
+#line 432
 	mca_log_err("set fake_temp: %d\n", val);
 	if (val != fg->fake_temp) {
 		fg->fake_temp = val;
@@ -2676,7 +2691,6 @@ static void strategy_fg_reset_co_to_default(struct strategy_fg *fg)
 	mca_vote(fg->flip_fcc_voter, "base_close_curr", false, 0);
 }
 
-#line 1270
 static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 {
 	int ret = 0;
@@ -2687,13 +2701,13 @@ static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 
 	ret = platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &chgr_status);
 	if (ret) {
-#line 1288
+#line 1320
 		mca_log_err("get chg status fail");
 		return ret;
 	}
 	ret |= platform_fg_ops_get_rsoc(FG_IC_MASTER, &rsoc_master);
 	ret |= platform_fg_ops_get_rsoc(FG_IC_SLAVE, &rsoc_slave);
-#line 1293
+#line 1325
 	mca_log_err("fg_master_rsoc:%d, fg_slave_rsoc:%d", rsoc_master, rsoc_slave);
 	/* monitor battery to avoid locking */
 	if (fg->fg1_batt_ctr_enabled || fg->fg2_batt_ctr_enabled || fg->fg_lock_flag) {
@@ -2721,7 +2735,7 @@ static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 
 	ret |= platform_fg_ops_get_fc(FG_IC_MASTER, &fc_master);
 	ret |= platform_fg_ops_get_fc(FG_IC_SLAVE, &fc_slave);
-#line 1328
+#line 1360
 	mca_log_err("fc_master:%d, fc_slave:%d", fc_master, fc_slave);
 	if (!fg->fg1_batt_ctr_enabled && !fg->fg2_batt_ctr_enabled) {
 		if (fg->lossless_recharge) {
@@ -2729,13 +2743,13 @@ static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 				ret |= platform_fg_ops_set_co(FG_IC_MASTER, true);
 				fg->fg1_batt_ctr_enabled = true;
 				fg->first_termination = false;
-#line 1335
+#line 1367
 				mca_log_err("FG_MASTER lossless_recharge_full is 1");
 			} else if (fg->dual_force_full[FG_IC_SLAVE]) {
 				ret |= platform_fg_ops_set_co(FG_IC_SLAVE, true);
 				fg->fg2_batt_ctr_enabled = true;
 				fg->first_termination = false;
-#line 1340
+#line 1372
 				mca_log_err("FG_SLAVE lossless_recharge_full is 1");
 			}
 		} else {
@@ -2743,13 +2757,13 @@ static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 				ret |= platform_fg_ops_set_co(FG_IC_MASTER, true);
 				fg->fg1_batt_ctr_enabled = true;
 				fg->first_termination = true;
-#line 1347
+#line 1379
 				mca_log_err("FG_MASTER FC is 1");
 			} else if (fc_slave == true && !fg->fg_lock_flag) {
 				ret |= platform_fg_ops_set_co(FG_IC_SLAVE, true);
 				fg->fg2_batt_ctr_enabled = true;
 				fg->first_termination = true;
-#line 1352
+#line 1384
 				mca_log_err("FG_SLAVE FC is 1");
 			}
 		}
@@ -2758,7 +2772,6 @@ static int mca_strategy_parallel_first_termination(struct strategy_fg *fg)
 	return ret;
 }
 
-#line 1370
 static int strategy_fg_get_term_current_new(struct strategy_fg *fg, int fg_index)
 {
 	static int last_temp_index[FG_IC_MAX] = {-1, -1};
@@ -2772,7 +2785,7 @@ static int strategy_fg_get_term_current_new(struct strategy_fg *fg, int fg_index
 			break;
 	}
 	temp_index = i < 0 ? 0 : i;
-#line 1382
+#line 1425
 	mca_log_info("fg[%d] temp_index %d, last_index %d", fg_index, temp_index, last_temp_index[fg_index]);
 	if (last_temp_index[fg_index] != -1 && temp_index < last_temp_index[fg_index]) {
 		struct term_curr_data *last = &term_curr_data->iterm_data[last_temp_index[fg_index]];
@@ -2784,7 +2797,7 @@ static int strategy_fg_get_term_current_new(struct strategy_fg *fg, int fg_index
 	}
 	last_temp_index[fg_index] = temp_index;
 	fg->temp_offset_flags[fg_index] = temp_offset_flag;
-#line 1392
+#line 1435
 	mca_log_info("temp_offset_flag[%d]: %d", fg_index, temp_offset_flag);
 
 	if (fg->fast_charge)
@@ -2792,7 +2805,6 @@ static int strategy_fg_get_term_current_new(struct strategy_fg *fg, int fg_index
 	return term_curr_data->iterm_data[temp_index].normal_iterm;
 }
 
-#line 1430
 static int strategy_fg_check_parallel_termination(struct strategy_fg *fg)
 {
 	static bool last_first_termination;
@@ -2833,12 +2845,12 @@ static int strategy_fg_check_parallel_termination(struct strategy_fg *fg)
 				if (!fg->fast_charge)
 					add = 0;
 				vterm_target = vterm + add;
-#line 1444
+#line 1487
 				mca_log_err("last_first_termination:vterm_target:%d", vterm_target);
 				if (vterm_target != vterm || fg->base_batt_close)
 					mca_vote_override(fg->vterm_voter, "para_term", true, vterm_target);
 			} else {
-#line 1448
+#line 1491
 				mca_log_err("last_first_termination: clean para_term");
 				mca_vote_override(fg->vterm_voter, "para_term", false, 0);
 			}
@@ -2848,7 +2860,7 @@ static int strategy_fg_check_parallel_termination(struct strategy_fg *fg)
 	/* setting dual battery term current */
 	for (i = 0; i < FG_IC_MAX; i++) {
 		fg->dual_iterm[i] = strategy_fg_get_term_current_new(fg, i);
-#line 1457
+#line 1500
 		mca_log_err("fg_index: %d, last_term: %d, dual_iterm :%d\n", i, last_term[i], fg->dual_iterm[i]);
 		if (last_term[i] != fg->dual_iterm[i])
 			last_term[i] = fg->dual_iterm[i];
@@ -2877,7 +2889,7 @@ static int strategy_fg_check_parallel_termination(struct strategy_fg *fg)
 			mca_vote(fg->iterm_voter, "high_temp_para", false, 0);
 	}
 
-#line 1487
+#line 1530
 	mca_log_info("final_term_curr:%d", final_term_curr);
 	if (final_term_curr != fg->last_final_term_curr) {
 		mca_vote(fg->iterm_voter, "para_term", true, final_term_curr);
@@ -2908,7 +2920,6 @@ static int mca_strategy_check_termination(struct strategy_fg *fg)
 	return ret;
 }
 
-#line 1550
 static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 {
 	int force_iterm, force_vterm;
@@ -2947,7 +2958,7 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 			fg->done_force_full = false;
 			start_force_full_time = 0;
 		}
-#line 1565
+#line 1610
 		mca_log_info("vterm=%d, return for vetrm abormal", vterm);
 		return;
 	}
@@ -2964,7 +2975,7 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 		}
 	} else {
 		if (fg->fast_charge && quick_charge_status == MCA_QUICK_CHG_STS_CHARGING) {
-#line 1580
+#line 1625
 			mca_log_info("wire quick charge force full state");
 			if (online) {
 				mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_QUICK_WIRELESS,
@@ -2977,12 +2988,12 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 				quick_charge_jeita_iterm;
 			force_vterm = vterm - fg->cfg.fast_force_full_vol_delta;
 		} else if (fg->fast_charge) {
-#line 1596
+#line 1641
 			mca_log_info("PMIC FFC force full state");
 			force_iterm = iterm * (iterm > 3000 ? 113 : 124) / 100;
 			force_vterm = vterm - fg->cfg.fast_force_full_vol_delta;
 		} else {
-#line 1604
+#line 1649
 			mca_log_info("wire normal charge force full state");
 			force_iterm = iterm + 120;
 			force_vterm = vterm - 15;
@@ -2990,10 +3001,10 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 	}
 
 	count_threshold = fg->fast_charge ? 3 : 2;
-#line 1613
+#line 1657
 	mca_log_info("terminated_by_cp = %d, force_iterm = %d, force_vterm = %d, start_force_full = %d",
 		fg->cfg.terminated_by_cp, force_iterm, force_vterm, fg->start_force_full);
-#line 1614
+#line 1659
 	mca_log_info("count_threshold = %d, fg->fast_charge = %d", count_threshold, fg->fast_charge);
 
 	if (fg->charging_done)
@@ -3001,14 +3012,14 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 
 	if (-fg->batt_current / 1000 < force_iterm && fg->batt_voltage > force_vterm && !fg->start_force_full) {
 		force_full_count++;
-#line 1619
+#line 1664
 		mca_log_info("force_full_count = %d", force_full_count);
 		if (force_full_count >= count_threshold) {
 			platform_fg_ops_set_force_report_full(FG_IC_MASTER);
 			force_full_count = 0;
 			fg->start_force_full = true;
 			start_force_full_time = ktime_get_boottime_seconds();
-#line 1625
+#line 1670
 			mca_log_info("force fw report full start_force_full_time = %d", start_force_full_time);
 			schedule_delayed_work(&fg->force_report_full_work, msecs_to_jiffies(8000));
 		}
@@ -3016,7 +3027,7 @@ static void mca_strategy_single_force_fw_report_full(struct strategy_fg *fg)
 		force_full_count = 0;
 		if (start_force_full_time) {
 			cur_time = ktime_get_boottime_seconds() - start_force_full_time;
-#line 1632
+#line 1677
 			mca_log_info("force fw report full cur_time = %d", cur_time);
 			if (cur_time >= 7) {
 				start_force_full_time = 0;
@@ -3033,7 +3044,6 @@ reset:
 	start_force_full_time = 0;
 }
 
-#line 1760
 static void strategy_fg_check_parallel_force_fw_report_full(struct strategy_fg *fg)
 {
 	int soh_diff, cycle_diff;
@@ -3053,7 +3063,7 @@ static void strategy_fg_check_parallel_force_fw_report_full(struct strategy_fg *
 			else
 				fg->self_equal_flag[1] = true;
 		}
-#line 1775
+#line 1824
 		mca_log_info("soh_diff: %d, cycle_diff: %d", soh_diff, cycle_diff);
 	}
 
@@ -3085,7 +3095,6 @@ static int mca_strategy_force_fw_report_full(struct strategy_fg *fg)
 }
 
 #define EU_RECHARGER_SOC 95
-#line 1815
 static int mca_strategy_check_recharge(struct strategy_fg *fg)
 {
 	if (!fg || !fg->power_present || !fg->charging_done || fg->recharging)
@@ -3094,13 +3103,13 @@ static int mca_strategy_check_recharge(struct strategy_fg *fg)
 	if (!fg->is_eu_model) {
 		if (fg->batt_raw_soc <= fg->cfg.report_full_raw_soc) {
 			mca_strategy_start_recharging(fg);
-#line 1826
+#line 1900
 			mca_log_err("ok to recharging, raw_soc: %d\n", fg->batt_raw_soc);
 		}
 	} else {
 		if (fg->batt_ui_soc < EU_RECHARGER_SOC) {
 			mca_strategy_start_recharging(fg);
-#line 1831
+#line 1905
 			mca_log_err("eu start recharging ui_soc: %d rsoc:%d\n", fg->batt_ui_soc, fg->batt_rsoc);
 		}
 	}
@@ -3108,7 +3117,6 @@ static int mca_strategy_check_recharge(struct strategy_fg *fg)
 	return 0;
 }
 
-#line 1895
 static void mca_strategy_check_fl4p0_status(struct strategy_fg *fg)
 {
 	static int count;
@@ -3133,7 +3141,7 @@ static void mca_strategy_check_fl4p0_status(struct strategy_fg *fg)
 			count = 0;
 			fg->ffc_continue_charge = true;
 		}
-#line 1910
+#line 2033
 		mca_log_info("vterm: %d, iterm: %d, vbat: %d, ibat: %d", vterm, iterm, fg->batt_voltage, fg->batt_current);
 	} else {
 		count = 0;
@@ -3143,11 +3151,11 @@ static void mca_strategy_check_fl4p0_status(struct strategy_fg *fg)
 		fg->calibration_temp = fg->batt_temperature;
 		platform_fg_ops_get_real_supplement_energy(FG_IC_MASTER, &real_supplement_energy);
 		if (real_supplement_energy == 0xFFFF) {
-#line 1919
+#line 2042
 			mca_log_info("ok to calibration iterm");
 			strategy_class_fg_ops_set_charging_done(true);
 		} else {
-#line 1922
+#line 2045
 			mca_log_info("continue calibration");
 			schedule_delayed_work(&fg->fl4p0_calibration_work, 0);
 		}
@@ -3155,7 +3163,6 @@ static void mca_strategy_check_fl4p0_status(struct strategy_fg *fg)
 }
 
 #define EU_LOSSES_START_CYCLECOUNT 300
-#line 1940
 static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 {
 	static ktime_t last_time;
@@ -3171,7 +3178,7 @@ static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 	if (fg->is_eu_model) {
 		if (fg->batt_cyclecount <= EU_LOSSES_START_CYCLECOUNT) {
 			fg->lossless_recharge = false;
-#line 1944
+#line 2067
 			mca_log_info("eu model CycleCount Too Low Disable\n");
 			return 0;
 		}
@@ -3180,14 +3187,14 @@ static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 	if (!fg->input_suppend_voter)
 		fg->input_suppend_voter = mca_find_votable("input_suspend");
 	if (fg->input_suppend_voter && mca_get_effective_result(fg->input_suppend_voter)) {
-#line 1952
+#line 2075
 		mca_log_info("set input_suspend, skip check_lossless_recharge \n");
 		return 0;
 	}
 
 	time_diff = ktime_to_ms(ktime_sub(time_now, last_time));
 	time_diff /= 1000;
-#line 1958
+#line 2081
 	mca_log_info("time_now: %ld, last_time: %ld, time_diff: %ld\n", time_now, last_time, time_diff);
 
 	(void)strategy_class_fg_ops_get_temperature(&batt_temp);
@@ -3204,13 +3211,13 @@ static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 			mca_vote(fg->charge_limit_voter, "losslessRec", true, fg->cfg.lossless_curr_limit);
 		}
 	}
-#line 1975
+#line 2098
 	mca_log_info("charging_done: %d, fast_charge: %d, temp: %d, lossless_recharge: %d\n",
 			fg->charging_done, fg->fast_charge, batt_temp, fg->lossless_recharge);
 
 	if (fg->lossless_recharge) {
 		mca_strategy_start_recharging(fg);
-#line 1979
+#line 2103
 		mca_log_err("ok to lossless_recharge\n");
 	}
 
@@ -3219,7 +3226,6 @@ static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 
 #define MCA_EVENT_ONEWIRE_AUTH_PASS MCA_EVENT_BATT_AUTH_PASS
 
-#line 2465
 static int mca_strategy_check_onewire_batt_auth(struct strategy_fg *fg)
 {
 	if (fg->batt_auth)
@@ -3228,12 +3234,10 @@ static int mca_strategy_check_onewire_batt_auth(struct strategy_fg *fg)
 	platform_fg_ops_set_authentic(FG_IC_MASTER, 1);
 	fg->batt_auth = 1;
 	mca_event_block_notify(MCA_EVENT_TYPE_HW_INFO, MCA_EVENT_BATT_AUTH_PASS, NULL);
-#line 2475
 	mca_log_err("onewire batt auth pass\n");
 	return 0;
 }
 
-#line 3880
 static unsigned int charge_get_batt_rm_threshold(void)
 {
 	static int device_power_max;
@@ -3248,12 +3252,11 @@ static unsigned int charge_get_batt_rm_threshold(void)
 		rm_thr = 200;
 	if (device_power_max > 100000)
 		rm_thr = 500;
-#line 3889
+#line 4653
 	mca_log_info("device_power_max:%d, batt_rm_thr:%d\n", device_power_max, rm_thr);
 	return rm_thr;
 }
 
-#line 3900
 static void charge_slowly_monitor_func(struct strategy_fg *fg)
 {
 	static int now_rm, now_soc;
@@ -3262,9 +3265,9 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 	int param[5] = {0};
 	int rm_thr;
 
-#line 3905
+#line 4669
 	mca_log_err("realtype:%d, soc:%d, rm:%d\n", fg->real_type, fg->batt_ui_soc, now_rm);
-#line 3906
+#line 4670
 	mca_log_err("time:%d, timeplugin:%d plugin:%d\n", nowtime, nowplugintime, fg->online_time);
 	nowplugintime = ktime_get_boottime_seconds();
 
@@ -3273,7 +3276,7 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 			fg->online_time = ktime_get_boottime_seconds();
 			protocol_class_get_adapter_max_power(ADAPTER_PROTOCOL_PPS, &power_max);
 			rm_thr = charge_get_batt_rm_threshold();
-#line 3926
+#line 4690
 			mca_log_err("powermax:%d designcapacity:%d curr_batt_rm_thr:%d\n", power_max, fg->batt_dc, rm_thr);
 			if (power_max >= 33 && fg->batt_dc >= rm_thr * 1000) {
 				if (!fg->xmpps_initialtime) {
@@ -3286,11 +3289,11 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 				now_soc = fg->batt_ui_soc;
 				if (nowtime - fg->xmpps_initialtime >= 600) {
 					if (now_soc - fg->initial_soc < rm_thr * 100 / (fg->batt_dc / 1000 - 100)) {
-#line 3940
+#line 4704
 						mca_log_err("ntime:%d, initialtime:%d\n", nowtime, fg->xmpps_initialtime);
-#line 3941
+#line 4705
 						mca_log_err("nrm:%d, initialrm:%d\n", now_rm, fg->initial_rm);
-#line 3942
+#line 4678
 						mca_log_err("report dfx\n");
 						param[0] = power_max;
 						param[1] = fg->initial_rm;
@@ -3311,7 +3314,7 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 		param[0] = fg->real_type;
 		mca_charge_mievent_report(CHARGE_DFX_NONXMPPS_CHARGE, param, 1);
 		fg->nonxmpps_flag = true;
-#line 3914
+#line 4706
 		mca_log_err("report dfx\n");
 	}
 
@@ -3360,7 +3363,6 @@ static void strategy_fg_qbg_send_chg_data(struct strategy_fg *fg)
 	platform_fg_ops_qbg_send_chg_data(FG_IC_MASTER, fg->chg_status, final_fcc);
 }
 
-#line 2480
 static void strategy_fg_monitor_workfunc(struct work_struct *work)
 {
 	struct strategy_fg *fg = container_of(work, struct strategy_fg, monitor_work.work);
@@ -3375,13 +3377,13 @@ static void strategy_fg_monitor_workfunc(struct work_struct *work)
 	if (!fg->fg_init_flag) {
 		flag = platform_fg_ops_probe_ok(FG_IC_MASTER, &master_ok);
 		fg->fg_master_init_flag = master_ok;
-#line 2519
+#line 2791
 		mca_log_err("master flag: %d\n", flag);
 		if (fg->cfg.fg_type != MCA_FG_TYPE_SINGLE) {
 			flag |= platform_fg_ops_probe_ok(FG_IC_SLAVE, &slave_ok);
 			fg->fg_slave_init_flag = slave_ok;
 		}
-#line 2524
+#line 2803
 		mca_log_err("master and slave flag: %d\n", flag);
 		if (flag) {
 			fg_check_batt_auth(fg);
@@ -3407,7 +3409,6 @@ static void strategy_fg_monitor_workfunc(struct work_struct *work)
 
 	if (fg->boot_update_soc) {
 		fg->boot_update_soc = false;
-#line 2551
 		mca_log_info("boot_update_soc update is_eu_model done\n");
 		prohibit_jump = false;
 	}
@@ -3431,7 +3432,7 @@ static void strategy_fg_monitor_workfunc(struct work_struct *work)
 				mca_charge_mievent_report(CHARGE_DFX_SOC_NOT_FULL, param, 3);
 			}
 			fg->charging_done_time = 0;
-#line 2575
+#line 2863
 			mca_log_info("check report dfx soc_not_full curr_time=%d\n", cur_time);
 		}
 	}
@@ -3450,7 +3451,6 @@ static void strategy_fg_monitor_workfunc(struct work_struct *work)
 	mca_queue_delayed_work(&fg->monitor_work, msecs_to_jiffies(fg->update_interval));
 }
 
-#line 3640
 static int strategy_fg_process_event(int event, int value, void *data)
 {
 	struct strategy_fg *info = data;
@@ -3465,7 +3465,7 @@ static int strategy_fg_process_event(int event, int value, void *data)
 
 	unsigned int ota_flag = 0;
 
-#line 3659
+#line 4363
 	mca_log_info("receive event %d, value %d", event, value);
 	switch (event) {
 	case MCA_EVENT_DEBUG_DOUBLE85:
@@ -3487,7 +3487,7 @@ static int strategy_fg_process_event(int event, int value, void *data)
 
 			info->wls_online = false;
 			if (usb_online) {
-#line 3693
+#line 4405
 				mca_log_info("wireless disocnnect usb present goto end\n");
 				break;
 			}
@@ -3498,7 +3498,7 @@ static int strategy_fg_process_event(int event, int value, void *data)
 		} else if (info->batt_ui_soc < 100) {
 			mca_vote(info->en_voter, "term_recharge", false, 0);
 			info->charging_done = false;
-#line 3706
+#line 4424
 			mca_log_info("usb disonnect clear charging_done\n");
 		}
 		mca_vote(info->iterm_voter, "calibration", false, 0);
@@ -3510,7 +3510,7 @@ static int strategy_fg_process_event(int event, int value, void *data)
 		info->charging_done_time = 0;
 		info->near_vterm = false;
 		info->last_final_term_curr = 0;
-#line 3718
+#line 4436
 		mca_log_info("plugout keep_full_flag = %d\n", info->keep_full_flag);
 		if (info->keep_full_flag)
 			schedule_delayed_work(&info->delay_reset_full_flag_work, msecs_to_jiffies(60 * 1000));
@@ -3553,11 +3553,11 @@ static int strategy_fg_process_event(int event, int value, void *data)
 			if (info->batt_ui_soc < 100) {
 				mca_vote(info->en_voter, "term_recharge", false, 0);
 				info->charging_done = false;
-#line 3674
+#line 4378
 				mca_log_info("usb connect clear charging_done\n");
 			}
 		}
-#line 3678
+#line 4384
 		mca_log_info("plugin keep_full_flag: %d, plugin_time: %lld\n", info->keep_full_flag, info->plugin_time);
 		mca_mod_delayed_work(&info->monitor_work, msecs_to_jiffies(1000));
 		cancel_delayed_work_sync(&info->delay_reset_full_flag_work);
@@ -3571,13 +3571,13 @@ static int strategy_fg_process_event(int event, int value, void *data)
 		break;
 	case MCA_EVENT_IS_EU_MODEL:
 		if (hwid && hwid->country_version == CountryCN) {
-#line 3744
+#line 4476
 			mca_log_info("country_version = CN\n");
 			break;
 		}
 		if (info->is_eu_model != value) {
 			info->is_eu_model = value ? true : false;
-#line 3750
+#line 4483
 			mca_log_info("is_eu_model[%d] update soc\n", info->is_eu_model);
 		}
 		break;
@@ -3706,6 +3706,12 @@ static ssize_t strategy_fg_sysfs_show(struct device *dev,
 		mca_strategy_get_first_usage_date(info, date);
 		count = scnprintf(buf, PAGE_SIZE, "%s\n", date);
 		break;
+	case FG_PROP_I_AVER_GEAR:
+		count = scnprintf(buf, PAGE_SIZE, "%d\n", info->batt_spec_para.i_aver_gear);
+		break;
+	case FG_PROP_SILOSS_GEAR:
+		count = scnprintf(buf, PAGE_SIZE, "%d\n", info->batt_spec_para.siloss_gear);
+		break;
 	default:
 		break;
 	}
@@ -3713,7 +3719,6 @@ static ssize_t strategy_fg_sysfs_show(struct device *dev,
 	return count;
 }
 
-#line 215
 static ssize_t strategy_fg_sysfs_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -3761,7 +3766,7 @@ static ssize_t strategy_fg_sysfs_store(struct device *dev,
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
 		info->fake_bap_match = val;
-#line 231
+#line 242
 		mca_log_info("set fake_bap_match: %d\n", val);
 		break;
 	case FG_PROP_FAKE_SOC:
@@ -3777,7 +3782,7 @@ static ssize_t strategy_fg_sysfs_store(struct device *dev,
 	case FG_PROP_UPDATE_PERIOD:
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
-#line 246
+#line 257
 		mca_log_err("set fg update period: %d\n", val);
 		if (val != info->update_period) {
 			info->update_period = val;
@@ -3791,21 +3796,21 @@ static ssize_t strategy_fg_sysfs_store(struct device *dev,
 	case FG_PROP_DOD_COUNT:
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
-#line 259
+#line 270
 		mca_log_err("set fake_dod_count: %d\n", val);
 		info->fake_dod_count = val;
 		break;
 	case FG_PROP_ENABLE_ROLLBACK:
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
-#line 265
+#line 276
 		mca_log_err("set enable_rollback: %d\n", val);
 		info->enable_rollback = !!val;
 		break;
 	case FG_PROP_SELF_EQUAL_MAX_COUNT:
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
-#line 271
+#line 282
 		mca_log_err("set self_equal_count_max: %d\n", val);
 		info->self_equal_count_max = val;
 		break;
@@ -3834,6 +3839,71 @@ static ssize_t strategy_fg_sysfs_store(struct device *dev,
 	return count;
 }
 
+static int strategy_fg_ops_get_comp_fcc(void *data, int *fcc)
+{
+	struct strategy_fg *fg = (struct strategy_fg *)data;
+	int comp_fcc;
+
+	if (!fg || !fg->fg_init_flag)
+		return -1;
+
+	comp_fcc = fg->batt_fcc + fg->cfg.capacity_comp;
+	*fcc = comp_fcc < fg->batt_dc ? comp_fcc : fg->batt_dc;
+	return 0;
+}
+
+static int strategy_fg_ops_get_comp_rm(void *data, int *rm)
+{
+	struct strategy_fg *fg = (struct strategy_fg *)data;
+	int comp_fcc;
+
+	if (!fg || !fg->fg_init_flag)
+		return -1;
+
+	comp_fcc = fg->batt_fcc + fg->cfg.capacity_comp;
+	if (comp_fcc > fg->batt_dc)
+		comp_fcc = fg->batt_dc;
+	*rm = (comp_fcc / 1000 * fg->batt_raw_soc / 10000) * 1000;
+	return 0;
+}
+
+static int strategy_fg_ops_set_allow_new_soc_smooth(void *data, int allow)
+{
+	struct strategy_fg *fg = (struct strategy_fg *)data;
+
+	if (!fg || !fg->fg_init_flag)
+		return -1;
+
+	fg->allow_new_soc_smooth = allow;
+	return 0;
+}
+
+static int mca_strategy_fg_shutdown_cb(struct notifier_block *nb, unsigned long event, void *data)
+{
+	struct strategy_fg *fg = container_of(nb, struct strategy_fg, shutdown_notifier);
+	int ui_soc = fg->batt_ui_soc;
+	int times = 0;
+
+	if (fg->cfg.support_qbg) {
+#line 4599
+		mca_log_err("store uisoc: %d to onewire dev\n", ui_soc);
+		onewire_set_shutdown_uisoc(ui_soc);
+	}
+
+	if (fg->cfg.support_fast_mode_when_charging) {
+		if (!platform_fg_ops_get_fast_mode_times(FG_IC_MASTER, &times) && times) {
+#line 4607
+			mca_log_err("clear fast mode times on shutdown, current value: %d\n", times);
+			platform_fg_ops_set_fast_mode_times(FG_IC_MASTER, 0);
+		} else {
+#line 4610
+			mca_log_err("fast mode times is already 0 or read failed, skip clear\n");
+		}
+	}
+
+	return 0;
+}
+
 static struct strategy_fg_class_ops g_strategy_fg_ops = {
 	.strategy_fg_is_init_ok = strategy_fg_ops_is_init_ok,
 	.strategy_fg_is_chip_ok = strategy_fg_ops_is_chip_ok,
@@ -3846,6 +3916,7 @@ static struct strategy_fg_class_ops g_strategy_fg_ops = {
 	.strategy_fg_get_voltage = strategy_fg_ops_get_volt,
 	.strategy_fg_get_cycle = strategy_fg_ops_get_cycle,
 	.strategy_fg_get_rm = strategy_fg_ops_get_rm,
+	.strategy_fg_get_comp_rm = strategy_fg_ops_get_comp_rm,
 	.strategy_fg_get_voltage_mean = strategy_fg_get_volt_mean,
 	.strategy_fg_get_soc_decimal_info = strategy_fg_ops_get_soc_decimal,
 	.strategy_fg_get_charging_done = strategy_fg_ops_get_charging_done,
@@ -3856,25 +3927,26 @@ static struct strategy_fg_class_ops g_strategy_fg_ops = {
 	.strategy_fg_get_authentic = strategy_fg_ops_get_authentic,
 	.strategy_fg_get_dc = strategy_fg_ops_get_dc,
 	.strategy_fg_get_fcc = strategy_fg_ops_get_fcc,
+	.strategy_fg_get_comp_fcc = strategy_fg_ops_get_comp_fcc,
 	.strategy_fg_get_health = strategy_fg_ops_get_health,
 	.strategy_fg_get_soh = strategy_fg_ops_get_soh,
 	.strategy_fg_get_first_termiation = strategy_fg_ops_get_first_termiation,
 	.strategy_fg_get_pack_vendor_id = strategy_fg_ops_get_pack_vendor_id,
 	.strategy_fg_get_temp_offset_flag = strategy_fg_ops_get_temp_offset_flag,
+	.strategy_fg_set_allow_new_soc_smooth = strategy_fg_ops_set_allow_new_soc_smooth,
 };
 
-#line 3958
 static int strategy_fg_probe(struct platform_device *pdev)
 {
 	struct strategy_fg *fg;
 	int ret = 0;
 	const struct mca_hwid *hwid = mca_get_hwid_info();
 
-#line 3962
+#line 4726
 	mca_log_info("%s probe_begin\n", __func__);
 	fg = devm_kzalloc(&pdev->dev, sizeof(*fg), GFP_KERNEL);
 	if (!fg) {
-#line 3965
+#line 4729
 		mca_log_err("out of memory\n");
 		return -ENOMEM;
 	}
@@ -3891,7 +3963,7 @@ static int strategy_fg_probe(struct platform_device *pdev)
 		if (fg->is_eu_model)
 			fg->boot_update_soc = true;
 	}
-#line 3982
+#line 4753
 	mca_log_info("probe is_eu_model[%d]\n", fg->is_eu_model);
 	INIT_DELAYED_WORK(&fg->monitor_work, strategy_fg_monitor_workfunc);
 	mca_queue_delayed_work(&fg->monitor_work, 0);
@@ -3919,12 +3991,17 @@ static int strategy_fg_probe(struct platform_device *pdev)
 	fg->thermal_board_nb.notifier_call = strategy_fg_thermal_notifier_cb;
 	mca_event_block_notify_register(MCA_EVENT_TYPE_THERMAL_TEMP, &fg->thermal_board_nb);
 
+	fg->shutdown_notifier.notifier_call = mca_strategy_fg_shutdown_cb;
+	fg->shutdown_notifier.priority = 255;
+	if (register_reboot_notifier(&fg->shutdown_notifier) < 0)
+#line 4801
+		mca_log_err("register reboot notify failed\n");
+
 	if (fg->cfg.support_nvt1000_ota)
 		schedule_delayed_work(&fg->nvt1000_ota_monitor_work, 5000);
 	if (fg->cfg.support_batt_xvdd_dfx)
 		schedule_delayed_work(&fg->batt_abnormal_dfx_work, 17500);
 
-#line 4016
 	mca_log_info("%s probe end\n", __func__);
 	return ret;
 }
@@ -3974,7 +4051,7 @@ static void strategy_fg_shutdown(struct platform_device *pdev)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)platform_get_drvdata(pdev);
 
-#line 4065
+#line 4852
 	mca_log_err("battery shutdown, soc: %d, rsoc: %d, vbat: %d, vbat_mean: %d, empty: %d\n",
 		fg->batt_ui_soc, fg->batt_rsoc, fg->batt_voltage, fg->batt_voltage_mean, fg->vbatt_empty);
 }

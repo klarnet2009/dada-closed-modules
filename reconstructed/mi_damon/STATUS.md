@@ -1,5 +1,10 @@
-# mi_damon - PARTIAL (187 of 188 functions byte-identical in the real Kleaf build; every other check OK)
+# mi_damon - PARTIAL (187 of 188 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+Re-checked against `<work-dir>` (real Kleaf ThinLTO build). OS4 change: the ThinLTO hashes of the promoted statics (`damon_sysfs_ul_range_groups.llvm.10995319723490364896`,
+`damon_sysfs_schemes_{release,groups,for_damos_callback,region_idx}.llvm.14731241909622278991`): updated in `sysfs-common.c` / `sysfs-schemes.c`; afterwards function set (188), relocations, objects, imports (97) + CRCs, modinfo OK
+and only `kdamond_fn` differs (as in HyperOS 3).
+
+## Earlier rounds
 Real Kleaf build (`re_push.sh mi_damon`, ThinLTO via `defconfig`, last run after all edits): function set (188) OK, function relocations OK, global objects OK,
 exported symbols (none) OK, imported symbols + CRCs (97) OK, modinfo OK.  Function bytes: all identical except `kdamond_fn`.
 

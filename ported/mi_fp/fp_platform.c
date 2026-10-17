@@ -15,6 +15,8 @@ int fp_parse_dts(struct fp_device *fp_dev)
 {
 	int ret;
 	struct device_node *node = fp_dev->driver_device->dev.of_node;
+	int hw_ver, hw_level;
+
 	FUNC_ENTRY();
 	if (node) {
 		/* get irq resource */
@@ -42,7 +44,7 @@ int fp_parse_dts(struct fp_device *fp_dev)
 
 		/* get fingerprint vendor info */
 		of_property_read_string(node, DTS_VENDOR_NAME, &fp_dev->vendor_names);
-		pr_debug("fp::vendor_names:%s\n", fp_dev->vendor_names);
+		pr_debug("netlink_num = %d, vendor_names = %s\n", fp_dev->fp_netlink_num, fp_dev->vendor_names);
 
 #ifdef FP_ULTRA_QCOM
 		/* get ipc resourece */
@@ -60,40 +62,34 @@ int fp_parse_dts(struct fp_device *fp_dev)
 			pr_debug("intr2 gpio not found, gpio=%d\n", fp_dev->intr2_gpio);
 
 		of_property_read_u32_array(node, SENSORLOCATION, fp_dev->position.location, 4);
-		/*get wuhb resourece */
-		/*fp_dev->fd_gpio.gpio = of_get_named_gpio(node, DTS_WUHB_GPIO, 0);
-		pr_debug( "fp::fd_gpio:%d\n", fp_dev->fd_gpio.gpio);
-		if (!gpio_is_valid(fp_dev->fd_gpio.gpio)) {
-			fp_dev->is_wuhb_connected = 0;
-			pr_debug("FD GPIO is invalid.\n");
-			return -EPERM;
-		}
-		fp_dev->is_wuhb_connected = 1;
-		fp_dev->fd_gpio.active_low = FD_GPIO_ACTIVE_LOW;
-		pr_debug("is_wuhb_connected=%d\n", fp_dev->is_wuhb_connected);*/
 
 		atomic_set(&fp_dev->fd_available, 1);
 		atomic_set(&fp_dev->ipc_available, 1);
 		atomic_set(&fp_dev->wakelock_acquired, 0);
 
-		mutex_init(&fp_dev->mutex);
-		mutex_init(&fp_dev->fd_events_mutex);
-		mutex_init(&fp_dev->ipc_events_mutex);
-		spin_lock_init(&fp_dev->intr2_events_lock);
+		MIFP_MUTEX_INIT(&fp_dev->mutex, 2);
+		MIFP_MUTEX_INIT(&fp_dev->fd_events_mutex, 2);
+		MIFP_MUTEX_INIT(&fp_dev->ipc_events_mutex, 2);
 
 		fp_dev->fd_gpio.work_init = false;
 		fp_dev->fw_ipc.work_init = false;
 #endif
-		fp_dev->vreg_3v3.mRegulator = regulator_get(&fp_dev->driver_device->dev, DTS_VOlT_REGULATER_3V3);
+		hw_ver = get_hw_version_platform();
+		hw_level = ((get_hw_id_value() >> 16) & 0xf) * 10 + (get_hw_id_value() & 0xf);
+		if (hw_ver == 11 && hw_level == 1) {
+			fp_dev->vreg_3v3.mRegulator = regulator_get(&fp_dev->driver_device->dev, "fp_3v1_vreg");
+			pr_debug(" p11 fp voltage is P01 L9B\n");
+		} else {
+			fp_dev->vreg_3v3.mRegulator = regulator_get(&fp_dev->driver_device->dev, DTS_VOlT_REGULATER_3V3);
+		}
 		fp_dev->vreg_1v8.mRegulator = regulator_get(&fp_dev->driver_device->dev, DTS_VOlT_REGULATER_1V8);
 		fp_dev->vreg_gpio.mPwrGpio = of_get_named_gpio(node, DTS_VOlT_REGULATER_GPIO, 0);
 	} else {
 		pr_debug("device node is null\n");
-			return -EPERM;
+		return -EPERM;
 	}
 
 	if (fp_dev->driver_device) {
-
 		fp_dev->pinctrl = devm_pinctrl_get(&fp_dev->driver_device->dev);
 		if (IS_ERR(fp_dev->pinctrl)) {
 			ret = PTR_ERR(fp_dev->pinctrl);
@@ -147,15 +143,15 @@ int fp_power_on(struct fp_vreg *vreg)
 {
 	int status = 0;
 	int retval = 0;
+	int hw_level;
 
 	FUNC_ENTRY();
 
 	if (!vreg->IsGpio) {
 		if (vreg->mRegulator != NULL) {
 			if (!vreg->enable) {
-#ifdef CONFIG_FP_MTK_PLATFORM
-				regulator_set_voltage(vreg->mRegulator, 3300000, 3300000);
-#endif
+				hw_level = ((get_hw_id_value() >> 16) & 0xf) * 10 + (get_hw_id_value() & 0xf);
+				pr_debug("hw_level is  %d!!\n", hw_level);
 				status = regulator_enable(vreg->mRegulator);
 				mdelay(1);
 				status = regulator_get_voltage(vreg->mRegulator);

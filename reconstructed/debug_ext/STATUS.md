@@ -1,4 +1,11 @@
-# debug_ext - all 28 functions byte-identical; one import CRC differs for an environmental reason
+# debug_ext - EQUIVALENT vs the OS4 (HyperOS 4.0) stock binary (17.10.2026; earlier rounds: perfB)
+
+`compare_ko.py` against `<work-dir>`, real Kleaf ThinLTO build (`debug_ext_defconfig`): function set (28), function bytes, relocations, global objects,
+exports (none), imports + CRCs (52) and modinfo all OK -> EQUIVALENT.
+Documented hack: the import CRC of `qcom_is_dma_buf_file` (stock 0x9bf72b1a, built on 6.6.57 headers) cannot be produced by a real prototype against the 6.6.144 headers, so the provider stub
+`work/re/src/stubs_g4/qcom_dma_heaps_stub.c` declares it as `void qcom_is_dma_buf_file(struct fgP1CcKW *)` with a forged struct tag (generator `work/a17/portB/gen_stubs.py`, genksyms emulation).
+The stub is only a link-time stand-in for modpost; debug_ext.c itself uses the real prototype from `linux/qcom_dma_heap.h`.
+(Older text below describes the HyperOS 3 round.)
 
 `compare_ko.py` (ThinLTO build, `debug_ext_defconfig`): function set (28) OK, function bytes OK, relocations OK, global objects OK, exports (none) OK, modinfo OK.
 Data objects (`dma_buf_procs_proc_ops`, `reboot/shutdown/customized_panic_ops`, `panic_trigger_nb`, `dma_buf_procs_size`, `__param_initrd_size`, `dma_buf_hash` ...): bytes + relocations identical

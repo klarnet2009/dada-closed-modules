@@ -24,7 +24,6 @@
 
 #define FG_HOLD_UISOC_100_GAP		120
 
-#line 41
 int strategy_soc_smooth_parse_dt(struct strategy_fg *fg){
 	struct device_node *node = fg->dev->of_node;
 	int ret, len;
@@ -48,7 +47,7 @@ int strategy_soc_smooth_parse_dt(struct strategy_fg *fg){
 
 	len = mca_parse_dts_u32_count(node, "dischg_smooth_low_temp_unit", VOL_SMOOTH_LEN, CURR_SMOOTH_LEN);
 	if (len < 0) {
-#line 64
+#line 65
 		mca_log_err("parse dischg_smooth_low_temp_unit failed\n");
 		return -1;
 	}
@@ -58,7 +57,7 @@ int strategy_soc_smooth_parse_dt(struct strategy_fg *fg){
 
 	len = mca_parse_dts_u32_count(node, "dischg_smooth_high_temp_unit", VOL_SMOOTH_LEN, CURR_SMOOTH_LEN);
 	if (len < 0) {
-#line 73
+#line 74
 		mca_log_err("parse dischg_smooth_high_temp_unit failed\n");
 		return -1;
 	}
@@ -68,7 +67,6 @@ int strategy_soc_smooth_parse_dt(struct strategy_fg *fg){
 	return 0;
 }
 
-#line 83
 static void get_unit_time_low_soc(struct strategy_fg *fg, int *soc_keep_time)
 {
 	int (*dischg_smooth_temp_unit)[CURR_SMOOTH_LEN] = NULL;
@@ -100,11 +98,10 @@ out:
 	if (unit_time >= 10 && unit_time <= 500)
 		*soc_keep_time = unit_time;
 	else
-#line 113
+#line 114
 		mca_log_info("data error unit_time:%d\n", unit_time);
 }
 
-#line 117
 static int fg_update_mapped_soc(struct strategy_fg *fg)
 {
 	int raw_soc = fg->batt_raw_soc;
@@ -148,12 +145,11 @@ static int fg_update_mapped_soc(struct strategy_fg *fg)
 	fg->batt_mapped_soc = mapped_soc;
 	fg->batt_mapped_soc_decimal = mapped_soc_decimal;
 
-#line 160
+#line 161
 	mca_log_info("is_eu_model[%d], en_smooth_full[%d], mapped_soc[%d]\n", fg->is_eu_model, fg->en_smooth_full, mapped_soc);
 	return 0;
 }
 
-#line 164
 static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last_ui_soc, int ui_soc)
 {
 	time64_t time_now = ktime_get_boottime_seconds();
@@ -165,14 +161,14 @@ static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last
 		(!fg->power_present ||
 		fg->chg_status != POWER_SUPPLY_STATUS_CHARGING ||
 		(soc_limit > 0 && last_ui_soc >= soc_limit))) {
-#line 176
+#line 300
 		mca_log_info("WARNING: keep ui_soc constant by: power_present=%d, chg_status=%d, soc_limit=%d\n",
 			fg->power_present, fg->chg_status, soc_limit);
 		ui_soc = last_ui_soc;
 	}
 
 	if (ui_soc < last_ui_soc && fg->batt_current_mean < 0) {
-#line 182
+#line 306
 		mca_log_info("WARNING: keep ui_soc constant by: batt_current_mean=%d\n", fg->batt_current_mean);
 		ui_soc = last_ui_soc;
 	}
@@ -184,7 +180,7 @@ static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last
 			down_update_duration = 30;
 		if ((ui_soc > last_ui_soc && time_now - fg->plugin_time < 15) ||
 			(ui_soc < last_ui_soc && time_now - fg->plugin_time < down_update_duration)) {
-#line 193
+#line 317
 			mca_log_info("WARNING: keep ui_soc constant by: plugin_time [down_update_duration][%d]\n", down_update_duration);
 			ui_soc = last_ui_soc;
 		}
@@ -192,20 +188,20 @@ static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last
 
 	if (fg->keep_full_flag && last_ui_soc == 100 &&
 		fg->batt_raw_soc > fg->cfg.report_full_raw_soc - FG_HOLD_UISOC_100_GAP) {
-#line 200
+#line 324
 		mca_log_info("WARNING: set ui_soc to 100 by: keep_full_flag\n");
 		ui_soc = 100;
 	}
 
 	if (fg->is_eu_model && last_ui_soc == 100 && fg->batt_raw_soc >= 9881 &&
 		fg->chg_status == POWER_SUPPLY_STATUS_FULL) {
-#line 206
+#line 330
 		mca_log_info("WARNING: set ui_soc to 100 by: POWER_SUPPLY_STATUS_FULL\n");
 		ui_soc = 100;
 	}
 
 	if (fg->vbatt_empty) {
-#line 212
+#line 336
 		mca_log_info("WARNING: set ui_soc to 0 by: vbatt_empty\n");
 		ui_soc = 0;
 	} else {
@@ -229,7 +225,6 @@ static void fg_ui_soc_update_decimal(struct strategy_fg *fg, int last_ui_soc, in
 		fg->batt_ui_soc_decimal = fg->batt_mapped_soc_decimal;
 }
 
-#line 222
 int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 {
 	int ui_soc = 0;
@@ -256,7 +251,7 @@ int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 	// If the soc jump, will smooth one cap every 10S
 	if (fg->en_smooth_full) {
 		soc_keep_time = 30;
-#line 262
+#line 390
 		mca_log_info("start en_smooth_full soc increase per 30s \n");
 	}
 	soc_delta = abs(ui_soc - last_ui_soc);
@@ -275,7 +270,7 @@ int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 		else
 			ui_soc = last_ui_soc;
 
-#line 280
+#line 408
 		mca_log_info("ui_soc: %d, last_ui_soc: %d, soc_delta: %d, soc_changed: %d, batt_mapped_soc:%d, is_eu_model=%d, soc_keep_time:%d\n",
 			ui_soc, last_ui_soc, soc_delta, soc_changed, fg->batt_mapped_soc, fg->is_eu_model, soc_keep_time);
 	}
@@ -285,7 +280,7 @@ int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 		fg_ui_soc_update_decimal(fg, last_ui_soc, ui_soc);
 	}
 
-#line 289
+#line 415
 	mca_log_info("ui_soc: %d => %d, time_now: %lld prohibit_jump:%d\n", last_ui_soc, ui_soc, time_now, prohibit_jump);
 	if (ui_soc != last_ui_soc) {
 		if (last_ui_soc == 100)

@@ -27,11 +27,11 @@ module_param(gflt_slack_time_jif, uint, 0644);
 module_param(gflt_update_freq_failed, uint, 0644);
 
 /* promoted statics (ThinLTO): referenced from the load calibration glue */
-unsigned int gflt_enable __asm__("gflt_enable.llvm.11378079736542486605")
+unsigned int gflt_enable __asm__("gflt_enable.llvm.5988974010709438231")
 	__attribute__((visibility("hidden")));
-struct gflt_load_info gpubw_gflt_load __asm__("gpubw_gflt_load.llvm.11378079736542486605")
+struct gflt_load_info gpubw_gflt_load __asm__("gpubw_gflt_load.llvm.5988974010709438231")
 	__attribute__((visibility("hidden")));
-struct gflt_load_info adreno_gflt_load __asm__("adreno_gflt_load.llvm.11378079736542486605")
+struct gflt_load_info adreno_gflt_load __asm__("adreno_gflt_load.llvm.5988974010709438231")
 	__attribute__((visibility("hidden")));
 
 MI_SOC_FREQ_ADJHOOK soc_freq_update_hook[SOC_DEV_NUM];

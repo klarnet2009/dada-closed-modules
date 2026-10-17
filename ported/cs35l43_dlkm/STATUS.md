@@ -1,14 +1,33 @@
-# cs35l43_dlkm - PARTIAL: COMPILES, function set = stock (116 of 116 + 1 extra static), 103 of 116 functions byte-identical, 32 exports + CRCs identical (OS4 stock)
+# cs35l43_dlkm - EQUIVALENT (OS4 stock; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
 
-Reference: OS4 `<work-dir>`. Quick loop iterations ~25 + 4 Bazel builds. Not EQUIVALENT yet.
-Template: XRING `dijun-v-oss: xring-modules/drivers/audio/asoc/codec/xring_pa/cs35l43/{cs35l43.c,cs35l43-i2c.c,cs35l43-tables.c,cs35l43-cal.c,wm_adsp.c,wm_adsp.h,wmfw.h,cs35l43.h,cs35l43-user.h,cs_dsp.h}`
-(fetched from the bare repo `micode_all.git`, `refs/remotes/o/dijun-v-oss`; `xring-modules/include/miev/mievent.h` is the miev header). Copies of the unmodified template are not kept (re-fetch with `a17C_tools/fetchdir.sh`).
-Changes relative to the template (all derived from the stock disassembly/rodata):
-- XRING monolith glue removed: `pa-trace.h`/`pa_dbg_trace`, `spk_reg_debugs_*`, `cs35l43_i2c_probe/remove` exported -> `static`, `remove` returns void (6.6), real `i2c_driver` + `of_match` (`cirrus,cs35l43`) + `cs35l43_pm_ops` + `module_i2c_driver()`; `cs35l43-i2c.c` renamed `cs35l43_i2c.c` (link order = stock modinfo order); `cs35l43-cal.c` is `#include`d as `cs35l43-cal.h`.
-- `cs35l43_wm_adsp_*`/`cs35l43_wm_halo_*` renamed back to `wm_adsp_*`/`wm_halo_*` (the dada stock has the Cirrus names); `MODULE_IMPORT_NS(FW_CS_DSP)` in cs35l43.c and wm_adsp.c; local `cs_dsp.h` (GKI header + `cs_dsp_load_coeff()` prototype of the Cirrus fork).
-- XRING product gating (`bind_product` "dijun"/"jinghu") removed, the rcv/spk pinctrl switch is unconditional (stock); `cs35l43_private` re-laid out to the stock offsets (new `miev_err_reason`, `dai_drv` at 0x430, `i2c_addr` at 0x438, limit_spi_clock 0x440, size 0x448; 31 ints at 0x384 are not recovered).
-- New in the dada stock: `cs35lxx_dai_drv_append_suffix()` (per-device copy of the 3 DAI drivers, names `"%s-rx-00%d"` with DT `cirrus,i2c-addr`), `DSP RESET` control (`wm_adsp_dsp_reset_get/put`), `mievent_report(id, value, dev, error_reg)` with the `ErrReason`/`ErrRegister` event 906001355.
-- Log strings: Xiaomi prefix `[TF-STABILITY] ` (41 strings) and suffix ` [TF-NOSOUND]` inserted by `a17C_tools/strpatch.py`; several `dev_info`->`dev_dbg`; `wm_adsp_read_ctl/write_ctl/fatal_error` simplified.
-- Stubs: `//re/stubs_a17C:stub_miev` (`cdev_tevent_*`, real struct header, CRCs identical), `stub_cs_dsp` (the GKI `cs_dsp.c` copy as module + `cs_dsp_load_coeff`); import CRC of `cs_dsp_load_coeff` differs (prototype spelling of the Cirrus fork unknown).
-Remaining differences (13 functions): `cs35l43_irq`, `check_mailbox`, `main_amp_event`, `log_dsp_err`, `apply_delta_tuning`, `pcm_startup`, `pcm_hw_params`, `component_probe`, `delta_select_put`, `probe`, `wm_adsp_event_post_run`, `wm_adsp_buffer_free`, `wm_adsp_compr_trigger`:
-the dada code has newer Xiaomi logic there (error-reason capture with `ErrRegister` strings, fold-mode scene names `*-fold`, delta tuning with "DSP not run" error, `[TF-POP]`, `[ACT_BOOT_CNT]`, `PDN Done Status`) that is not in the XRING copy. Imports not used by the template: `snd_soc_{get,put,info}_volsw_sx` (one SX control missing from `cs35l43_aud_controls`), `devm_kfree`.
+Reference: OS4 `<work-dir>`. `compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144): function set 116 OK, function bytes ALL identical, relocations identical, globals identical,
+32 exports + CRCs identical, 147 imports + CRCs identical, modinfo identical (reached 103/116, 17.10.2026 finished the last 13 functions).
+Build: `bash work/re/src/g3_tools/g3_build.sh cs35l43_dlkm stubs_g3` (pushes the package + stubs_g3, Bazel build, compare). Quick loop: `g3_tools/cs.sh` (ThinLTO emulation + per-function diff).
+
+Template: XRING `dijun-v-oss: xring-modules/drivers/audio/asoc/codec/xring_pa/cs35l43/*` (see the history below), reworked from the stock disassembly.
+
+## What recovered from the OS4 binary (all 13 remaining functions)
+- `wm_adsp_buffer_free`, `wm_adsp_compr_trigger` (inlined attach), `wm_adsp_event_post_run` (inlined `wm_adsp_buffer_init`/`parse_coeff`): the earlier `x != NULL &&` guards around list_for_each_entry bodies were
+  codegen hacks that were wrong; the plain upstream loops (no NULL tests) match. In the two error paths of `buffer_parse_legacy/coeff` the stock does `if (buf->regions) kfree(buf->regions); kfree(buf);`.
+- `cs35l43_delta_select_put`: stores `delta_requested = ucontrol->value.enumerated.item[0]` first, returns the result of `apply_delta_tuning` (or -EINVAL + dev_err "...due to DSP not run" with the item as argument when the DSP is not running).
+- `delta_enum_text` has 17 entries (`null`, `<scene>`, `<scene>-fold` for music/voice/movie/voip/video/game/handsfree/handset); `apply_delta_tuning` checks the index as two separate tests (`< 0`, `>= 18`; one combined test folds the `tbnz`).
+- `cs35l43_pcm_startup`: dev_dbg + inlined `cs35l43_set_dai_fmt(dai, CBS_CFS|DSP_A)` (fmt 0x4004) before the rate constraint; `cs35l43_pcm_hw_params`: dev_dbg at entry, no `set_dai_fmt`, no `FMTBIT_32` clamp, `dev_dbg` (not `dev_info`)
+  for the wl/width/rate/channels line, sysclk = `2 * params_rate(params) * asp_width`.
+- `cs35l43_check_mailbox` returns void; the MEM_VAL error with msg 0x6000004 logs `[TF-POP] Memory Validation error` and queues `err_work` unless `err_lock` is locked.
+- `cs35l43_main_amp_event` POST_PMD: after `GLOBAL_ENABLES=0` also `ASP_ENABLES1=0`, then a 100 x 1 ms poll of `IRQ1_EINT_1` bit 16 (PDN done), `dev_dbg("PDN Done Status : %d, %s")`, clear bit.
+- `cs35l43_log_dsp_err` (returns int): for ERROR / INVALID_STRM_CNT / ACT_BOOT_CNT it compares the value with the last seen one (three u32 at 0x378/0x37c/0x380), copies `[ERROR]`/`[INVALID_STRM_CNT]`/`[ACT_BOOT_CNT]` into `miev_err_reason`
+  (devm_kzalloc(0x30) in probe), logs `stream arb err reg:[ERROR]` (sic, no space for the first) and returns -1. `cs35l43_irq`: NMI/MPU errors call `mievent_report(906001355, "Cirrus PA dsp NMI/MPU Error", dev, "NULL")`,
+  the stream-arb error logs `[TF-STABILITY]Stream Arb Error type:%d, Error reg:%s ` and reports `Cirrus PA dsp Stream Arb Error` with `miev_err_reason`.
+- `cs35l43_probe`: no XRING `gpio_len_enable`/`default` pinctrl block, reset pulse `usleep_range(2000,2100)` twice (no 200 ms), the rcv/spk pinctrl init (`rcv_gpio_high/low`) is inlined and its result ignored, `devm_kzalloc(dev, 0x30)` for
+  `miev_err_reason` (non fatal), `err_miev:` label for the dai_driver allocation failure (frees the reason buffer only), first line is `dev_err("DEBUG cs35l43 probe E\n")`.
+  `mutex_init` keys are put into one section (`.bss.cs35l43_lockkeys`) like in the other ThinLTO modules (stock merges them to `cs35l43_probe.__key`).
+- Imports: "Digital PCM Volume" is `SOC_SINGLE_SX_TLV(..., 0x4CF, 0x391, dig_vol_tlv)` (min 0x4cf / max 0x391 read from the stock `.data..compoundliteral`), which adds the `snd_soc_{info,get,put}_volsw_sx` imports.
+
+## Documented hack
+Import `cs_dsp_load_coeff` (provider: OS4 stock `cs_dsp.ko`, a Cirrus-fork export that GKI lacks): the CRC 0x68be42d0 cannot be reproduced from any prototype spelling we tried (16 variants of return/firmware/file types, BTF says
+`int (struct cs_dsp *, const struct firmware *, const char *)`; the other 29 exports of the GKI cs_dsp.c copy match the stock CRCs). The provider stub `//re/stubs_g3:stub_cs_dsp` therefore exports it with a forged
+struct tag (`void cs_dsp_load_coeff(struct fgBNCdja *)`, `g3_tools/forge1.py`) so that its genksyms CRC equals the stock one. The module under test itself is compiled against the real prototype (`cs_dsp.h` in this package).
+
+## History
+XRING monolith glue removed, real i2c_driver/of_match/pm_ops, `cs35l43-i2c.c` -> `cs35l43_i2c.c`, Cirrus names `wm_adsp_*` restored, `MODULE_IMPORT_NS(FW_CS_DSP)`, product gating removed, `cs35l43_private` re-laid out to the stock offsets,
+`cs35lxx_dai_drv_append_suffix`, `DSP RESET` control, `mievent_report` (`ErrReason`/`ErrRegister`, id 906001355), `[TF-STABILITY]`/`[TF-NOSOUND]` log prefixes (`a17C_tools/strpatch.py`), stubs `//re/stubs_a17C:stub_miev`.

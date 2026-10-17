@@ -241,7 +241,7 @@ static SOC_VALUE_ENUM_SINGLE_DECL(cs35l43_dc_wd_mode_enum, CS35L43_ALIVE_DCIN_WD
 			cs35l43_wd_mode_texts, cs35l43_wd_mode_values);
 
 #include "cs35l43-cal.h"
-static const char * const delta_enum_text[] = {"null", "music", "voice", "movie", "voip", "video", "game", "handsfree", "handset"};
+static const char * const delta_enum_text[] = {"null", "music", "music-fold", "voice", "voice-fold", "movie", "movie-fold", "voip", "voip-fold", "video", "video-fold", "game", "game-fold", "handsfree", "handsfree-fold", "handset", "handset-fold"};
 static const struct soc_enum delta_enum = SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(delta_enum_text), delta_enum_text);
 
 static int cs35l43_delta_select_get(struct snd_kcontrol *kcontrol,
@@ -747,7 +747,11 @@ static int cs35l43_apply_delta_tuning(struct cs35l43_private *cs35l43)
 		return 0;
 
 	dev_dbg(cs35l43->dev, "Applying delta file %d\n", cs35l43->delta_requested);
-	if ((cs35l43->delta_requested < 0) || (cs35l43->delta_requested >= ARRAY_SIZE(delta_enum_text))) {
+	if (cs35l43->delta_requested < 0) {
+		dev_err(cs35l43->dev, "Applying delta file index %d is illegal\n", cs35l43->delta_requested);
+		return 0;
+	}
+	if (cs35l43->delta_requested >= 18) {
 		dev_err(cs35l43->dev, "Applying delta file index %d is illegal\n", cs35l43->delta_requested);
 		return 0;
 	}
@@ -786,20 +790,26 @@ static int cs35l43_delta_select_put(struct snd_kcontrol *kcontrol,
 				 snd_soc_kcontrol_component(kcontrol);
 	struct cs35l43_private *cs35l43 =
 				 snd_soc_component_get_drvdata(component);
-	if (cs35l43->dsp.cs_dsp.running) {
-		cs35l43->delta_requested = ucontrol->value.integer.value[0];
+	unsigned int item = ucontrol->value.enumerated.item[0];
+	int ret = 0;
 
+	cs35l43->delta_requested = item;
+
+	if (cs35l43->dsp.cs_dsp.running) {
 		mutex_lock(&cs35l43->hb_lock);
 
 		if (cs35l43->low_pwr_mode == CS35L43_LOW_PWR_MODE_HIBERNATE) {
-				if (cs35l43->hibernate_state == CS35L43_HIBERNATE_AWAKE)
-					cs35l43_apply_delta_tuning(cs35l43);
+			if (cs35l43->hibernate_state == CS35L43_HIBERNATE_AWAKE)
+				ret = cs35l43_apply_delta_tuning(cs35l43);
 		} else {
-			cs35l43_apply_delta_tuning(cs35l43);
+			ret = cs35l43_apply_delta_tuning(cs35l43);
 		}
 		mutex_unlock(&cs35l43->hb_lock);
+	} else {
+		dev_err(cs35l43->dev, "Error applying delta file enum(%d) due to DSP not run\n", item);
+		ret = -EINVAL;
 	}
-	return 0;
+	return ret;
 }
 
 static int cs35l43_ultrasonic_mode_get(struct snd_kcontrol *kcontrol,
@@ -1134,8 +1144,8 @@ static const struct snd_kcontrol_new cs35l43_aud_controls[] = {
 	SOC_SINGLE("DC Watchdog Duration", CS35L43_ALIVE_DCIN_WD,
 			CS35L43_DCIN_WD_DUR_SHIFT, 0x7, 0),
 	SOC_ENUM("DC Watchdog Mode", cs35l43_dc_wd_mode_enum),
-	SOC_SINGLE_RANGE_TLV("Digital PCM Volume", CS35L43_AMP_CTRL,
-			CS35L43_AMP_VOL_PCM_SHIFT, 0, 0x391, 0,
+	SOC_SINGLE_SX_TLV("Digital PCM Volume", CS35L43_AMP_CTRL,
+			CS35L43_AMP_VOL_PCM_SHIFT, 0x4CF, 0x391,
 			dig_vol_tlv),
 	SOC_SINGLE_TLV("Amp Gain", CS35L43_AMP_GAIN,
 			CS35L43_AMP_GAIN_PCM_SHIFT, 20, 0,
@@ -1874,8 +1884,8 @@ static int cs35l43_check_dsp_regs(struct cs35l43_private *cs35l43)
 
 static int cs35l43_log_dsp_err(struct cs35l43_private *cs35l43)
 {
-	int i;
-	unsigned int reg;
+	int i, ret = 0;
+	unsigned int reg = 0;
 	struct cs35l43_dsp_reg regs[] = {
 		{ "PM_CUR_STATE",	CS35L43_ALG_ID_PM },
 		{ "AUDIO_STATE",	0x5f212 },
@@ -1904,6 +1914,22 @@ static int cs35l43_log_dsp_err(struct cs35l43_private *cs35l43)
 				WMFW_ADSP2_XM, regs[i].id, &reg, sizeof(u32));
 		dev_info(cs35l43->dev, "%s (0x%x): 0x%x\n",
 				regs[i].name, regs[i].id, reg);
+		if (!strcmp(regs[i].name, "ERROR") && reg != cs35l43->last_err_reg) {
+			cs35l43->last_err_reg = reg;
+			strcpy(cs35l43->miev_err_reason, "[ERROR]");
+			dev_err(cs35l43->dev, "stream arb err reg:[ERROR]");
+			ret = -1;
+		} else if (!strcmp(regs[i].name, "INVALID_STRM_CNT") && reg != cs35l43->last_invalid_strm_cnt) {
+			cs35l43->last_invalid_strm_cnt = reg;
+			strcpy(cs35l43->miev_err_reason, "[INVALID_STRM_CNT]");
+			dev_err(cs35l43->dev, "stream arb err reg: [INVALID_STRM_CNT]");
+			ret = -1;
+		} else if (!strcmp(regs[i].name, "ACT_BOOT_CNT") && reg != cs35l43->last_act_boot_cnt) {
+			cs35l43->last_act_boot_cnt = reg;
+			strcpy(cs35l43->miev_err_reason, "[ACT_BOOT_CNT]");
+			dev_err(cs35l43->dev, "stream arb err reg: [ACT_BOOT_CNT]");
+			ret = -1;
+		}
 	}
 
 	regmap_read(cs35l43->regmap, CS35L43_DSP1_MPU_XM_VIO_STATUS, &reg);
@@ -1917,7 +1943,7 @@ static int cs35l43_log_dsp_err(struct cs35l43_private *cs35l43)
 	regmap_read(cs35l43->regmap, DSP1_STREAM_ARB_IRQ2_CONFIG_2, &reg);
 	dev_info(cs35l43->dev, "%s: DSP1_STREAM_ARB_IRQ2_CONFIG_2 0x%x\n", __func__, reg);
 
-	return 0;
+	return ret;
 }
 static void cs35l43_pll_config(struct cs35l43_private *cs35l43)
 {
@@ -1940,7 +1966,7 @@ static void cs35l43_pll_config(struct cs35l43_private *cs35l43)
 			CS35L43_PLL_REFCLK_EN_MASK);
 }
 
-static int cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
+static void cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
 {
 	unsigned int *mbox;
 	unsigned int write_ptr, read_ptr, read_idx, write_idx, type, msg;
@@ -1948,7 +1974,7 @@ static int cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
 
 	mbox = kmalloc_array(8, sizeof(*mbox), GFP_KERNEL);
 	if (!mbox)
-		return -ENOMEM;
+		return;
 
 	regmap_bulk_read(cs35l43->regmap, CS35L43_DSP_MBOX_1, mbox, 8);
 	for (i = 0; i < 8; i++)
@@ -1957,11 +1983,11 @@ static int cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
 	ret = wm_adsp_read_ctl(&cs35l43->dsp, "QUEUE_WT",
 		WMFW_ADSP2_XM, CS35L43_ALG_ID_MAILBOX, &write_ptr, sizeof(u32));
 	if (ret < 0)
-		return ret;
+		return;
 	ret = wm_adsp_read_ctl(&cs35l43->dsp, "QUEUE_RD",
 		WMFW_ADSP2_XM, CS35L43_ALG_ID_MAILBOX, &read_ptr, sizeof(u32));
 	if (ret < 0)
-		return ret;
+		return;
 
 	write_ptr = be32_to_cpu(write_ptr);
 	read_ptr = be32_to_cpu(read_ptr);
@@ -1998,6 +2024,11 @@ static int cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
 		case CS35L43_MBOX_TYPE_MEM_VAL:
 			dev_err(cs35l43->dev, "Memory Validation error: 0x%x\n", msg);
 			cs35l43_log_dsp_err(cs35l43);
+			if (msg == 0x6000004) {
+				dev_err(cs35l43->dev, "[TF-POP] Memory Validation error: 0x%x\n", msg);
+				if (!mutex_is_locked(&cs35l43->err_lock))
+					queue_work(cs35l43->err_wq, &cs35l43->err_work);
+			}
 			break;
 		case CS35L43_MBOX_TYPE_EVENT:
 			dev_info(cs35l43->dev, "Mailbox Event: 0x%x\n", msg);
@@ -2021,7 +2052,6 @@ static int cs35l43_check_mailbox(struct cs35l43_private *cs35l43)
 
 exit:
 	kfree(mbox);
-	return 0;
 }
 
 static void cs35l43_mbox_work(struct work_struct *wk)
@@ -2323,6 +2353,8 @@ static int cs35l43_main_amp_event(struct snd_soc_dapm_widget *w,
 	struct cs35l43_private *cs35l43 =
 				snd_soc_component_get_drvdata(component);
 	int ret = 0;
+	unsigned int val = 0;
+	int i, pdn_done;
 
 	dev_dbg(cs35l43->dev, "%s: event = 0x%x, reset times = %d\n", __func__, event, cs35l43->reset_times);
 
@@ -2347,14 +2379,24 @@ static int cs35l43_main_amp_event(struct snd_soc_dapm_widget *w,
 		regmap_update_bits(cs35l43->regmap, CS35L43_BLOCK_ENABLES,
 				CS35L43_AMP_EN_MASK, 0);
 
-		//if (cs35l43->low_pwr_mode == CS35L43_LOW_PWR_MODE_STANDBY) {
-			regmap_multi_reg_write_bypassed(cs35l43->regmap,
-					cs35l43_pdn_patch,
-					ARRAY_SIZE(cs35l43_pdn_patch));
+		regmap_multi_reg_write_bypassed(cs35l43->regmap,
+				cs35l43_pdn_patch,
+				ARRAY_SIZE(cs35l43_pdn_patch));
+		usleep_range(1000, 1100);
+		regmap_write(cs35l43->regmap, CS35L43_GLOBAL_ENABLES, 0);
+		regmap_write(cs35l43->regmap, CS35L43_ASP_ENABLES1, 0);
+		usleep_range(1000, 1100);
+		pdn_done = 0;
+		for (i = 0; i < 100; i++) {
+			regmap_read(cs35l43->regmap, CS35L43_IRQ1_EINT_1, &val);
+			if (val & CS35L43_MSM_PDN_DONE_EINT1_MASK) {
+				pdn_done = 1;
+				break;
+			}
 			usleep_range(1000, 1100);
-			regmap_write(cs35l43->regmap, CS35L43_GLOBAL_ENABLES, 0);
-		//}
-
+		}
+		dev_dbg(cs35l43->dev, "PDN Done Status : %d, %s\n", pdn_done, __func__);
+		regmap_write(cs35l43->regmap, CS35L43_IRQ1_EINT_1, CS35L43_MSM_PDN_DONE_EINT1_MASK);
 		break;
 	default:
 		dev_err(cs35l43->dev, "[TF-STABILITY] Invalid event = 0x%x\n", event);
@@ -2550,7 +2592,7 @@ static irqreturn_t cs35l43_irq(int irq, void *data)
 {
 	struct cs35l43_private *cs35l43 = data;
 	unsigned int status[3], masks[3];
-	int ret = IRQ_NONE, i;
+	int ret = IRQ_NONE, i, arb_err;
 
 	pm_runtime_get_sync(cs35l43->dev);
 
@@ -2693,6 +2735,7 @@ static irqreturn_t cs35l43_irq(int irq, void *data)
 		regmap_write(cs35l43->regmap, CS35L43_IRQ1_EINT_3,
 				CS35L43_DSP1_NMI_ERR_EINT1_MASK);
 		cs35l43_log_dsp_err(cs35l43);
+		mievent_report(906001355, "Cirrus PA dsp NMI Error", cs35l43->dev, "NULL");
 
 		if (!mutex_is_locked(&cs35l43->err_lock))
 			queue_work(cs35l43->err_wq, &cs35l43->err_work);
@@ -2703,6 +2746,7 @@ static irqreturn_t cs35l43_irq(int irq, void *data)
 		regmap_write(cs35l43->regmap, CS35L43_IRQ1_EINT_3,
 				CS35L43_DSP1_MPU_ERR_EINT1_MASK);
 		cs35l43_log_dsp_err(cs35l43);
+		mievent_report(906001355, "Cirrus PA dsp MPU Error", cs35l43->dev, "NULL");
 
 		if (!mutex_is_locked(&cs35l43->err_lock))
 			queue_work(cs35l43->err_wq, &cs35l43->err_work);
@@ -2712,10 +2756,11 @@ static irqreturn_t cs35l43_irq(int irq, void *data)
 		dev_err(cs35l43->dev, "[TF-STABILITY] Stream Arb Error INT\n");
 		regmap_write(cs35l43->regmap, CS35L43_IRQ1_EINT_3,
 				CS35L43_DSP1_STRM_ARB_ERR_EINT1_MASK);
-		cs35l43_log_dsp_err(cs35l43);
-
-		//if (!mutex_is_locked(&cs35l43->err_lock))
-		//	queue_work(cs35l43->err_wq, &cs35l43->err_work);
+		arb_err = cs35l43_log_dsp_err(cs35l43);
+		if (arb_err && cs35l43->miev_err_reason) {
+			dev_info(cs35l43->dev, "[TF-STABILITY]Stream Arb Error type:%d, Error reg:%s ", arb_err, cs35l43->miev_err_reason);
+			mievent_report(906001355, "Cirrus PA dsp Stream Arb Error", cs35l43->dev, cs35l43->miev_err_reason);
+		}
 	}
 
 	ret = IRQ_HANDLED;
@@ -2815,10 +2860,11 @@ static int cs35l43_pcm_hw_params(struct snd_pcm_substream *substream,
 {
 	int i;
 	unsigned int rate = params_rate(params);
-	unsigned int channel = params_channels(params);
 	u8 asp_width, asp_wl;
 	struct cs35l43_private *cs35l43 =
 				snd_soc_component_get_drvdata(dai->component);
+
+	dev_dbg(cs35l43->dev, "%s\n", __func__);
 
 	for (i = 0; i < ARRAY_SIZE(cs35l43_fs_rates); i++) {
 		if (rate == cs35l43_fs_rates[i].rate)
@@ -2841,26 +2887,12 @@ static int cs35l43_pcm_hw_params(struct snd_pcm_substream *substream,
 	asp_wl = params_width(params);
 	asp_width = cs35l43->slot_width ?
 			    cs35l43->slot_width : params_physical_width(params);
-	if (asp_width <= FMTBIT_32)
-		asp_width = FMTBIT_32;
 
-#ifdef SMARTPA_I2S_DEBUG
-	rate = cs35l43_interface_p.sample;
-	channel = cs35l43_interface_p.channel;
-	asp_wl = cs35l43_interface_p.valid_format;
-	asp_width = cs35l43_interface_p.phy_format;
-#endif
-	dev_info(cs35l43->dev, "%s: wl=%d, width=%d, rate=%d, channels=%d\n", __func__,
-				asp_wl, asp_width, rate, channel);
-
-	if (channel <= 2)
-		cs35l43_set_dai_fmt(dai, SND_SOC_DAIFMT_CBS_CFS|SND_SOC_DAIFMT_I2S);
-	else
-		cs35l43_set_dai_fmt(dai, SND_SOC_DAIFMT_CBS_CFS|SND_SOC_DAIFMT_DSP_A);
-
+	dev_dbg(cs35l43->dev, "%s: wl=%d, width=%d, rate=%d, channels=%d\n", __func__,
+				asp_wl, asp_width, rate, params_channels(params));
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		cs35l43_component_set_sysclk(dai->component, 0, 0, channel * rate * asp_width, 0);
+		cs35l43_component_set_sysclk(dai->component, 0, 0, 2 * params_rate(params) * asp_width, 0);
 		regmap_update_bits(cs35l43->regmap, CS35L43_ASP_CONTROL2,
 				CS35L43_ASP_RX_WIDTH_MASK, asp_width <<
 				CS35L43_ASP_RX_WIDTH_SHIFT);
@@ -2907,6 +2939,8 @@ static int cs35l43_pcm_startup(struct snd_pcm_substream *substream,
 	int ret = 0;
 
 	dev_dbg(cs35l43->dev, "%s\n", __func__);
+
+	cs35l43_set_dai_fmt(dai, SND_SOC_DAIFMT_CBS_CFS | SND_SOC_DAIFMT_DSP_A);
 
 	if (substream->runtime)
 		return snd_pcm_hw_constraint_list(substream->runtime, 0,
@@ -3287,7 +3321,6 @@ static int cs35l43_component_probe(struct snd_soc_component *component)
 	int ret = 0;
 	struct cs35l43_private *cs35l43 =
 		snd_soc_component_get_drvdata(component);
-	dev_info(cs35l43->dev, "DEBUG cs35l43_component_probe enter\n");
 #ifdef SMARTPA_I2S_DEBUG
 	cs35l43_interface_params_init();
 #endif
@@ -3522,7 +3555,6 @@ static int cs35l43_rcv_handset_switch_init(struct cs35l43_private *cs35l43)
 			pinctrl_lookup_state(cs35l43->cs35l43_rcv_pinctrl, n);
 		if (IS_ERR(state)) {
 			dev_err(cs35l43->dev, "cannot find '%s'\n", n);
-			cs35l43->enable_rcv_pin_control = 0;
 			ret = -EINVAL;
 			return ret;
 		}
@@ -3555,6 +3587,18 @@ static void cs35lxx_dai_drv_append_suffix(struct cs35l43_private *cs35l43,
 	}
 }
 
+/*
+ * The stock ThinLTO link merged the zero-size static lock_class_key objects of mutex_init() into one .bss address
+ * (all relocs resolve to cs35l43_probe.__key); put every key into one explicit section (same codegen, same reloc target).
+ */
+#define CS35L43_KEY_SECTION	__attribute__((section(".bss.cs35l43_lockkeys")))
+#undef mutex_init
+#define mutex_init(mutex)						\
+do {									\
+	static struct lock_class_key __key CS35L43_KEY_SECTION;		\
+	__mutex_init((mutex), #mutex, &__key);				\
+} while (0)
+
 int cs35l43_probe(struct cs35l43_private *cs35l43,
 				struct cs35l43_platform_data *pdata)
 {
@@ -3564,7 +3608,7 @@ int cs35l43_probe(struct cs35l43_private *cs35l43,
 	static u32 probe_err_count = 0;
 	int probe_max_count = 3;
 
-	dev_info(cs35l43->dev, "DEBUG cs35l43 probe E\n");
+	dev_err(cs35l43->dev, "DEBUG cs35l43 probe E\n");
 
 	for (i = 0; i < ARRAY_SIZE(cs35l43_supplies); i++)
 		cs35l43->supplies[i].supply = cs35l43_supplies[i];
@@ -3599,49 +3643,6 @@ int cs35l43_probe(struct cs35l43_private *cs35l43,
 		return ret;
 	}
 
-	{
-		struct pinctrl *cs35l43_len_pinctrl = devm_pinctrl_get(cs35l43->dev);
-		if (IS_ERR(cs35l43_len_pinctrl)) {
-			if (PTR_ERR(cs35l43_len_pinctrl) == -EPROBE_DEFER) {
-				dev_err(cs35l43->dev, "pinctrl not ready\n");
-				goto err;
-			}
-			dev_info(cs35l43->dev, "Target does not use pinctrl\n");
-			cs35l43_len_pinctrl = NULL;
-			goto err;
-		}
-		struct pinctrl_state *state = pinctrl_lookup_state(cs35l43_len_pinctrl, "gpio_len_enable");
-		if (IS_ERR(state)) {
-			dev_err(cs35l43->dev, "cannot find'\n");
-			goto err;
-		}
-		ret = pinctrl_select_state(cs35l43_len_pinctrl, state);
-		if (ret) {
-			dev_err(cs35l43->dev, "cannot select pinctrl state'\n");
-			goto err;
-		}
-		struct pinctrl *cs35l43_default_pinctrl = devm_pinctrl_get(cs35l43->dev);
-		if (IS_ERR(cs35l43_default_pinctrl)) {
-			if (PTR_ERR(cs35l43_default_pinctrl) == -EPROBE_DEFER) {
-				dev_err(cs35l43->dev, "pinctrl not ready\n");
-				goto err;
-			}
-			dev_info(cs35l43->dev, "Target does not use pinctrl\n");
-			cs35l43_default_pinctrl = NULL;
-			goto err;
-		}
-		struct pinctrl_state *state1 = pinctrl_lookup_state(cs35l43_default_pinctrl, "default");
-		if (IS_ERR(state1)) {
-			dev_err(cs35l43->dev, "cannot find'\n");
-			goto err;
-		}
-		ret = pinctrl_select_state(cs35l43_default_pinctrl, state1);
-		if (ret) {
-			dev_err(cs35l43->dev, "cannot select pinctrl state'\n");
-			goto err;
-		}
-	}
-
 	/* returning NULL can be an option if in stereo mode */
 	cs35l43->reset_gpio = devm_gpiod_get_optional(cs35l43->dev, "reset",
 							GPIOD_OUT_LOW);
@@ -3663,12 +3664,10 @@ int cs35l43_probe(struct cs35l43_private *cs35l43,
 		gpiod_set_value_cansleep(cs35l43->reset_gpio, 1);
 	}
 
-	usleep_range(200000, 210000);
+	usleep_range(2000, 2100);
 
 	/* Add for rcv/spk switch */
-	{
-		cs35l43_rcv_handset_switch_init(cs35l43);
-	}
+	cs35l43_rcv_handset_switch_init(cs35l43);
 
 	ret = regmap_read(cs35l43->regmap, CS35L43_DEVID, &regid);
 	if (ret < 0) {
@@ -3700,6 +3699,13 @@ int cs35l43_probe(struct cs35l43_private *cs35l43,
 
 	cs35l43->err_wq = create_singlethread_workqueue("cs35l43_err");
 	INIT_WORK(&cs35l43->err_work, cs35l43_error_work);
+
+	cs35l43->last_err_reg = 0;
+	cs35l43->last_invalid_strm_cnt = 0;
+	cs35l43->last_act_boot_cnt = 0;
+	cs35l43->miev_err_reason = devm_kzalloc(cs35l43->dev, 0x30, GFP_KERNEL);
+	if (!cs35l43->miev_err_reason)
+		dev_err(cs35l43->dev, "%s: no mem for miev error reason\n", __func__);
 
 	irq_pol = cs35l43_irq_gpio_config(cs35l43);
 	regmap_write(cs35l43->regmap, CS35L43_IRQ1_MASK_1, 0xFFFFFFFF);
@@ -3745,7 +3751,7 @@ int cs35l43_probe(struct cs35l43_private *cs35l43,
 	if (!cs35l43->dai_drv) {
 		dev_err(cs35l43->dev, "%s: dai_driver malloc failed \n", __func__);
 		ret = -ENOMEM;
-		goto err_pm;
+		goto err_miev;
 	}
 	memcpy(cs35l43->dai_drv, cs35l43_dai, sizeof(cs35l43_dai));
 	cs35lxx_dai_drv_append_suffix(cs35l43, cs35l43->dai_drv);
@@ -3772,6 +3778,9 @@ err_pm:
 	pm_runtime_disable(cs35l43->dev);
 	pm_runtime_put_noidle(cs35l43->dev);
 	wm_adsp2_remove(&cs35l43->dsp);
+err_miev:
+	if (cs35l43->miev_err_reason)
+		devm_kfree(cs35l43->dev, cs35l43->miev_err_reason);
 	mutex_destroy(&cs35l43->hb_lock);
 err:
 probe_err_count++;

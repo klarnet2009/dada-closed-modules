@@ -9,6 +9,7 @@
 
 #include "minet_debug.h"
 #include "minet_nl.h"
+#include "minet_tc.h"
 
 #define DRV_NAME "minet"
 #define DRV_VERSION "1.0"
@@ -664,6 +665,9 @@ static unsigned int hook4(void *priv, struct sk_buff *skb,
 	if (state->hook == NF_INET_LOCAL_IN && is_local_or_lan_addr(iph->saddr))
 		return NF_ACCEPT;
 
+	if (state->hook == NF_INET_LOCAL_IN)
+		tl_after_filter_in(skb, uid);
+
 	/* get per-CPU app */
 	cpu = get_cpu();
 	if (cpu < 0 || cpu >= CONFIG_NR_CPUS)
@@ -710,6 +714,9 @@ static unsigned int hook6(void *priv, struct sk_buff *skb,
 	if (state->hook == NF_INET_LOCAL_OUT) {
 		save_connect_uid(skb, uid);
 	}
+
+	if (state->hook == NF_INET_LOCAL_IN)
+		tl_after_filter_in(skb, uid);
 
 	/* match addr */
 	/*if (is_private_v6_addr(sk))
@@ -932,6 +939,10 @@ static int __init minet_init_module(void)
 		INIT_LIST_HEAD(&app->head);
 	}
 
+	ret = minet_tc_limiter_init();
+	if (ret)
+		goto init_err;
+
 	ret = nf_register_net_hooks(&init_net, minet_hooks,
 				    ARRAY_SIZE(minet_hooks));
 	if (ret) {
@@ -971,6 +982,7 @@ static void __exit minet_cleanup_module(void)
 	}
 
 	clear_app();
+	minet_tc_limiter_finit();
 
 	if (g_minet) {
 		kfree(g_minet);

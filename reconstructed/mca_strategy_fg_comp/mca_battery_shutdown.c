@@ -34,7 +34,6 @@ enum shutdown_strategy_type {
 	SHUTDOWN_STRATEGY_MAX,
 };
 
-#line 63
 static int mca_battery_shutdown_parse_vcutoff_para(struct device_node *node,
 	const char *name, struct mca_battery_shutdown_vcutoff_para_info *vcutoff_info)
 {
@@ -43,7 +42,7 @@ static int mca_battery_shutdown_parse_vcutoff_para(struct device_node *node,
 	const char *tmp_string = NULL;
 
 	if (strcmp(name, "null") == 0) {
-#line 68
+#line 71
 		mca_log_info("no need parse volt para\n");
 		return 0;
 	}
@@ -51,7 +50,7 @@ static int mca_battery_shutdown_parse_vcutoff_para(struct device_node *node,
 		VCUTOFF_PARA_MAX_GROUP,
 		MCA_BATTERY_SHUTDOWN_VCUTOFF_PARA_MAX);
 	if (array_len < 0) {
-#line 75
+#line 78
 		mca_log_err("parse %s failed\n", name);
 		return -1;
 	}
@@ -59,7 +58,7 @@ static int mca_battery_shutdown_parse_vcutoff_para(struct device_node *node,
 	vcutoff_info->vcutoff_para_size = array_len / MCA_BATTERY_SHUTDOWN_VCUTOFF_PARA_MAX;
 	vcutoff_info->vcutoff_para = kcalloc(vcutoff_info->vcutoff_para_size, sizeof(*vcutoff_para), GFP_KERNEL);
 	if (!vcutoff_info->vcutoff_para) {
-#line 82
+#line 85
 		mca_log_err("vcutoff para no mem\n");
 		return -ENOMEM;
 	}
@@ -100,7 +99,6 @@ error:
 	return -1;
 }
 
-#line 128
 int mca_battery_shutdown_parse_dt(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -124,7 +122,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 	rc |= mca_parse_dts_u32(node, "vcutoff_fw",
 		&fg->vcutoff_fw, MCA_BATTERY_SHUTDOWN_VCUTTOFF_FW);
 	if (rc) {
-#line 145
+#line 148
 		mca_log_err(" normal vcutoff parse failed ret=%d\n", rc);
 		return rc;
 	}
@@ -144,25 +142,25 @@ int mca_battery_shutdown_parse_dt(void *data)
 			do {
 				platform_fg_ops_get_device_name(FG_IC_MASTER, &device_name);
 				msleep(100);
-#line 165
+#line 168
 				mca_log_err("retry get device name:%d\n", retry);
 			} while (!device_name && retry++ != 20);
 			if (!device_name) {
-#line 169
+#line 172
 				mca_log_err("get device name  fail\n");
 				return -1;
 			}
-#line 172
+#line 175
 			mca_log_err("CN device name: %s\n", device_name);
 			if (strcmp("3XM31", device_name))
 				fg->support_cc_unique_cn_nvt = false;
 		} else {
 			fg->support_cc_unique_cn_nvt = false;
-#line 179
+#line 182
 			mca_log_err("GL device no need check\n");
 		}
 	}
-#line 181
+#line 184
 	mca_log_err("is nvt unique scheme %d\n", fg->support_cc_unique_cn_nvt);
 
 	if (fg->support_cc_vcutoff) {
@@ -172,7 +170,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 			VCUTOFF_PARA_MAX_GROUP,
 			MCA_BATTERY_SHUTDOWN_TEMP_PARA_MAX);
 		if (array_len < 0) {
-#line 197
+#line 200
 			mca_log_err("parse cc_vcutoff_cfg failed\n");
 			return -1;
 		}
@@ -180,7 +178,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 		batt_health_para_info->temp_para_size = array_len / MCA_BATTERY_SHUTDOWN_TEMP_PARA_MAX;
 		batt_health_para_info->temp_info = kcalloc(batt_health_para_info->temp_para_size, sizeof(*temp_info), GFP_KERNEL);
 		if (!batt_health_para_info->temp_info) {
-#line 204
+#line 207
 			mca_log_err("vcutoff_para_info->temp_para no mem\n");
 			return -ENOMEM;
 		}
@@ -189,7 +187,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 		for (i = 0; i < array_len; i++) {
 			if (is_gl_cc) {
 				if (mca_parse_dts_string_index(node, "cc_vcutoff_cfg_gl", i, &tmp_string)) {
-#line 212
+#line 215
 					mca_log_err("gl cc config is not ready, check pls!\n");
 					return -1;
 				}
@@ -241,7 +239,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 			array_len = mca_parse_dts_count_strings(node, "dod_vcutoff_cfg_gl",
 				BATTERY_TEMP_PARA_MAX_GROUP,
 				MCA_BATTERY_SHUTDOWN_TEMP_PARA_MAX);
-#line 265
+#line 269
 			mca_log_err("parse dod_vcutoff_cfg-gl, %d\n", array_len);
 		} else {
 			array_len = mca_parse_dts_count_strings(node, "dod_vcutoff_cfg",
@@ -249,14 +247,14 @@ int mca_battery_shutdown_parse_dt(void *data)
 				MCA_BATTERY_SHUTDOWN_TEMP_PARA_MAX);
 		}
 		if (array_len < 0) {
-#line 271
+#line 275
 			mca_log_err("parse dod_vcutoff_cfg failed\n");
 			return -1;
 		}
 		batt_spec_para_info->temp_para_size = array_len / MCA_BATTERY_SHUTDOWN_TEMP_PARA_MAX;
 		batt_spec_para_info->temp_info = kcalloc(batt_spec_para_info->temp_para_size, sizeof(*temp_info), GFP_KERNEL);
 		if (!batt_spec_para_info->temp_info) {
-#line 277
+#line 281
 			mca_log_err("batt_para_info->temp_para no mem\n");
 			return -ENOMEM;
 		}
@@ -265,7 +263,7 @@ int mca_battery_shutdown_parse_dt(void *data)
 		for (i = 0; i < array_len; i++) {
 			if (is_gl_dod) {
 				if (mca_parse_dts_string_index(node, "dod_vcutoff_cfg_gl", i, &tmp_string)) {
-#line 285
+#line 289
 					mca_log_err("gl dod config is not ready, check pls!\n");
 					return -1;
 				}
@@ -322,7 +320,6 @@ error:
 }
 
 #define ROLLBACK_SHUTDOWN_VOLT_MAX 3000
-#line 353
 int mca_battery_shutdown_update_vcutoff_para(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -350,7 +347,6 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		}
 
 		if (cur_temp_index < 0 || cur_temp_index >= fg->batt_health_para.temp_para_size) {
-#line 367
 			mca_log_err("temp over range invalid\n");
 			return -1;
 		}
@@ -374,7 +370,6 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		}
 
 		if (cur_vcuttoff_index < 0 || cur_vcuttoff_index > vcutoff_info->vcutoff_para_size) {
-#line 390
 			mca_log_err("cyclecount over range invalid\n");
 			return -1;
 		}
@@ -386,7 +381,6 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		vcutoff_sw[SHUTDOWN_STRATEGY_BATTERY_HEALTH] =
 			vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_sw;
 
-#line 401
 		mca_log_info("BatteryHealth:cur_temp_index[%d], last_temp_index[%d] cur_vcuttoff_index[%d]\n",
 			cur_temp_index, fg->batt_health_para.cur_temp_index, cur_vcuttoff_index);
 
@@ -399,7 +393,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		struct mca_battery_shutdown_temp_para temp_para;
 
 		for (int i = 0; i < fg->batt_spec_para.temp_para_size; i++) {
-#line 414
+#line 455
 			mca_log_err("temp_para_size:%d, temp: %d, high: %d, low: %d\n", fg->batt_spec_para.temp_para_size, temp,
 				fg->batt_spec_para.temp_info[i].temp_para.temp_high, fg->batt_spec_para.temp_info[i].temp_para.temp_low);
 			if (temp < fg->batt_spec_para.temp_info[i].temp_para.temp_high &&
@@ -410,7 +404,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		}
 
 		if (cur_temp_index < 0 || cur_temp_index >= fg->batt_spec_para.temp_para_size) {
-#line 424
+#line 465
 			mca_log_err("temp over range invalid, current:%d\n", cur_temp_index);
 			return -1;
 		}
@@ -433,7 +427,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		}
 
 		if (cur_vcuttoff_index < 0 || cur_vcuttoff_index > vcutoff_info->vcutoff_para_size) {
-#line 446
+#line 488
 			mca_log_err("dod_count over range invalid\n");
 			return -1;
 		}
@@ -445,7 +439,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		vcutoff_sw[SHUTDOWN_STRATEGY_BATTERY_SPEC] =
 			vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_sw;
 
-#line 457
+#line 500
 		mca_log_info("BatterySpec:cur_temp_index[%d], last_temp_index[%d] cur_vcuttoff_index[%d]\n",
 			cur_temp_index, fg->batt_spec_para.cur_temp_index, cur_vcuttoff_index);
 	}
@@ -456,7 +450,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 			vcutoff_shutdown_volt = vcutoff_shutdown_delay[i];
 			index = i;
 		}
-#line 467
+#line 510
 		mca_log_info("Max-Strategy[%d], vcutoff_fw %d, vcutoff_shutdown_delay %d vcutoff_sw %d\n",
 		i, vcutoff_fw[i], vcutoff_shutdown_delay[i], vcutoff_sw[i]);
 	}
@@ -472,7 +466,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 			fg->vcutoff_fw = MCA_BATTERY_SHUTDOWN_VCUTTOFF_FW;
 			fg->vcutoff_shutdown_delay = MCA_BATTERY_SHUTDOWN_VCUTTOFF_SHUTDOWN_DELAY;
 			fg->vcutoff_sw = MCA_BATTERY_SHUTDOWN_VCUTTOFF_SW;
-#line 482
+#line 526
 			mca_log_info("[Enable_Rollback][%d] vcutoff_fw[%d], vcutoff_shutdown_delay[%d], vcutoff_sw[%d]\n",
 				index, fg->vcutoff_fw, fg->vcutoff_shutdown_delay, fg->vcutoff_sw);
 			return 0;
@@ -489,13 +483,12 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 	else
 		fg->vcutoff_sw = vcutoff_sw[index] < MCA_BATTERY_SHUTDOWN_VCUTTOFF_SW ?
 			vcutoff_sw[index] : MCA_BATTERY_SHUTDOWN_VCUTTOFF_SW;
-#line 499
+#line 544
 	mca_log_info("Strategy[%d]:vcutoff_fw[%d], vcutoff_shutdown_delay[%d], vcutoff_sw[%d]\n",
 		index, fg->vcutoff_fw, fg->vcutoff_shutdown_delay, fg->vcutoff_sw);
 	return 0;
 }
 
-#line 509
 static bool mca_battery_shutdown_heavy_load_check(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -507,7 +500,7 @@ static bool mca_battery_shutdown_heavy_load_check(void *data)
 	else
 		heavy_load_count = 0;
 
-#line 515
+#line 731
 	mca_log_info("heavy_load_count: %d\n", heavy_load_count);
 
 	if (heavy_load_count > MCA_HEAVY_LOAD_DISCHARGING_COUNT)
@@ -528,7 +521,7 @@ static bool mca_shutdown_due_to_vpack_low_of_vpack_inside_fg_absent(void *data)
 	vpack_vol_now_mv = fg->pvbat;
 
 	chip_ok = strategy_class_fg_is_chip_ok();
-#line 537
+#line 753
 	mca_log_info("chip_ok:%d vpack_vol_now_mv:%d",
 			chip_ok, vpack_vol_now_mv);
 	if (!chip_ok && count < 10 && vpack_vol_now_mv <= 3000) {
@@ -543,7 +536,6 @@ static bool mca_shutdown_due_to_vpack_low_of_vpack_inside_fg_absent(void *data)
 		return false;
 }
 
-#line 540
 int mca_battery_shutdown_check_shutdown_delay(void *data, int *ui_soc)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -594,14 +586,14 @@ int mca_battery_shutdown_check_shutdown_delay(void *data, int *ui_soc)
 	}
 
 report_shutdown:
-#line 601
+#line 817
 	mca_log_info("ui_soc: %d, soc: %d, last_shutdown_delay: %d, shutdown_dealy: %d\n",
 		*ui_soc, soc, last_shutdown_delay, shutdown_dealy);
 
 	*ui_soc = soc;
 
 	if (last_shutdown_delay != shutdown_dealy && fg->fake_soc == STRATEGY_FG_FAKE_SOC_NONE) {
-#line 607
+#line 823
 		mca_log_err("shutdown_dealy changed: %d => %d\n", last_shutdown_delay, shutdown_dealy);
 		len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 			"POWER_SUPPLY_SHUTDOWN_DELAY=%u\n", shutdown_dealy);

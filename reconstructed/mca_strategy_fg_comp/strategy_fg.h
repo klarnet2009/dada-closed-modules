@@ -13,6 +13,7 @@
 #include <linux/ktime.h>
 #include <linux/workqueue.h>
 #include <linux/notifier.h>
+#include <linux/mutex.h>
 #include <mca/platform/platform_fg_ic_ops.h>
 #include "mca_battery_shutdown.h"
 
@@ -128,6 +129,12 @@ struct strategy_fg_cfg {
 	int support_batt_xvdd_dfx;
 	int support_pmic_vterm_dynamics_adjust;
 	int support_qbg;
+	int capacity_comp;
+	int support_fast_mode_when_charging;
+	int fast_mode_charging_times;
+	bool support_clear_cycle;
+	int drop_fv_cycle;
+	bool support_isc_li_plating;
 };
 
 struct fg_batt_info {
@@ -154,6 +161,68 @@ struct strategy_fg_smooth {
 	int dischg_smooth_high_temp_unit[VOL_SMOOTH_LEN][CURR_SMOOTH_LEN];
 };
 
+struct fg_chg_data {
+	bool quick_chg_en;
+	int fcc;
+	int iterm;
+	int vterm;
+	int cv;
+};
+
+struct batt_ov_data {
+	int last_vfloat;
+	int ov_count;
+	int ov_vfloat;
+	bool drop_fv_flag;
+	bool ov_flag;
+};
+
+enum isc_state {
+	ISC_STATE_WAITING = 0,
+	ISC_STATE_SAMPLING,
+	ISC_STATE_SAMPLING_2,
+};
+
+enum li_plating_state {
+	LI_PLATING_BEFORE_FULL = 0,
+	LI_PLATING_AFTER_FULL,
+};
+
+#define ISC_DATA_NUM 10
+#define LI_DATA1_NUM 10
+#define LI_DATA2_NUM 30
+
+struct batterydata {
+	time64_t time;
+	int temp;
+	int volt;
+	int curr;
+	int dod;
+	int soc;
+};
+
+struct isc_detect_info {
+	bool isDetecting;
+	bool need_stop;
+	int full_count;
+	int sample_index;
+	int average_point_done_cnt;
+	int count;
+	int collect_done;
+	enum isc_state state;
+	struct batterydata isc_data[ISC_DATA_NUM];
+};
+
+struct li_plating_info {
+	bool isDetecting;
+	int full_count;
+	int sample_index;
+	int before_full_index;
+	enum li_plating_state state;
+	struct batterydata li_data_1[LI_DATA1_NUM];
+	struct batterydata li_data_2[LI_DATA2_NUM];
+};
+
 struct mca_votable;
 
 struct strategy_fg {
@@ -167,7 +236,12 @@ struct strategy_fg {
 	struct delayed_work force_report_full_work;
 	struct delayed_work nvt1000_ota_monitor_work;
 	struct delayed_work batt_abnormal_dfx_work;
+	struct delayed_work batt_overvoltage_dfx_work;
+	struct delayed_work update_vcoutoff_v2_work;
 	struct delayed_work reset_default_co_work;
+	struct delayed_work isc_detect_work;
+	struct delayed_work isc_detect_2_work;
+	struct delayed_work li_plating_detect_work;
 
 	struct notifier_block panel_nb;
 	struct notifier_block thermal_board_nb;
@@ -236,6 +310,7 @@ struct strategy_fg {
 	bool support_cc_unique_cn_nvt;
 	bool support_dod_vcutoff;
 	bool support_dod_vcutoff_gl;
+	bool support_dod_vcutoff_v2;
 	bool support_cc_vcutoff_gl;
 	bool notsupport_dod_vcutoff_global;
 	bool disable_rollback_shutdown_volt;
@@ -283,11 +358,32 @@ struct strategy_fg {
 	int self_equal_count_max;
 	bool fg_master_init_flag;
 	bool fg_slave_init_flag;
+	bool onewire_init_flag;
 	bool fg_master_error;
 	bool fg_slave_error;
 	int last_final_term_curr;
 	bool base_batt_close;
 	bool temp_offset_flags[FG_IC_MAX];
+	int cold_zone;
+	int last_target_iterm;
+	time64_t last_dfx_check_time_not_stop_chg_err;
+	time64_t last_dfx_check_time_rechg_soc_err;
+	time64_t last_dfx_check_time_batt_capacity;
+	struct notifier_block shutdown_notifier;
+	struct fg_chg_data chg_data;
+	struct mutex temp_index_lock;
+	struct batt_ov_data ov_data;
+	bool support_new_soc_smooth;
+	int allow_new_soc_smooth;
+	bool new_soc_smooth_active;
+	bool check_soc_smooth_flag;
+	bool start_pmic_chg_flag;
+	time64_t start_pmic_chg_time;
+	bool need_lossless_recharge;
+	int chg_done_cnt;
+	struct isc_detect_info isc_det_info;
+	struct isc_detect_info isc_det_2_info;
+	struct li_plating_info li_plating_det_info;
 };
 
 enum fg_auth_attr_list	{
@@ -315,19 +411,41 @@ enum fg_auth_attr_list	{
 	FG_PROP_CALC_RVALUE,
 	FG_PROP_MANUFACTURING_DATE,
 	FG_PROP_FIRST_USAGE_DATE,
+	FG_PROP_I_AVER_GEAR,
+	FG_PROP_SILOSS_GEAR,
 };
 
-/* offsets/sizes proven by the stock BTF */
-_Static_assert(sizeof(struct strategy_fg_cfg) == 608, "strategy_fg_cfg");
+/* offsets/sizes proven by the OS4 stock BTF */
+_Static_assert(sizeof(struct strategy_fg_cfg) == 632, "strategy_fg_cfg");
 _Static_assert(sizeof(struct strategy_fg_smooth) == 208, "strategy_fg_smooth");
 _Static_assert(sizeof(struct fg_batt_info) == 36, "fg_batt_info");
-_Static_assert(sizeof(struct strategy_fg) == 2632, "strategy_fg");
-_Static_assert(offsetof(struct strategy_fg, cfg) == 1280, "cfg");
-_Static_assert(offsetof(struct strategy_fg, smooth) == 1888, "smooth");
-_Static_assert(offsetof(struct strategy_fg, batt_info) == 2452, "batt_info");
-_Static_assert(offsetof(struct strategy_fg, temp_offset_flags) == 2629, "temp_offset_flags");
+_Static_assert(sizeof(struct isc_detect_info) == 352, "isc_detect_info");
+_Static_assert(sizeof(struct li_plating_info) == 1304, "li_plating_info");
+_Static_assert(sizeof(struct strategy_fg) == 5576, "strategy_fg");
+_Static_assert(offsetof(struct strategy_fg, cfg) == 1960, "cfg");
+_Static_assert(offsetof(struct strategy_fg, smooth) == 2592, "smooth");
+_Static_assert(offsetof(struct strategy_fg, batt_info) == 3204, "batt_info");
+_Static_assert(offsetof(struct strategy_fg, temp_offset_flags) == 3385, "temp_offset_flags");
+_Static_assert(offsetof(struct strategy_fg, temp_index_lock) == 3472, "temp_index_lock");
+_Static_assert(offsetof(struct strategy_fg, li_plating_det_info) == 4272, "li_plating_det_info");
 
 int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump);
+int onewire_get_shutdown_uisoc(int *uisoc);
+int onewire_set_shutdown_uisoc(int uisoc);
+/* battery-safe TU (isc / li plating) */
+void stop_isc_detect_work(struct isc_detect_info *info);
+void stop_isc_detect_2_work(struct isc_detect_info *info);
+void stop_li_plating_detect_work(struct li_plating_info *info);
+void report_isc_data(struct isc_detect_info *info);
+void report_isc_data_2(struct isc_detect_info *info);
+void strategy_isc_detect_work(struct work_struct *work);
+void strategy_isc_detect_2_work(struct work_struct *work);
+void mca_strategy_start_isc_detect_2_work(struct strategy_fg *fg);
+void strategy_li_plating_work(struct work_struct *work);
+void mca_strategy_check_li_plating(struct strategy_fg *fg);
+void strategy_batt_overvoltage_dfx_work(struct work_struct *work);
+void strategy_update_vcoutoff_v2_work(struct work_struct *work);
+int mca_battery_shutdown_update_cc_para(void *data, int vcutoff_fw, int vcutoff_shutdown_delay, int vcutoff_sw);
 int strategy_soc_smooth_parse_dt(struct strategy_fg *fg);
 void onewire_check_auth_pass(bool *auth_pass);
 void onewire_check_chip_ok(bool *chip_ok);

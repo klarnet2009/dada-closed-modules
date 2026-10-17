@@ -1,0 +1,3 @@
+# tango32 - EQUIVALENT (compare_ko.py all OK: 8 functions, 31 imports, 0 exports, modinfo)
+Reference: OS4 stock `vendor_dlkm/tango32.ko`. Template: XRING `MiCode/Xiaomi_Kernel_OpenSource` branch `dijun-v-oss`, `xring-modules/drivers/tango/{tango32.c,tango32.h}` (Amanieu d'Antras' Tango 32-bit syscall helper + MIUI additions), taken UNCHANGED: first Kleaf DDK ThinLTO build (`g1_tools/bz.sh tango32`) is byte-identical, no hacks (no forged CRC, no padcrc, no codegen hints).
+Found with `git ls-tree` on the server bare repo `<build-dir>` (`o/dijun-v-oss`, blobs fetched on demand with `git show`); the same branch also holds `walt/vip_sched.c`, `perf/perf_actuator`, `mem_adapter/xring_reclaim.c`, `migt/migt.c`.

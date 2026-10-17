@@ -91,6 +91,7 @@ const static fsm_pll_config_t g_fs19xx_pll_tbl[] = {
 	{ 2822400, 0x0260, 0x0460, 0x000A }, //            & 44100*32*2
 	{ 3072000, 0x0260, 0x0540, 0x000C }, //            & 48000*32*2
 	{ 6144000, 0x0260, 0x0540, 0x0018 }, // 96000*32*2
+	{ 12288000, 0x0260, 0x02A0, 0x0018 }, // v4.0.7: 192000*32*2
 };
 
 static int fs19xx_i2c_reset(fsm_dev_t *fsm_dev)
@@ -184,7 +185,7 @@ static int fs19xx_config_pll(fsm_dev_t *fsm_dev, bool on)
 		}
 	}
 	if (idx >= tbl_size) {
-		pr_addr(err, "invalid bclk/rate:%d,%d", cfg->i2s_bclk, cfg->i2s_srate);
+		pr_addr(err, "invalid bclk/rate:%u, %u", cfg->i2s_bclk, cfg->i2s_srate);
 		return -EINVAL;
 	}
 	pr_addr(debug, "bclk[%d]: %d", idx, cfg->i2s_bclk);
@@ -218,7 +219,7 @@ static int fs19xx_config_i2s(fsm_dev_t *fsm_dev)
 	}
 	ret = fsm_reg_read(fsm_dev, REG(FS1958_I2SCTRL), &i2sctrl);
 	ret |= fsm_reg_read(fsm_dev, REG(FS1958_REVID), &revid);
-	if (LOW8(revid) == 0xA1) {
+	if ((fsm_dev->version & 0xFF00) == 0x1700 && LOW8(revid) == 0xA1) {
 		i2ssr = 7;
 	}
 	set_bf_val(&i2sctrl, FS1958_I2SSR, i2ssr);
@@ -247,16 +248,33 @@ int fs19xx_start_up(fsm_dev_t *fsm_dev)
 	ret |= fsm_reg_write(fsm_dev, REG(FS1958_DACCTRL), 0x0210);
 	fsm_delay_ms(10);
 	ret |= fsm_reg_multiread(fsm_dev, REG(FS1958_TSCTRL), &tsctrl);
-	if (fsm_dev->cur_scene == FSM_SCENE_RCV) {
+	switch (fsm_dev->cur_scene) {
+	case FSM_SCENE_LOW_PWR:
+		if (fsm_dev->pos_mask != 0x8) {
+			goto ts_enable;
+		}
+		fallthrough;
+	case FSM_SCENE_MMI_ALL_BYPASS:
+	case FSM_SCENE_TOP_LEFT_BYPASS:
+	case FSM_SCENE_TOP_RIGHT_BYPASS:
+	case FSM_SCENE_BOT_LEFT_BYPASS:
+	case FSM_SCENE_BOT_RIGHT_BYPASS:
+	case FSM_SCENE_RCV:
 		set_bf_val(&tsctrl, FS1958_TSEN, 0);
 		ret |= fsm_reg_write(fsm_dev, REG(FS1958_TSCTRL), tsctrl);
 		fsm_delay_ms(35);
-	} else {
+		break;
+	default:
+ts_enable:
 		if (set_bf_val(&tsctrl, FS1958_TSEN, 1) != tsctrl) {
 			ret |= fsm_reg_write(fsm_dev, REG(FS1958_TSCTRL), tsctrl);
 		}
+		break;
 	}
 	fsm_dev->errcode = ret;
+	if (ret) {
+		fs_mievent_report(906001354, "PA data exception", &fsm_dev->i2c->dev);
+	}
 
 	return ret;
 }
@@ -270,6 +288,7 @@ int fs19xx_shut_down(fsm_dev_t *fsm_dev)
 	}
 	ret = fsm_reg_write(fsm_dev, REG(FS1958_DACCTRL), 0x0310);
 	ret |= fsm_reg_write(fsm_dev, REG(FS1958_PWRCTRL), 0x0001);
+	fsm_delay_ms(35);
 	ret |= fsm_reg_write(fsm_dev, REG(FS1958_SYSCTRL), 0x0000);
 
 	return ret;
@@ -307,6 +326,7 @@ int fs19xx_pre_calib(fsm_dev_t *fsm_dev)
 		ret |= fsm_reg_write(fsm_dev, 0xBC, bsgctrl);
 		fsm_delay_ms(35);
 	}
+	fsm_dev->cur_scene = 0;
 
 	return ret;
 }

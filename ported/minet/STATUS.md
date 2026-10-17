@@ -1,4 +1,27 @@
-# minet - COMPILES-only (PARTIAL): 18 of 44 stock functions byte-identical to the HyperOS 4.0 (OS4) stock
+# minet - PARTIAL (42 of 44 functions byte+relocation identical to the OS4 stock; imports/exports/objects/modinfo OK; was 41 of 44)
+
+## Update (17.10.2026)
+- `minet_set_tc_enable` now identical: the stores to `m_tc_enable` are `WRITE_ONCE` (volatile store keeps the `adrp` of `m_idletimer_info.timer` after the store).
+- `minet_dump_tc_list` rebuilt (BTF/disassembly analysis, 21 masked words left, was 204): the stock keeps `room = (size_t)cnt*5` and `size = room + 8` as 64-bit values, `status = 2` is stored right before `read_lock_bh`, kzalloc + `*(u32*)buf = 1; buf[1] = cnt; p = buf + 8; status = 3`,
+  the `m_tc_list.cnt` print is shared by the OK and the failure path, the loop is `if (!list_empty()) list_for_each_entry_SAFE(...)` with `if (p && room >= 4) {*(u32*)p = uid; p += 4; room -= 4;} if (p && room) {*p++ = type; room--;}` (the bound checks `brk #1` of the stock are the compiler's local-bounds checks on the `alloc_size` buffer, no explicit `off`),
+  reply order: config (log only on failure), then applist only if `buf && room == 0` (a failure only logs, no early return), then status; one common tail `dumping = false; if (buf) kfree(buf)`. The remaining 21 words are the block layout of the kzalloc failure path (stock: failure block inline right after the `cbnz`, then `b join`, then the success block; ours: failure block out of line)
+  and the order of `mov w21,wzr`/`mov x24,xzr`; tried `if (buf)`/`if (!buf)`/goto forms, `__builtin_expect(_with_probability)` at 0.5..0.99: none gives the stock layout (a probability > 0.5 gives fail-inline but without the `b`).
+- `mi_idletimer_tg_checkentry_v1` still 22 words (x22/x23 swapped). The MIR before greedy RA (`ld.lld -r -mllvm -print-before=greedy -mllvm -filter-print-funcs=...`) shows the same CFG as the stock; the order is decided by the allocator priority of `&idletimer_tg_list` (%37) vs `&info->timer` (%137). Tried: separate create function, open-coded find loop: both worse. Not solved.
+- Tools: `work/re/src/g3d_tools/` (copy of g3c_tools with server dir `<work-dir>`).
+
+
+## Update (17.10.2026): the 21 missing functions were reconstructed
+Build: `bash work/re/src/g3c_tools/g3_build.sh minet` (real Kleaf/ThinLTO + compare_ko): function set 44 OK, relocations OK, objects OK, imports (60) + CRCs OK, exports 0, modinfo OK.
+Still different (same instruction set, scheduling/register-allocation level only): `minet_set_tc_enable` (6 words: placement of one `adrp`), `mi_idletimer_tg_checkentry_v1` (x22/x23 swapped: which of `&idletimer_tg_list` / `&info->timer` gets which callee-saved register),
+`minet_dump_tc_list` (structure of the app-list builder: stock keeps `cnt*5` as a 64-bit value, sets status=2 before the kmalloc, guards the loop with `list_empty`, bounds-checked cursor; our form is functionally the same but compiles differently). Next step: try statement-order variants of these three.
+Source layout (new): `minet_idletimer.c` (in-module IDLETIMER copy: `mi_idletimer_tg_{checkentry,target,destroy}_v1`, `reset_timer`, `idletimer_tg_{work,expired}`, `idletimer_resume`, `print_idletimer_info_safe`), `minet_tc.c` (TC limiter: `minet_tc_limiter_init/finit`, `tl_after_filter_in`,
+`add_tc_app`, `del_tc_app`, `clear_tc_app`, `minet_set_tc_enable/_list`, `minet_dump_tc_list`), `minet_tc.h` (structs), `minet_nl.c` (+ `minet_nl_reply`, `minet_idletimer_notify`, 4 genl ops cmd 1/3/5/6, MINET_ATTR_MAX 4, replies cmd 7), `minet_core.c` (`tl_after_filter_in` in hook4/hook6 for NF_INET_LOCAL_IN, limiter init/finit).
+Recovered from the disassembly + the stock BTF (`START_ID=141631 btf_dump_startid.py local minet.ko`): `struct mi_idletimer_tg` (376 bytes, the ACK `struct idletimer_tg` with a `char name[32]` instead of the sysfs attribute; offsets verified by `_Static_assert`), `mi_idletimer_tg_info` (80 bytes: timeout, label[28], send_nl_msg, timer_type, iface[16], mask[16], timer*),
+the netlink packet of `idletimer_tg_work` (48 bytes: label[28], state, time_ns, uid, sent with cmd 4/attr 1), the TC config reply (92 bytes), `m_tc_list` {cnt, rwlock, list}, `struct tc_app` {u8 type, u32 uid_aid, list}.
+Template for the idletimer part: ACK `net/netfilter/xt_IDLETIMER.c` (`work/srcsurvey/micode_dada`, v1 only; `reset_timer(timer, timeout, int *puid)`, no sysfs, no timer_type/alarm, `send_nl_msg` fixed to true, `timer->timeout` used on re-arm).
+Documented hacks: ThinLTO-promoted names defined as hidden globals (`reset_timer.llvm.8540474682487888066` declared with the asm label in `minet_tc.h`, `clear_tc_app.llvm.6912468423217759055`, `m_idletimer_info.llvm.6912468423217759055`). The reply/dump payload layouts are inferred from code (not checked by compare_ko).
+
+---- earlier notes ----
 
 Reference binary: `<work-dir>` (vermagic 6.6.57-android15-8; own BTF base, `START_ID=141631` for btf_dump).
 Template: XRING tree `work/re/xiaomi-modules/mi_net/minet/` (minet_core.c, minet_nl.c, minet_nl.h, minet_debug.h), used unchanged (copied here by the main session; BUILD.bazel + ThinLTO defconfig exist).
@@ -14,3 +37,12 @@ What is missing (21 functions; no template in any tree we have):
 - In-module copy of the netfilter IDLETIMER target: `mi_idletimer_tg_checkentry_v1/_target_v1/_destroy_v1`, `idletimer_tg_expired/_work`, `idletimer_resume`, `reset_timer.llvm.<hash>`, `print_idletimer_info_safe`, `minet_idletimer_notify`, object `m_idletimer_info.llvm.<hash>` (80 bytes). Derived from kernel `net/netfilter/xt_IDLETIMER.c` (a MiCode copy is in `work/srcsurvey/micode_*`).
 Next step if someone continues: reconstruct these 21 functions from `<work-dir>` (stock disassembly), then re-diff hook4/hook6/nl_cmd_set/init/cleanup.
 Build: `bash work/re/src/a17_push.sh minet` then `<work-dir> minet` on the server.
+
+## Update (17.10.2026, no code change, analysis only)
+Read the stock disassembly of the idletimer copy (`<work-dir>`, compact view: `python3 <work-dir> minet <func>`). Findings for whoever continues:
+- It is the Android-common-kernel `xt_IDLETIMER.c` (struct `idletimer_tg`: list@0, timer@0x90, work@0xc8, label@0xf8, pm_nb@0x148, timeout@0x160, refcnt@0x164, send_nl_msg@0x168, active@0x169, timer_type@0x16a, work_pending@0x16b, uid@0x16c; kmalloc size 0x178)
+  but with the sysfs part removed and the uevent replaced by the Xiaomi netlink notifier: `idletimer_tg_work` builds `INTERFACE=%s` ("wlan0" literal), `STATE=%s`, `UID=%u`, `TIME_NS=%llu` strings (error texts `minet-e: iface_msg/state_msg/uid_msg/timestamp_msg too long (%d)`)
+  and calls `minet_nl_msg(msg, 0x30, 0, 4, 1)`; `minet_idletimer_notify` is a 4-instruction wrapper of `minet_nl_msg(.., 0, 4, 1)`. `idletimer_resume` is the PM notifier (PM_SUSPEND_PREPARE=3 / POST_SUSPEND=4, `set_normalized_timespec64`, `mod_timer_pending`).
+- The `mi_idletimer_tg_info` argument of `mi_idletimer_tg_checkentry_v1` has {u32 timeout@0, char label[28]@4, u8 send_nl_msg@0x20 (<2), u8 timer_type@0x21, ...}; `print_idletimer_info_safe` dumps it as `"%u %s %u %u %s {0x%02x x16}"` (`minet-i: dump info{%s} size:%d len:%d`, level 6) and
+  shows two more members (char[16] @0x22, u8[16] @0x32), so there is no public template for the Xiaomi struct; `reset_timer.llvm.8540474682487888066` is the ThinLTO-promoted static `reset_timer`.
+- TC limiter (12 functions, ~3.7 KB) not looked at beyond the symbol sizes. Estimated cost for both parts: 100k+ tokens; not done.

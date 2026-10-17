@@ -10,8 +10,12 @@
 
 #include "minet_nl.h"
 #include "minet_debug.h"
+#include "minet_tc.h"
 
 static int minet_nl_cmd_set(struct sk_buff *skb, struct genl_info *info);
+static int minet_nl_tc_enable_set(struct sk_buff *skb, struct genl_info *info);
+static int minet_nl_tc_list_set(struct sk_buff *skb, struct genl_info *info);
+static int minet_nl_tc_list_dump(struct sk_buff *skb, struct genl_info *info);
 
 static struct nla_policy minet_genl_policy[MINET_ATTR_MAX + 1] = {
 	[MINET_ATTR_UNSPEC]	     	= { .type = NLA_UNSPEC, },
@@ -23,6 +27,24 @@ static struct genl_ops minet_nl_ops[] = {
 		.cmd = MINET_CMD_SET,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = minet_nl_cmd_set,
+		.flags = GENL_ADMIN_PERM,
+	},
+	{
+		.cmd = MINET_CMD_TC_ENABLE_SET,
+		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit = minet_nl_tc_enable_set,
+		.flags = GENL_ADMIN_PERM,
+	},
+	{
+		.cmd = MINET_CMD_TC_LIST_SET,
+		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit = minet_nl_tc_list_set,
+		.flags = GENL_ADMIN_PERM,
+	},
+	{
+		.cmd = MINET_CMD_TC_LIST_DUMP,
+		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit = minet_nl_tc_list_dump,
 		.flags = GENL_ADMIN_PERM,
 	},
 };
@@ -109,6 +131,45 @@ static int minet_nl_cmd_set(struct sk_buff *skb, struct genl_info *info)
 	
 	return 0;
 }
+
+int minet_idletimer_notify(void *data, int len)
+{
+	return minet_nl_msg(data, len, 0, MINET_CMD_IDLETIMER_NOTIFY, MINET_ATTR_COMMON);
+}
+
+int minet_nl_reply(void *data, int len, struct genl_info *info, u8 cmd, u8 attr)
+{
+	struct sk_buff *skb;
+	void *hdr;
+
+	skb = genlmsg_new(nla_total_size(len), GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	hdr = genlmsg_put(skb, info->snd_portid, info->snd_seq, &minet_nl_family, 0, cmd);
+	if (!hdr)
+		goto out_free;
+
+	if (data && len > 0) {
+		if (nla_put(skb, attr, len, data))
+			goto out_cancel;
+	}
+
+	genlmsg_end(skb, hdr);
+	return genlmsg_reply(skb, info);
+
+out_cancel:
+	genlmsg_cancel(skb, hdr);
+out_free:
+	nlmsg_free(skb);
+	return -EMSGSIZE;
+}
+
+#define MINET_TC_NL_HANDLER(name, fn) static int name(struct sk_buff *skb, struct genl_info *info) { 	struct nlmsghdr *nlhdr; 	struct genlmsghdr *genlhdr; 	struct nlattr *opt_attrs[MINET_ATTR_MAX + 1]; 	int err = 0;  	nlhdr = nlmsg_hdr(skb); 	genlhdr = nlmsg_data(nlhdr); 	err = nla_parse_deprecated(opt_attrs, MINET_ATTR_MAX, genlmsg_data(genlhdr), 				   genlmsg_len(genlhdr), minet_genl_policy, info->extack); 	if (err) 		return err; 	if (opt_attrs[MINET_ATTR_COMMON]) 		return fn(nla_data(opt_attrs[MINET_ATTR_COMMON]), nla_len(opt_attrs[MINET_ATTR_COMMON]), info); 	return 0; }
+
+MINET_TC_NL_HANDLER(minet_nl_tc_enable_set, minet_set_tc_enable)
+MINET_TC_NL_HANDLER(minet_nl_tc_list_set, minet_set_tc_list)
+MINET_TC_NL_HANDLER(minet_nl_tc_list_dump, minet_dump_tc_list)
 
 int  __init minet_nl_init(void)
 {

@@ -136,8 +136,9 @@ struct cs35l43_private {
 	struct cs35l43_write_seq power_on_seq;
 	/* dada: "miev error reason" buffer (devm_kzalloc(0x30)) and its two counters; members after it are not recovered */
 	char *miev_err_reason;
-	unsigned long miev_err_a;
-	int miev_err_b;
+	unsigned int last_err_reg;
+	unsigned int last_invalid_strm_cnt;
+	unsigned int last_act_boot_cnt;
 	int unrecovered[31];
 	const char *bind_product;
 	struct pinctrl *cs35l43_rcv_pinctrl;

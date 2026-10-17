@@ -6,7 +6,19 @@
 #define	CLEAR_BIT(x, bit)	(x &= ~(1 << bit))
 
 #ifdef FP_ULTRA_QCOM
-static struct fp_device *fp_dev;
+static struct fp_device *fp_dev MIFP_SEC(2);
+
+static void fp_intr2_work_func(struct work_struct *work)
+{
+	if (fp_dev->position.SLOT_MAP == 0 && gpio_get_value(fp_dev->intr2_gpio) == 1) {
+		fp_local_time_printk("input_event: intr2 output low");
+		pinctrl_select_state(fp_dev->pinctrl, fp_dev->pins_reset_low);
+	}
+	if (fp_dev->position.SLOT_MAP > 0 && gpio_get_value(fp_dev->intr2_gpio) == 0) {
+		fp_local_time_printk("input_event: intr2 output high");
+		pinctrl_select_state(fp_dev->pinctrl, fp_dev->pins_reset_high);
+	}
+}
 
 static void xiaomifp_intr2_operation(int SLOT_CUR, int code)
 {
@@ -32,16 +44,7 @@ static void xiaomifp_intr2_operation(int SLOT_CUR, int code)
 			}
 		}
 		// fp_local_time_printk("intr2 operation:SLOT_MAP: %d, GPIO:%d,", fp_dev->position.SLOT_MAP, gpio_get_value(fp_dev->intr2_gpio));
-		spin_lock(&fp_dev->intr2_events_lock);
-		if (fp_dev->position.SLOT_MAP == 0 && gpio_get_value(fp_dev->intr2_gpio) == 1) {
-			fp_local_time_printk("input_event: intr2 output low");
-			pinctrl_select_state(fp_dev->pinctrl, fp_dev->pins_reset_low);
-		}
-		if (fp_dev->position.SLOT_MAP > 0 && gpio_get_value(fp_dev->intr2_gpio) == 0) {
-			fp_local_time_printk("input_event: intr2 output high");
-			pinctrl_select_state(fp_dev->pinctrl, fp_dev->pins_reset_high);
-		}
-		spin_unlock(&fp_dev->intr2_events_lock);
+		schedule_work(&fp_dev->intr2_work);
 	}
 }
 
@@ -154,6 +157,7 @@ int xiaomifp_evdev_init(struct fp_device *_fp_dev)
 	memset(fp_dev->position.TRACKING_ID, 0, sizeof(int) * 32);
 	memset(fp_dev->position.touch_x, 0, sizeof(int) * 32);
 	memset(fp_dev->position.touch_y, 0, sizeof(int) * 32);
+	INIT_WORK(&fp_dev->intr2_work, fp_intr2_work_func);
 	pr_debug("sensorLocation:%d,%d,%d,%d\n",fp_dev->position.x1, fp_dev->position.y1, fp_dev->position.x2, fp_dev->position.y2);
 	return ret;
 }

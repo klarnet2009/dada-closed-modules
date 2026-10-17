@@ -26,7 +26,7 @@ struct {
 	bool full_flag;
 	abnormal_event_t abnormal_event[SENSITIVE_EVENT_BUF_SIZE];
 } abnormal_event_buf;
-#ifdef TOUCH_STYLUS_SUPPORT
+#ifdef TOUCH_PEN_CONNECT_SUPPORT /* template only: absent in the OS4 stock */
 static DEFINE_MUTEX(stylus_connect_status_mutex);
 #endif
 #ifdef TOUCH_FOD_SUPPORT
@@ -44,10 +44,10 @@ static struct class *xiaomi_touch_class = NULL;
 static struct attribute_group xiaomi_touch_attrs;
 
 #ifdef TOUCH_FOD_SUPPORT
-static int fod_press_status_value = 0;
+static int fod_press_status_value XT_SEC(3) = 0;
 #endif
 
-#ifdef TOUCH_STYLUS_SUPPORT
+#ifdef TOUCH_PEN_CONNECT_SUPPORT /* template only: absent in the OS4 stock */
 static int stylus_connect_status_value = 0;
 #endif
 
@@ -97,7 +97,7 @@ static int analy_poll_data(char* poll_data_buf, char* buf)
 
 	return count;
 }
-#ifdef TOUCH_STYLUS_SUPPORT
+#ifdef TOUCH_PEN_CONNECT_SUPPORT /* template only: absent in the OS4 stock */
 int update_stylus_connect_status_value(int value)
 {
 	mutex_lock(&stylus_connect_status_mutex);
@@ -120,6 +120,7 @@ int update_fod_press_status(int value)
 	mutex_lock(&fod_press_status_mutex);
 
 	if (value != fod_press_status_value) {
+#line 123
 		LOG_INFO("value:%d", value);
 		fod_press_status_value = value;
 		sysfs_notify(&xiaomi_touch_dev->kobj, NULL, "fod_press_status");
@@ -135,6 +136,7 @@ int update_palm_sensor_value(int value)
 {
 	mutex_lock(&palm_mutex);
 	if (value != palm_value) {
+#line 138
 		LOG_ERROR("value:%d", value);
 		palm_value = value;
 		sysfs_notify(&xiaomi_touch_dev->kobj, NULL, "palm_sensor");
@@ -151,7 +153,7 @@ struct class *get_xiaomi_touch_class(void)
 }
 EXPORT_SYMBOL_GPL(get_xiaomi_touch_class);
 
-#ifdef TOUCH_STYLUS_SUPPORT
+#ifdef TOUCH_PEN_CONNECT_SUPPORT /* template only: absent in the OS4 stock */
 CREATE_ATTR(pen_connect_strategy, {
 		return snprintf(buf, PAGE_SIZE, "%d\n", stylus_connect_status_value);
 	},
@@ -522,6 +524,38 @@ CREATE_ATTR(fod_test, {
 
 		return count;
 	});
+
+CREATE_ATTR(fod_attn_test, {
+		return 0;
+	},
+	{
+		int value;
+		xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(TOUCH_ID);
+
+		if (sscanf(buf, "%d", &value) < 0)
+			return -EINVAL;
+
+		if (xiaomi_touch_driver_param && xiaomi_touch_driver_param->hardware_operation.xiaomi_touch_fod_attn_test)
+			xiaomi_touch_driver_param->hardware_operation.xiaomi_touch_fod_attn_test(value);
+
+		return count;
+	});
+
+CREATE_ATTR(fod_low_attn, {
+		return 0;
+	},
+	{
+		int value;
+		xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(TOUCH_ID);
+
+		if (sscanf(buf, "%d", &value) < 0)
+			return -EINVAL;
+
+		if (xiaomi_touch_driver_param && xiaomi_touch_driver_param->hardware_operation.xiaomi_touch_fod_low_attn)
+			xiaomi_touch_driver_param->hardware_operation.xiaomi_touch_fod_low_attn(value);
+
+		return count;
+	});
 #endif
 
 #ifdef DFS_DEBUG_TEST
@@ -577,8 +611,10 @@ static struct attribute *touch_attr_group[] = {
 #ifdef TOUCH_FOD_SUPPORT
 	&dev_attr_fod_press_status.attr,
 	&dev_attr_fod_test.attr,
+	&dev_attr_fod_attn_test.attr,
+	&dev_attr_fod_low_attn.attr,
 #endif
-#ifdef TOUCH_STYLUS_SUPPORT
+#ifdef TOUCH_PEN_CONNECT_SUPPORT /* template only: absent in the OS4 stock */
 	&dev_attr_pen_connect_strategy.attr,
 #endif
 	&dev_attr_panel_vendor.attr,
@@ -604,16 +640,19 @@ static struct attribute *touch_attr_group[] = {
 int xiaomi_touch_sys_init(void)
 {
 	int ret = 0;
+#line 641
 	LOG_ALWAYS("enter");
 	xiaomi_touch_class = class_create("touch");
 
 	if (!xiaomi_touch_class) {
+#line 645
 		LOG_ERROR("create device class err");
 		return -1;
 	}
 
 	xiaomi_touch_dev = device_create(xiaomi_touch_class, NULL, 'T', NULL, "touch_dev");
 	if (!xiaomi_touch_dev) {
+#line 651
 		LOG_ERROR("create device dev err");
 		return -1;
 	}
@@ -621,6 +660,7 @@ int xiaomi_touch_sys_init(void)
 	xiaomi_touch_attrs.attrs = touch_attr_group;
 	ret = sysfs_create_group(&xiaomi_touch_dev->kobj, &xiaomi_touch_attrs);
 	if (ret)
+#line 658
 		LOG_ERROR("ERROR: Cannot create sysfs structure!:%d", ret);
 
 	return ret;

@@ -216,7 +216,7 @@ static unsigned long bbr_bw_to_pacing_rate(struct sock *sk, u32 bw, int gain)
 	u64 rate = bw;
 
 	rate = bbr_rate_bytes_per_sec(sk, rate, gain);
-	if (bbr_enable_opt)
+	if (bbr_enable_opt && bbr_pace_factor)
 		rate *= bbr_pace_factor;
 	rate = min_t(u64, rate, sk->sk_max_pacing_rate);
 	return rate;

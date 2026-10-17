@@ -5,7 +5,17 @@ ddk_headers(name = "xt_headers", hdrs = glob(["xt_inc/**/*.h"]), includes = ["xt
 
 ddk_module(
     name = "xiaomi_touch",
-    srcs = glob(["*.c", "*.h"]),
+    # order of the stock link (decides the symtab order of same-named statics such as the two `_copy_to_user` copies)
+    srcs = [
+        "xiaomi_touch_core.c",
+        "xiaomi_touch_proc.c",
+        "xiaomi_touch_operations.c",
+        "xiaomi_touch_sys.c",
+        "xiaomi_touch_mode.c",
+        "xiaomi_touch_evdev.c",
+        "xiaomi_touch_device.c",
+        "xiaomi_touch_knock_data.c",
+    ] + glob(["*.h"]),
     out = "xiaomi_touch.ko",
     defconfig = "xiaomi_touch_defconfig",
     local_defines = [
@@ -14,6 +24,8 @@ ddk_module(
         "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1",
         "CONFIG_MIEV=1",
         "TOUCH_STYLUS_SUPPORT=1",
+        "TOUCH_FOD_SUPPORT=1",
+        "TOUCH_THP_SUPPORT=1",
     ],
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",

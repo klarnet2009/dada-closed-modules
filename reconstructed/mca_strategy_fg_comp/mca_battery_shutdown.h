@@ -54,6 +54,11 @@ struct mca_battery_shutdown_temp_para_info {
 struct mca_battery_shutdown_para_info {
 	int temp_para_size;
 	int cur_temp_index;
+	int cur_vcuttoff_index;
+	int total_gear;
+	int siloss_gear;
+	int i_aver_gear;
+	int init_update_siloss;
 	struct mca_battery_shutdown_temp_para_info *temp_info;
 };
 

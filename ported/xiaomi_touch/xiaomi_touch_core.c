@@ -1,3 +1,4 @@
+#line 1 "../../vendor/xiaomi/proprietary/touch/touchfeature_v2/touch_driver/o2/../xiaomi/xiaomi_touch_core.c" /* stock __FILE__ (shows in fortify messages) */
 /*
  * Copyright (c) 2023 Xiaomi, Inc.
  * All Rights Reserved.
@@ -14,7 +15,7 @@
 
 #include "xiaomi_touch.h"
 static xiaomi_touch_t xiaomi_touch;
-static struct task_struct *xiaomi_touch_temp_thread;
+static struct task_struct *xiaomi_touch_temp_thread XT_SEC(1);
 
 #define NETLINK_TEST 24
 #define MAX_MSGSIZE 16
@@ -37,6 +38,7 @@ void sendnlmsg(char message)//char *message
 	skb_1 = alloc_skb(len, GFP_KERNEL);
 
 	if (!skb_1) {
+#line 40
 		LOG_ERROR("alloc_skb error\n");
 		return;
 	}
@@ -51,6 +53,7 @@ void sendnlmsg(char message)//char *message
 
 	if (!ret) {
 		/*kfree_skb(skb_1); */
+#line 54
 		LOG_ERROR("send msg from kernel to usespace failed ret 0x%x\n",
 		       ret);
 	}
@@ -69,6 +72,7 @@ void nl_data_ready(struct sk_buff *__skb)
 		pid = nlh->nlmsg_pid;
 		kfree_skb(skb);
 	}
+#line 72
 	LOG_INFO("netlink socket, pid =%d, msg = %d\n", pid, str[0]);
 }
 
@@ -83,6 +87,7 @@ int netlink_init(void)
 	nl_sk = netlink_kernel_create(&init_net, NETLINK_TEST, &netlink_cfg);
 
 	if (!nl_sk) {
+#line 88
 		LOG_ERROR("create netlink socket error\n");
 		return 1;
 	}
@@ -97,6 +102,7 @@ void netlink_exit(void)
 		nl_sk = NULL;
 	}
 
+#line 102
 	LOG_INFO("self module exited\n");
 }
 
@@ -138,9 +144,11 @@ void kvzalloc_free(void *p)
 xiaomi_touch_data_t *get_xiaomi_touch_data(s8 touch_id)
 {
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 143
 		LOG_ERROR("touch id %d hasn't select, return!", touch_id);
 		return NULL;
 	} else if (!(xiaomi_touch.panel_register_mask & (1 << touch_id))) {
+#line 146
 		LOG_ERROR("panel in touch id %d hasn't register, return!", touch_id);
 		return NULL;
 	}
@@ -166,6 +174,7 @@ void notify_xiaomi_touch(xiaomi_touch_data_t *xiaomi_touch_data, enum poll_notif
 		return;
 	spin_lock(&xiaomi_touch_data->private_data_lock);
 	list_for_each_entry_rcu(client_private_data, &xiaomi_touch_data->private_data_list, node) {
+#line 171
 		LOG_VERBOSE("notify xiaomi-touch data update, client private data is %p", client_private_data);
 		wake_up_all(&client_private_data->poll_wait_queue_head);
 		if (type == COMMON_DATA_NOTIFY) {
@@ -188,6 +197,7 @@ void add_common_data_to_buf(s8 touch_id, enum common_data_cmd cmd, enum common_d
 	if (!xiaomi_touch_data)
 		return;
 
+#line 193
 	LOG_DEBUG("add touch id %d common mode: %d to buffer:%d", touch_id, mode, atomic_read(&xiaomi_touch_data->common_data_buf_index));
 	mutex_lock(&xiaomi_touch_data->common_data_buf_lock);
 	common_data = &xiaomi_touch_data->common_data_buf[atomic_read(&xiaomi_touch_data->common_data_buf_index)];
@@ -216,6 +226,7 @@ void *get_raw_data_base(s8 touch_id)
 		return NULL;
 
 	if (!xiaomi_touch_data->frame_data_mmap_base) {
+#line 221
 		LOG_ERROR("touch id %d copy data failed, xiaomi_touch_data %p, base %p",
 			touch_id, xiaomi_touch_data, xiaomi_touch_data->frame_data_mmap_base);
 		return NULL;
@@ -252,6 +263,7 @@ int get_bms_temp_common(void)
 	if (!battery) {
 		battery = power_supply_get_by_name("bms");
 		if (!battery) {
+#line 257
 			LOG_INFO("can't find bms and battery");
 			return -INVAILD_TEMPERATURE;
 		}
@@ -259,6 +271,7 @@ int get_bms_temp_common(void)
 
 	ret = power_supply_get_property(battery, POWER_SUPPLY_PROP_TEMP, &prop);
 	if (ret) {
+#line 264
 		LOG_INFO("can't read battery temp");
 		return -INVAILD_TEMPERATURE;
 	}
@@ -287,10 +300,12 @@ static int xiaomi_touch_temp_thread_func(void *data)
 	int temp_n = 0;
 	static int last_temp = 1000;
 	int cur_temp0, cur_temp = 0;
-	xiaomi_touch_data_t *xiaomi_touch_data = get_xiaomi_touch_data(0);
-	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(0);
+	s8 touch_id = ((xiaomi_touch_data_t *)data)->touch_id;
+	xiaomi_touch_data_t *xiaomi_touch_data = get_xiaomi_touch_data(touch_id);
+	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(touch_id);
 
-	LOG_INFO("enter");
+#line 298
+	LOG_INFO("enter, touch id %d\n", touch_id);
 	if (!xiaomi_touch_data || !xiaomi_touch_driver_param ||
 			!xiaomi_touch_driver_param->hardware_operation.set_thermal_temp)
 		return -1;
@@ -319,10 +334,12 @@ static int xiaomi_touch_temp_thread_func(void *data)
 			else
 				temp_n = 10; // 30;
 
+#line 327
 			LOG_DEBUG("cur_temp0:%d, last_temp:%d, sleep %dms", cur_temp0, last_temp, temp_n * 1000);
 			msleep(temp_n * 1000);
 		}
 	}
+#line 331
 	LOG_INFO("exit");
 
 	return 0;
@@ -333,6 +350,7 @@ void enable_temperature_detection_func(bool is_resume)
 	xiaomi_touch_data_t *xiaomi_touch_data = get_xiaomi_touch_data(0);
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(0);
 
+#line 364
 	LOG_VERBOSE("enter");
 	if (!xiaomi_touch_data || !xiaomi_touch_driver_param ||
 			!xiaomi_touch_driver_param->hardware_operation.set_thermal_temp)
@@ -340,9 +358,11 @@ void enable_temperature_detection_func(bool is_resume)
 
 	if (is_resume) {
 		atomic_set(&xiaomi_touch_data->temp_detect_ready, 1);
+#line 371
 		LOG_DEBUG("start detect temperature");
 	} else {
 		atomic_set(&xiaomi_touch_data->temp_detect_ready, 0);
+#line 374
 		LOG_DEBUG("stop detect temperature");
 	}
 
@@ -392,13 +412,16 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	xiaomi_touch_data_t *xiaomi_touch_data = NULL;
 	u32 alloc_size = 0;
 
+#line 425
 	LOG_INFO("enter");
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 427
 		LOG_ERROR("touch id error, please check it!");
 		return -1;
 	}
 
 	if (xiaomi_touch.panel_register_mask & (1 << touch_id)) {
+#line 432
 		LOG_ERROR("touch id %d has register, stop register again!", touch_id);
 		return -1;
 	}
@@ -409,6 +432,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 		xiaomi_touch_driver_param->touch_id = touch_id;
 		memcpy(&xiaomi_touch_driver_param->hardware_param, hardware_param, sizeof(hardware_param_t));
 	} else {
+#line 442
 		LOG_ERROR("param is null");
 		return -1;
 	}
@@ -423,7 +447,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	memset(xiaomi_touch_data, 0, sizeof(xiaomi_touch_data_t));
 	xiaomi_touch_data->touch_id = touch_id;
 	spin_lock_init(&xiaomi_touch_data->private_data_lock);
-	mutex_init(&xiaomi_touch_data->common_data_buf_lock);
+	XT_MUTEX_INIT(&xiaomi_touch_data->common_data_buf_lock, 1);
 	xiaomi_touch_data->frame_data_size = hardware_param->frame_data_page_size * PAGE_SIZE;
 	xiaomi_touch_data->frame_data_buf_size = hardware_param->frame_data_buf_size;
 	xiaomi_touch_data->raw_data_size = hardware_param->raw_data_page_size * PAGE_SIZE;
@@ -435,15 +459,18 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	/* alloc mmap memory */
 	xiaomi_touch_data->frame_data_mmap_phy_base = 0;
 	alloc_size = xiaomi_touch_data->frame_data_size * xiaomi_touch_data->frame_data_buf_size;
+#line 468
 	LOG_DEBUG("alloc size = %d, frame data size %d, frame data page size %d, frame data buf size %d",
 		alloc_size, xiaomi_touch_data->frame_data_size,
 		hardware_param->frame_data_page_size, hardware_param->frame_data_buf_size);
 	if (alloc_size) {
 		xiaomi_touch_data->frame_data_mmap_base = kzalloc_retry(alloc_size, 3);
 		if (!xiaomi_touch_data->frame_data_mmap_base) {
+#line 474
 			LOG_ERROR("touch id %d alloc frame data memory failed!", touch_id);
 			return -1;
 		}
+#line 477
 		LOG_DEBUG("frame data base %p, size %u", xiaomi_touch_data->frame_data_mmap_base, alloc_size);
 		xiaomi_touch_data->frame_data_mmap_phy_base = virt_to_phys(xiaomi_touch_data->frame_data_mmap_base);
 	}
@@ -451,15 +478,18 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	xiaomi_touch_data->raw_data_mmap_phy_base = 0;
 	alloc_size = xiaomi_touch_data->raw_data_size * xiaomi_touch_data->raw_data_buf_size;
 
+#line 484
 	LOG_DEBUG("alloc size = %d, raw data size %d, raw data page size %d, raw data buf size %d",
 		alloc_size, xiaomi_touch_data->raw_data_size,
 		hardware_param->raw_data_page_size, hardware_param->raw_data_buf_size);
 	if (alloc_size) {
 		xiaomi_touch_data->raw_data_mmap_base = kzalloc_retry(alloc_size, 3);
 		if (!xiaomi_touch_data->raw_data_mmap_base) {
+#line 490
 			LOG_ERROR("touch id %d alloc raw data memory failed!", touch_id);
 			return -1;
 		}
+#line 493
 		LOG_DEBUG("raw data base %p, size %u", xiaomi_touch_data->raw_data_mmap_base, alloc_size);
 		xiaomi_touch_data->raw_data_mmap_phy_base = virt_to_phys(xiaomi_touch_data->raw_data_mmap_base);
 	}
@@ -467,6 +497,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	xiaomi_touch_data->event_wq = alloc_workqueue("xiaomi-touch-event-queue",
 		WQ_UNBOUND | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
 	if (!xiaomi_touch_data->event_wq) {
+#line 500
 		LOG_ERROR("ERROR: Cannot create work thread");
 		return -1;
 	}
@@ -474,6 +505,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	/* alloc poll data memory */
 	xiaomi_touch_data->poll_data = kzalloc_retry(sizeof(htc_ic_polldata_t), 3);
 	if (!xiaomi_touch_data->poll_data) {
+#line 507
 		LOG_ERROR("alloc poll data memory is failed!");
 		return -1;
 	}
@@ -487,6 +519,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 		if (hardware_operation->ic_get_lockdown_info) {
 			hardware_operation->ic_get_lockdown_info(hardware_param->lockdown_info);
 		}
+#line 520
 		LOG_INFO("x_resolution=%d, y_resolution=%d, rx_num=%d, tx_num=%d, "
 			"super_resolution_factor=%d, "
 			"frame_data_page_size=%d, frame_data_buf_size=%d, "
@@ -506,17 +539,20 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 
 	/* complete register */
 	xiaomi_touch.panel_register_mask |= (1 << touch_id);
+#line 539
 	LOG_INFO("current panel_register_mask is %d", xiaomi_touch.panel_register_mask);
 
 	/* create a thread for temp detect */
 	if (hardware_operation && hardware_operation->set_thermal_temp) {
+#line 543
 		LOG_INFO("startup temperature detect thread");
-		xiaomi_touch_temp_thread = kthread_create(xiaomi_touch_temp_thread_func, NULL, "xiaomi_touch_temp_thread");
+		xiaomi_touch_temp_thread = kthread_create(xiaomi_touch_temp_thread_func, xiaomi_touch_data, "xiaomi_touch_temp_thread");
 		if (IS_ERR(xiaomi_touch_temp_thread)) {
+#line 546
 			LOG_ERROR("Failed to create xiaomi_touch_temp_thread");
 			goto err_out;
 		}
-		init_waitqueue_head(&xiaomi_touch_data->temp_detect_wait_queue);
+		XT_WQ_INIT(&xiaomi_touch_data->temp_detect_wait_queue, 2);
 		wake_up_process(xiaomi_touch_temp_thread);
 	}
 
@@ -532,7 +568,7 @@ int register_touch_panel(struct device *dev, s8 touch_id, hardware_param_t *hard
 	return 0;
 
 err_out:
-	if(xiaomi_touch_temp_thread != NULL) {
+	if (!IS_ERR(xiaomi_touch_temp_thread)) {
 		kthread_stop(xiaomi_touch_temp_thread);
 	}
 
@@ -545,6 +581,7 @@ void unregister_touch_panel(s8 touch_id)
 	xiaomi_touch_data_t *xiaomi_touch_data = NULL;
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = NULL;
 	if (!(xiaomi_touch.panel_register_mask & (1 << touch_id))) {
+#line 578
 		LOG_ERROR("touch id %d didn't register, break unregister!", touch_id);
 		return;
 	}
@@ -577,12 +614,14 @@ void unregister_touch_panel(s8 touch_id)
 
 	/* complete unregister */
 	xiaomi_touch.panel_register_mask &= ~(1 << touch_id);
+#line 610
 	LOG_INFO("current panel_register_mask is %d", xiaomi_touch.panel_register_mask);
 
 	/* free temp detect thread */
 	if(xiaomi_touch_temp_thread != NULL) {
 		atomic_set(&xiaomi_touch_data->temp_detect_ready, 0);
 		// kthread_stop(xiaomi_touch_temp_thread); /* Optimize restart time */
+#line 616
 		LOG_INFO("stop detect temperature");
 	}
 }
@@ -598,13 +637,16 @@ static void xiaomi_touch_resume_work(struct work_struct *work)
 	int value = 0;
 #endif
 
+#line 629
 	LOG_INFO("touch id %d enter", touch_id);
 	if (!xiaomi_touch_data || !xiaomi_touch_driver_param)
 		return;
 	if (!xiaomi_touch_data->is_suspend) {
+#line 633
 		LOG_ERROR("touch id %d is resume, stop resume", touch_id);
 		return;
 	}
+#line 640
 	XIAOMI_TOUCH_UTC_PRINT("");
 #ifdef TOUCH_SENSORHUB_SUPPORT
 	xiaomi_notify_sensorhub_enable(touch_id, false, false);
@@ -639,13 +681,16 @@ static void xiaomi_touch_suspend_work(struct work_struct *work)
 #endif
 #endif
 
+#line 673
 	LOG_INFO("touch id %d enter", touch_id);
 	if (!xiaomi_touch_data || !xiaomi_touch_driver_param)
 		return;
 	if (xiaomi_touch_data->is_suspend) {
+#line 677
 		LOG_ERROR("touch id %d is suspend, stop suspend", touch_id);
 		return;
 	}
+#line 685
 	XIAOMI_TOUCH_UTC_PRINT("");
 	if (xiaomi_touch_driver_param->hardware_operation.ic_resume_suspend) {
 		xiaomi_touch_driver_param->hardware_operation.ic_resume_suspend(false, xiaomi_get_gesture_type(touch_id));
@@ -699,15 +744,18 @@ static void xiaomi_drm_panel_notifier_callback(enum xring_panel_event_tag tag,
 {
 	long touch_id = (long)client_data;
 	if (!notification || IS_TOUCH_ID_INVALID(touch_id)) {
+#line 791
 		LOG_ERROR("Invalid data. notification %p, touch_id %ld", notification, touch_id);
 		return;
 	}
 	if (notification->type <= DRM_PANEL_EVENT_MAX)
+#line 795
 		LOG_INFO("Notification type:%d, early_trigger:%d", notification->type, notification->data.early_trigger);
 	switch (notification->type) {
 	case DRM_PANEL_EVENT_UNBLANK:
 	/*NOTE: uncomment after display adapted
 		if (notification->data.early_trigger == 1) {
+#line 806
 			LOG_INFO("FB_BLANK_UNBLAN");
 			schedule_resume_suspend_work((s8)touch_id, true);
 		}
@@ -730,10 +778,12 @@ static void xiaomi_drm_panel_notifier_callback(enum xring_panel_event_tag tag,
 	case DRM_PANEL_EVENT_FPS_CHANGE:
 		break;
 	default:
+#line 835
 		LOG_ERROR("notification serviced :%d", notification->type);
 		break;
 	}
 	if (notification->type < 4)
+#line 839
 		LOG_INFO("notification complete");
 }
 #else
@@ -746,10 +796,12 @@ static void xiaomi_drm_panel_notifier_callback(enum panel_event_notifier_tag tag
 #endif
 
 	if (!notification || IS_TOUCH_ID_INVALID(touch_id)) {
+#line 791
 		LOG_ERROR("Invalid data. notification %p, touch_id %ld", notification, touch_id);
 		return;
 	}
 	if (notification->notif_type < 4)
+#line 795
 		LOG_INFO("Notification type:%d, early_trigger:%d", notification->notif_type, notification->notif_data.early_trigger);
 
 	switch (notification->notif_type) {
@@ -761,6 +813,7 @@ static void xiaomi_drm_panel_notifier_callback(enum panel_event_notifier_tag tag
 		}
 #else
 		if (notification->notif_data.early_trigger == 1) {
+#line 806
 			LOG_INFO("FB_BLANK_UNBLAN");
 			schedule_resume_suspend_work((s8)touch_id, true);
 		}
@@ -776,6 +829,7 @@ static void xiaomi_drm_panel_notifier_callback(enum panel_event_notifier_tag tag
 		}
 #else
 		if (notification->notif_data.early_trigger == 0) {
+#line 827
 			LOG_INFO("FB_BLANK %s", notification->notif_type == DRM_PANEL_EVENT_BLANK_LP ? "POWER DOWN" : "LP");
 			schedule_resume_suspend_work((s8)touch_id, false);
 		}
@@ -784,10 +838,12 @@ static void xiaomi_drm_panel_notifier_callback(enum panel_event_notifier_tag tag
 	case DRM_PANEL_EVENT_FPS_CHANGE:
 		break;
 	default:
+#line 835
 		LOG_ERROR("notification serviced :%d", notification->notif_type);
 		break;
 	}
 	if (notification->notif_type < 4)
+#line 839
 		LOG_INFO("notification complete");
 }
 #endif
@@ -795,7 +851,7 @@ static void xiaomi_drm_panel_notifier_callback(enum panel_event_notifier_tag tag
 static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 {
 	xiaomi_touch_data_t *xiaomi_touch_data = container_of(work, xiaomi_touch_data_t, panel_notifier_register_work.work);
-	static int check_count = 0;
+	static int check_count XT_SEC(2) = 0;
 	struct drm_panel *panel = NULL;
 	struct device_node *node;
 	int count = 0;
@@ -807,6 +863,7 @@ static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 	char *property_name = "panel";
 #endif
 
+#line 858
 	LOG_INFO("Start register panel notifier");
 	count = of_count_phandle_with_args(xiaomi_touch_data->dev->of_node, property_name, NULL);
 	for (i = 0; i < count; i++) {
@@ -821,10 +878,12 @@ static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 	}
 
 	if (!panel) {
+#line 872
 		LOG_ERROR("Failed to register panel notifier, try again");
 		if (check_count++ < 5)
 			schedule_delayed_work(&xiaomi_touch_data->panel_notifier_register_work, msecs_to_jiffies(5000));
 		else {
+#line 876
 			LOG_ERROR("Failed to register panel notifier, not try");
 		}
 		return;
@@ -838,6 +897,7 @@ static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 	}
 
 	if (touch_id < 0) {
+#line 889
 		LOG_ERROR("can't not find this touch id!");
 		return;
 	}
@@ -855,6 +915,7 @@ static void xiaomi_register_panel_notifier_work(struct work_struct *work)
 #endif
 	of_node_put(node);
 	if (IS_ERR(xiaomi_touch_data->notifier_cookie)) {
+#line 906
 		LOG_ERROR("Failed to register for panel events");
 	}
 }
@@ -867,6 +928,7 @@ void schedule_resume_suspend_work(s8 touch_id, bool resume_work)
 	xiaomi_touch_data_t *xiaomi_touch_data = get_xiaomi_touch_data(touch_id);
 	bool queue_work_result = false;
 	if (!xiaomi_touch_data) {
+#line 918
 		LOG_ERROR("xiaomi_touch_data is NULL!");
 		return;
 	}
@@ -879,6 +941,7 @@ void schedule_resume_suspend_work(s8 touch_id, bool resume_work)
 	}
 
 	if (!queue_work_result) {
+#line 930
 		LOG_ERROR("queue %s work failed, retry", resume_work ? "resume" : "suspend");
 	}
 
@@ -941,6 +1004,7 @@ static int xiaomi_get_charging_status(void)
 	if (dc_psy) {
 		rc = power_supply_get_property(dc_psy, POWER_SUPPLY_PROP_ONLINE, &val);
 		if (rc < 0)
+#line 992
 			LOG_ERROR("Couldn't get DC online status, rc=%d\n", rc);
 		else if (val.intval == 1)
 			return CHARGING | WIRELESS_CHARGING;
@@ -950,6 +1014,7 @@ static int xiaomi_get_charging_status(void)
 	if (usb_psy) {
 		rc = power_supply_get_property(usb_psy, POWER_SUPPLY_PROP_ONLINE, &val);
 		if (rc < 0)
+#line 1001
 			LOG_ERROR("Couldn't get usb online status, rc=%d\n", rc);
 		else if (val.intval == 1)
 			return CHARGING | WIRED_CHARGING;
@@ -997,6 +1062,7 @@ static void xiaomi_register_power_supply_event(xiaomi_touch_t *xiaomi_touch)
 	xiaomi_touch->power_supply_notifier.notifier_call = xiaomi_power_supply_notifier_callback;
 	retval = power_supply_reg_notifier(&xiaomi_touch->power_supply_notifier);
 	if (retval < 0) {
+#line 1048
 		LOG_ERROR("error:%d\n", retval);
 		return;
 	}
@@ -1018,9 +1084,11 @@ void xiaomi_touch_mievent_report_int(unsigned int code, int panel_id, const char
 	LOG_INFO("factory build,return\n");
 	return;
 #endif
+#line 1069
 	LOG_INFO("code:%d,fault_name:%s,panel_id:%d,vendor_name:%s,error_code:%ld\n", code, fault_name, panel_id, vendor_name, error_code);
 	event = cdev_tevent_alloc(code);
 	if (!event) {
+#line 1072
 		LOG_ERROR("misight event is error\n");
 		return;
 	}
@@ -1041,9 +1109,11 @@ void xiaomi_touch_mievent_report_str(unsigned int code, int panel_id, const char
 	LOG_INFO("factory build,return\n");
 	return;
 #endif
+#line 1092
 	LOG_INFO("code:%d,fault_name:%s,panel_id:%d,vendor_name:%s\n", code, fault_name, panel_id, vendor_name);
 	event = cdev_tevent_alloc(code);
 	if (!event) {
+#line 1095
 		LOG_ERROR("misight event is error\n");
 		return;
 	}
@@ -1058,20 +1128,24 @@ EXPORT_SYMBOL_GPL(xiaomi_touch_mievent_report_str);
 
 void nfc_to_touch_event(s8 touch_id,u8 val){
 	xiaomi_touch_driver_param_t *xiaomi_touch_driver_param = get_xiaomi_touch_driver_param(touch_id);
+#line 1109
 	LOG_INFO("enter touch_id =%d val = %d",touch_id, val);
 	if(!xiaomi_touch_driver_param) {
+#line 1111
 		LOG_INFO("Touch panel  id %d hasn't register, return!",touch_id);
 		return;
 	}
 	if(xiaomi_touch_driver_param->hardware_operation.set_nfc_to_touch_event)
 		xiaomi_touch_driver_param->hardware_operation.set_nfc_to_touch_event(val);
 	else
+#line 1117
 		LOG_INFO("Non-filp models do not support this function");
 }
 EXPORT_SYMBOL_GPL(nfc_to_touch_event);
 
 static int xiaomi_touch_probe(struct platform_device *pdev)
 {
+#line 1123
 	LOG_ALWAYS("xiaomi_touch ver: %s", XIAOMI_TOUCH_VERSION);
 #ifdef TOUCH_KNOCK_SUPPORT
 	knock_node_init();
@@ -1082,6 +1156,7 @@ static int xiaomi_touch_probe(struct platform_device *pdev)
 	xiaomi_register_power_supply_event(&xiaomi_touch);
 	netlink_init();
 	xiaomi_touch_evdev_init(&xiaomi_touch);
+#line 1133
 	LOG_INFO("over");
 
 	return 0;
@@ -1089,6 +1164,7 @@ static int xiaomi_touch_probe(struct platform_device *pdev)
 
 static int xiaomi_touch_remove(struct platform_device *pdev)
 {
+#line 1144
 	LOG_INFO("enter");
 	xiaomi_touch_evdev_remove();
     netlink_exit();
@@ -1099,6 +1175,7 @@ static int xiaomi_touch_remove(struct platform_device *pdev)
 #ifdef TOUCH_KNOCK_SUPPORT
 	knock_node_release();
 #endif
+#line 1154
 	LOG_INFO("over");
 	return 0;
 }

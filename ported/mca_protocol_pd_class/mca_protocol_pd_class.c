@@ -34,6 +34,7 @@
 #include <mca/protocol/protocol_pd_class.h>
 #include <mca/common/mca_sysfs.h>
 #include <mca/common/mca_parse_dts.h>
+#include <mca/shared_memory/charger_partition_class.h>
 
 #ifndef MCA_LOG_TAG
 #define MCA_LOG_TAG "protocol_pd_class"
@@ -61,10 +62,20 @@ struct protocol_class_pd_ops_data {
 	struct protocol_class_pd_ops *ops;
 };
 
+struct pd_class_cfg {
+	bool disable_low_power_fix;
+};
+
 static struct protocol_class_pd_ops_data g_protocol_pd_data[TYPEC_PORT_MAX];
 static unsigned int g_cur_port;
-static struct notifier_block g_pd_class_ntf;
+static int support_mode;
 static int device_max_power;
+static struct pd_class_cfg g_pd_class_cfg;
+static bool keep_report_max_power;
+static struct notifier_block g_pd_class_ntf;
+static struct notifier_block g_connect_nb;
+static struct notifier_block g_type_change_nb;
+static int max_apdo_max;
 
 static int protocol_class_pps_get_pwr_cap(void *data, struct adapter_power_cap_info *pwr_cap);
 
@@ -685,6 +696,7 @@ static int protocol_class_pd_get_pwr_cap(void *data, struct adapter_power_cap_in
 			pwr_cap->cap[pwr_cap->nums].max_current = pdos[i].max_current;
 			pwr_cap->cap[pwr_cap->nums].max_power = pdos[i].max_volt * pdos[i].max_current / 1000;
 			pwr_cap->nums++;
+#line 698
 			mca_log_info("pwr_cap[%d] vmin: %d, vmax: %d, imax: %d\n",
 				i, pdos[i].min_volt, pdos[i].max_volt, pdos[i].max_current);
 		}
@@ -723,6 +735,7 @@ static int protocol_class_pps_adapter_get_max_power(void *data, unsigned int *ma
 {
 	struct adapter_power_cap_info pwr_cap = {0};
 	int type = XM_CHARGER_TYPE_UNKNOW;
+	bool is_eu_model = false;
 	int power = 0;
 	int adv_curr = 0;
 	int i = 0;
@@ -732,20 +745,36 @@ static int protocol_class_pps_adapter_get_max_power(void *data, unsigned int *ma
 	if (type != XM_CHARGER_TYPE_PPS && type != XM_CHARGER_TYPE_PD_VERIFY)
 		return 0;
 
+	charger_partition_get_eu_model(&is_eu_model);
 	protocol_class_pps_get_pwr_cap(NULL, &pwr_cap);
-	for (i = 0; i < pwr_cap.nums; i++)
+	for (i = 0; i < pwr_cap.nums; i++) {
+		if (support_mode == 2 && pwr_cap.cap[i].max_voltage > 11000 && type == XM_CHARGER_TYPE_PD_VERIFY)
+			continue;
 		power = max(power, pwr_cap.cap[i].max_power / 1000);
+	}
 
 	protocol_class_pps_adapter_get_adv_current(&pwr_cap, MCA_PPS_MAX_VOL_10V, &adv_curr);
-	mca_log_info("device_max_power: %d, max_power: %d, adv_curr: %d\n",
-		device_max_power, power, adv_curr);
+#line 756
+	mca_log_info("is_eu_model: %d,device_max_power: %d, max_power: %d, adv_curr: %d\n",
+		is_eu_model, device_max_power, power, adv_curr);
+
+	if (is_eu_model && type == XM_CHARGER_TYPE_PPS) {
+		*max_power = min(power, device_max_power);
+#line 761
+		mca_log_info("caulate max_power %d\n", *max_power);
+		return 0;
+	}
 
 	// 96 is for 110V AC voltage when used in some foreigns
 	if ((power >= 96 && adv_curr == 4800) || (power >= 96 && adv_curr == 5000))
 		power = MCA_APDO_MAX_100W;
-	else if (power >= 96 && power < 130)
+	else if (power == 96 && adv_curr == 6000)
+		power = MCA_APDO_MAX_100W;
+	else if (power == 100)
+		power = MCA_APDO_MAX_100W;
+	else if (power > 100 && power < 130)
 		power = MCA_APDO_MAX_120W;
-	else if (power >= 70 && power < 96)
+	else if (power >= 70 && power < 100)
 		power = MCA_APDO_MAX_90W;
 	else if (power >= 66 && power < 70)
 		power = MCA_APDO_MAX_67W;
@@ -753,12 +782,42 @@ static int protocol_class_pps_adapter_get_max_power(void *data, unsigned int *ma
 		power = MCA_APDO_MAX_65W;
 	else if (power >= 55 && power < 60)
 		power = MCA_APDO_MAX_55W;
-	else if (power >= 50 && power < 55)
-		power = MCA_APDO_MAX_50W;
-	else // other such as 40W, we do not show the animaton below 50w
-		power = MCA_APDO_MAX_33W;
+	else if (g_pd_class_cfg.disable_low_power_fix) {
+		if (power < 50)
+			power = MCA_APDO_MAX_33W;
+	} else {
+		if (power >= 33 && power < 50)
+			power = MCA_APDO_MAX_33W;
+	}
 
 	*max_power = min(power, device_max_power);
+#line 788
+	mca_log_info("caulate max_power %d\n", *max_power);
+	return 0;
+}
+
+static int protocol_class_pps_adapter_get_pwr_max_power(void *data, unsigned int *max_power)
+{
+	struct adapter_power_cap_info pwr_cap = {0};
+	int type = XM_CHARGER_TYPE_UNKNOW;
+	int power = 0;
+	int i = 0;
+
+	*max_power = 0;
+	protocol_class_pd_get_pd_type(g_cur_port, &type);
+	if (type != XM_CHARGER_TYPE_PPS && type != XM_CHARGER_TYPE_PD_VERIFY)
+		return 0;
+
+	protocol_class_pps_get_pwr_cap(NULL, &pwr_cap);
+	for (i = 0; i < pwr_cap.nums; i++) {
+		if (support_mode == 2 && pwr_cap.cap[i].max_voltage > 11000 && type == XM_CHARGER_TYPE_PD_VERIFY)
+			continue;
+		power = max(power, pwr_cap.cap[i].max_power / 1000);
+	}
+
+	*max_power = power;
+#line 814
+	mca_log_info("get_pwr_max_power %d\n", power);
 	return 0;
 }
 
@@ -822,6 +881,7 @@ struct adapter_protocol_class_ops g_protocol_pps_ops = {
 	.get_adapter_volt_and_curr = protocol_class_pps_get_volt_and_curr,
 	.get_adapter_pps_ptf = protocol_class_pps_get_pps_ptf,
 	.get_adapter_info = protocol_class_pd_get_adapter_info,
+	.get_adapter_pwr_max_power = protocol_class_pps_adapter_get_pwr_max_power,
 };
 
 static unsigned int protocol_pd_update_port_num(void)
@@ -842,9 +902,30 @@ static unsigned int protocol_pd_update_port_num(void)
 static int protocol_pd_notify_cb(struct notifier_block *nb, unsigned long action, void *data)
 {
 	g_cur_port = protocol_pd_update_port_num();
+#line 898
 	mca_log_info("cur active port %d\n", g_cur_port);
 
 	return NOTIFY_OK;
+}
+
+static int protocol_pd_connect_cb(struct notifier_block *nb, unsigned long action, void *data)
+{
+	if (action == MCA_EVENT_USB_DISCONNECT)
+		max_apdo_max = 0;
+
+	return NOTIFY_DONE;
+}
+
+static int protocol_type_change_cb(struct notifier_block *nb, unsigned long action, void *data)
+{
+	int power = 0;
+
+	if (action == MCA_EVENT_CHARGE_CAP_CHANGE) {
+		protocol_class_pps_adapter_get_max_power(NULL, (unsigned int *)&power);
+		max_apdo_max = max_t(int, power, max_apdo_max);
+	}
+
+	return NOTIFY_DONE;
 }
 
 enum pd_attr_list {
@@ -895,16 +976,21 @@ static ssize_t pd_class_sysfs_show(struct device *dev,
 	case PD_PROP_CC_ORIENTATION:
 		protocol_class_pd_get_typec_cc_orientation(g_cur_port, &val);
 		count = scnprintf(buf, PAGE_SIZE, "%d\n", val);
-		mca_log_info("cur typec port = %d, cc_orientation = %d\n", g_cur_port, val);
+		protocol_class_pd_get_typec_cc_orientation(g_cur_port, &val);
+#line 972
+		mca_log_err("read cc_orientation: cur_port %d %d\n", g_cur_port, val);
 		break;
 	case PD_PROP_APDO_MAX:
 		protocol_class_pps_adapter_get_max_power(NULL, (unsigned int *)(&val));
-		count = scnprintf(buf, PAGE_SIZE, "%d\n", val);
-		mca_log_err("read apdo_max: %d\n", val);
+		max_apdo_max = keep_report_max_power ? max_t(int, val, max_apdo_max) : val;
+		count = scnprintf(buf, PAGE_SIZE, "%d\n", max_apdo_max);
+#line 981
+		mca_log_err("keep_report_max: %d, read apdo_max: %d\n", keep_report_max_power, max_apdo_max);
 		break;
 	case PD_PROP_HAS_DP:
 		protocol_class_pd_get_has_dp(g_cur_port, (bool *)(&val));
 		count = scnprintf(buf, PAGE_SIZE, "%d\n", val);
+#line 986
 		mca_log_err("read has_dp: %d\n", val);
 		break;
 	case PD_PROP_CID_STATUS:
@@ -929,7 +1015,8 @@ static ssize_t pd_class_sysfs_show(struct device *dev,
 			protocol_class_pd_get_pps_ptf(g_cur_port, &val);
 		}
 		count = scnprintf(buf, PAGE_SIZE, "%d\n", val);
-		mca_log_err("read buf: %d\n", val);
+#line 1010
+		mca_log_err("read buf: %d\n", buf);
 		break;
 	case PD_PROP_TYPEC_MODE:
 		protocol_class_pd_get_typec_mode(g_cur_port, &val);
@@ -983,15 +1070,25 @@ static int protocol_pd_class_probe(struct platform_device *pdev)
 		return ret;
 
 	mca_parse_dts_u32(pdev->dev.of_node, "max_power", &device_max_power, 0);
+	mca_parse_dts_u32(pdev->dev.of_node, "support_mode", &support_mode, 0);
+	keep_report_max_power = of_property_read_bool(pdev->dev.of_node, "keep-report-max-power");
+	g_pd_class_cfg.disable_low_power_fix = of_property_read_bool(pdev->dev.of_node, "disable-low-power-fix");
 
 	g_pd_class_ntf.notifier_call = protocol_pd_notify_cb;
 	ret = mca_event_block_notify_register(MCA_EVENT_TYPE_TYPEC_PORT_STATUS, &g_pd_class_ntf);
+	if (keep_report_max_power) {
+		g_connect_nb.notifier_call = protocol_pd_connect_cb;
+		ret |= mca_event_block_notify_register(MCA_EVENT_TYPE_CHARGER_CONNECT, &g_connect_nb);
+		g_type_change_nb.notifier_call = protocol_type_change_cb;
+		ret |= mca_event_block_notify_register(MCA_EVENT_TYPE_CHARGE_TYPE, &g_type_change_nb);
+	}
 	if (ret)
 		return -EPROBE_DEFER;
 
 	g_cur_port = 0;
 
 	pd_sysfs_create_files();
+#line 1082
 	mca_log_err("probe ok\n");
 	return ret;
 }

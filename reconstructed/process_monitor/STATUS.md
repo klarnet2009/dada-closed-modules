@@ -1,5 +1,9 @@
-# process_monitor - 38 of 42 functions byte-identical, 4 differ by scheduling / block layout
+# process_monitor - PARTIAL (38 of 42 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+Re-checked against `<work-dir>` (real Kleaf ThinLTO build of the unchanged source): the OS4 binary matches in function set (42), relocations, objects, imports (70) + CRCs, modinfo;
+the same 4 functions differ as in HyperOS 3 (`signal_record_hook_handle`, `detect_list_write`, `init_D_task`, `init_signal_record`). No OS4 specific change.
+
+## Earlier rounds
 `compare_ko.py` (ThinLTO build, `process_monitor_defconfig`): function set (42) OK, relocations OK, global objects OK, exports (none) OK, imports + CRCs (70) OK, modinfo OK.
 kCFI type hashes (`perfB_fdiff.py -k`, not covered by compare_ko): all identical except `timeout_check` (second parameter is a pointer to a struct whose tag name is unknown).
 

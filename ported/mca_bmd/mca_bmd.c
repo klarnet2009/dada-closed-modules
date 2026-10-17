@@ -322,7 +322,7 @@ static void mca_bmd_delay_report_bmd_sts_work(struct work_struct *work)
 }
 
 #line 339
-static int mca_bmd_parse_dt(struct mca_bmd_dev *info, bool *retry_out)
+static int mca_bmd_parse_dt(struct mca_bmd_dev *info)
 {
 	struct device_node *node = info->dev->of_node;
 	int ret = 0;
@@ -365,7 +365,7 @@ static int mca_bmd_parse_dt(struct mca_bmd_dev *info, bool *retry_out)
 					ret = gpio_direction_input(info->bmd_scheme[i].gpio);
 					if (ret)
 						mca_log_err("unable to set direction btb_gpio [%d]\n", info->bmd_scheme[i].gpio);
-				}
+				} ret = 0;
 			}
 			break;
 		case INT_SCHEME:
@@ -379,7 +379,8 @@ static int mca_bmd_parse_dt(struct mca_bmd_dev *info, bool *retry_out)
 		}
 	}
 	mca_parse_dts_u32(node, "fg_type", &info->fg_type, 0);
-	*retry_out = retry;
+	if (retry)
+		schedule_delayed_work(&info->request_hw_resource_work, msecs_to_jiffies(RESOURCE_RETRY_MS));
 	return ret;
 }
 
@@ -453,7 +454,7 @@ static int mca_bmd_probe(struct platform_device *pdev)
 	int ret;
 	int online = 0;
 	int wireless_online = 0;
-	bool retry = false;
+
 
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info)
@@ -463,9 +464,9 @@ static int mca_bmd_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, info);
 	INIT_DELAYED_WORK(&info->request_hw_resource_work, mca_bmd_request_hw_resource_work);
 	INIT_DELAYED_WORK(&info->delay_report_bmd_sts_work, mca_bmd_delay_report_bmd_sts_work);
-	ret = mca_bmd_parse_dt(info, &retry);
-	if (retry)
-		schedule_delayed_work(&info->request_hw_resource_work, msecs_to_jiffies(RESOURCE_RETRY_MS));
+	ret = mca_bmd_parse_dt(info);
+
+
 	if (ret) {
 		mca_log_err("parse dt faile\n");
 		return -1;
@@ -473,8 +474,8 @@ static int mca_bmd_probe(struct platform_device *pdev)
 
 	(void)mca_strategy_ops_register(STRATEGY_FUNC_TYPE_BMD, mca_bmd_process_event, mca_bmd_get_status, NULL, info);
 
-	INIT_DELAYED_WORK(&info->monitor_bmd_work, mca_bmd_monitor_workfunc);
 	info->batt_missing = 0;
+	INIT_DELAYED_WORK(&info->monitor_bmd_work, mca_bmd_monitor_workfunc);
 	btb_sysfs_create_group(info->dev);
 	schedule_delayed_work(&info->delay_report_bmd_sts_work, msecs_to_jiffies(DELAY_REPORT_MS));
 	platform_class_buckchg_ops_get_online(MAIN_BUCK_CHARGER, &online);

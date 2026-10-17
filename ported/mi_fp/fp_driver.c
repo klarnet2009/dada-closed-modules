@@ -35,12 +35,43 @@ static void fp_spi_clk_disable(struct spi_device *spi)
 }
 #endif
 
+/* the stock was built on 6.6.57: poll_wait() without the trailing smp_mb() that 6.6.144 added */
+static inline void fp_poll_wait(struct file *filp, wait_queue_head_t *wait_address, poll_table *p)
+{
+	if (p && p->_qproc && wait_address)
+		p->_qproc(filp, wait_address, p);
+}
+#define poll_wait fp_poll_wait
+
 /*************************************************************/
 static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_lock);
-static struct wakeup_source *fp_wakesrc = NULL;
 struct work_struct fp_display_work;
 static struct fp_device fp;
+
+noinline void fp_acquire_stay_wake(struct fp_device *fp_dev)
+{
+	if (fp_dev->wakesrc)
+		__pm_stay_awake(fp_dev->wakesrc);
+	else
+		pr_err("fp wakeup source is NULL\n");
+}
+
+noinline void fp_release_stay_wake(struct fp_device *fp_dev)
+{
+	if (fp_dev->wakesrc)
+		__pm_relax(fp_dev->wakesrc);
+	else
+		pr_err("fp wakeup source is NULL\n");
+}
+
+noinline void fp_acquire_stay_wake_time_ms(struct fp_device *fp_dev, unsigned int msec)
+{
+	if (fp_dev->wakesrc)
+		__pm_wakeup_event(fp_dev->wakesrc, msec);
+	else
+		pr_err("fp wakeup source time is NULL\n");
+}
 
 #ifndef XIAOMI_DRM_INTERFACE_WA
 
@@ -140,7 +171,7 @@ static void fp_screen_state_for_fingerprint_callback(enum panel_event_notifier_t
 				break;
 			case DRM_PANEL_EVENT_BLANK:
 				pr_debug("%s:DRM_PANEL_EVENT_BLANK\n", __func__);
-				if (fp_dev->device_available == 1) {
+				if (fp_dev->device_available == 1 && !fp_dev->fb_black) {
 					fp_dev->fb_black = 1;
 					fp_dev->wait_finger_down = true;
 					if (fp_dev->fp_netlink_enabled)
@@ -157,7 +188,7 @@ static void fp_register_panel_notifier_work(struct work_struct *work)
 {
 	struct fp_device *fp_dev = container_of(work, struct fp_device, screen_state_dw.work);
 	int error = 0;
-	static int retry_count = 0;
+	static int retry_count MIFP_SEC(1) = 0;
 	struct device_node *node;
 	node = of_find_node_by_name(NULL, "fingerprint-screen");
 	if (!node) {
@@ -247,7 +278,7 @@ static irqreturn_t qbt_ipc_irq_handler(int irq, void *dev_id)
 	pr_debug("IPC event received at time %lu uS\n",
 			(unsigned long)ktime_to_us(ktime_get()));
 
-	pm_stay_awake(fp_dev->device);
+	fp_acquire_stay_wake(fp_dev);
 	schedule_work(&fp_dev->fw_ipc.work);
 
 	return IRQ_HANDLED;
@@ -275,7 +306,7 @@ static void qbt_irq_report_event(struct work_struct *work)
 	}
 	mutex_unlock(&fp_dev->ipc_events_mutex);
 	wake_up_interruptible(&fp_dev->read_wait_queue_ipc);
-	pm_relax(fp_dev->device);
+	fp_release_stay_wake(fp_dev);
 }
 
 static int enable_intr2_report(struct fp_device *fp_dev)
@@ -507,7 +538,6 @@ static ssize_t set_intr2_fd(struct device *dev,
 	struct fp_device *fp_dev = &fp;
 	dev_info(fp_dev->device, "%s -> %s\n", __func__, buf);
 
-	spin_lock(&fp_dev->intr2_events_lock);
 	if (!strncmp(buf, "0", strlen("0"))) {
 		fp_local_time_printk("sysfs: set intr2 low");
 		pinctrl_select_state(fp_dev->pinctrl, fp_dev->pins_reset_low);
@@ -517,7 +547,6 @@ static ssize_t set_intr2_fd(struct device *dev,
 	} else {
 		pr_err("unknown operation set 0");
 	}
-	spin_unlock(&fp_dev->intr2_events_lock);
 	return count;
 }
 
@@ -620,7 +649,7 @@ static irqreturn_t fp_irq(int irq, void *handle)
 #ifdef CONFIG_SIDE_FINGERPRINT
 	sysfs_notify(&fp_dev->driver_device->dev.kobj, NULL, dev_attr_irq.attr.name);
 #endif
-	__pm_wakeup_event(fp_wakesrc, WAKELOCK_HOLD_TIME);
+	fp_acquire_stay_wake_time_ms(fp_dev, WAKELOCK_HOLD_TIME);
 	fp_netlink_send(fp_dev, FP_NETLINK_IRQ);
 	if ((fp_dev->wait_finger_down == true) && (fp_dev->fb_black == 1)) {
 	       	fp_dev->wait_finger_down = false;
@@ -961,7 +990,7 @@ static long fp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			pr_debug( "QBT_ACQUIRE_WAKELOCK ======\n" );
 			if (atomic_read(&fp_dev->wakelock_acquired) == 0) {
 				pr_debug("Acquiring wakelock\n");
-				pm_stay_awake(fp_dev->device);
+				fp_acquire_stay_wake(fp_dev);
 			}
 			atomic_inc(&fp_dev->wakelock_acquired);
 			break;
@@ -972,7 +1001,7 @@ static long fp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				break;
 			if (atomic_dec_and_test(&fp_dev->wakelock_acquired)) {
 				pr_debug("Releasing wakelock\n");
-				pm_relax(fp_dev->device);
+				fp_release_stay_wake(fp_dev);
 			}
 			break;
 		case FP_IOC_DISABLE_INTR2:
@@ -990,6 +1019,14 @@ static long fp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			}
 			break;
 #endif
+		case FP_IOC_INTR2_SIDE_CONFIG:
+			pr_debug( "FP_IOC_INTR2_SIDE_CONFIG ======\n" );
+			pr_debug( "fp_dev->intr2_side_config = %d\n", fp_dev->intr2_side_config);
+			if (copy_to_user((void __user *)arg, &fp_dev->intr2_side_config, sizeof(u32))) {
+				pr_debug( "FP_IOC_INTR2_SIDE_CONFIG failed!\n" );
+				retval = -EFAULT;
+			}
+			break;
 		default:
 			pr_debug( "fp doesn't support this command(%x)\n", cmd);
 			break;
@@ -1471,7 +1508,6 @@ static int fp_probe(struct platform_device *driver_device)
 	INIT_LIST_HEAD(&fp_dev->device_entry);
 
 	/* setup fp configurations. */
-	fp_dev->irq_gpio = -EINVAL;
 	fp_dev->irq_enabled = 1;
 	fp_dev->device_available = 0;
 	fp_dev->fb_black = 0;
@@ -1480,6 +1516,8 @@ static int fp_probe(struct platform_device *driver_device)
 	fp_dev->fingerdown = 0;
 	fp_dev->irq_request = false;
 	fp_dev->driver_device = driver_device;
+	fp_dev->intr2_side_config = 0;
+	fp_dev->irq_gpio = -EINVAL;
 	/* config fp power. */
 	fp_power_config(fp_dev);
 	/* get gpio info from dts or defination */
@@ -1567,10 +1605,10 @@ static int fp_probe(struct platform_device *driver_device)
 #ifdef FP_ULTRA_QCOM
 	INIT_KFIFO(fp_dev->fd_events);
 	INIT_KFIFO(fp_dev->ipc_events);
-	init_waitqueue_head(&fp_dev->read_wait_queue_fd);
-	init_waitqueue_head(&fp_dev->read_wait_queue_ipc);
+	MIFP_WQ_INIT(&fp_dev->read_wait_queue_fd, 1);
+	MIFP_WQ_INIT(&fp_dev->read_wait_queue_ipc, 1);
 #endif
-	init_waitqueue_head(&fp_dev->fp_wait_queue);
+	MIFP_WQ_INIT(&fp_dev->fp_wait_queue, 1);
 #ifndef XIAOMI_DRM_INTERFACE_WA
 	fp_dev->screen_state_wq = create_singlethread_workqueue("screen_state_wq");
 	if (fp_dev->screen_state_wq){
@@ -1583,7 +1621,9 @@ static int fp_probe(struct platform_device *driver_device)
 		goto err_netlink;
 	}
 	fp_dev->fp_netlink_enabled = 1;
-	fp_wakesrc = wakeup_source_register(&fp_dev->driver_device->dev, "fp_wakesrc");
+	fp_dev->wakesrc = wakeup_source_register(&fp_dev->driver_device->dev, "fp_wakesrc");
+	if (!fp_dev->wakesrc)
+		pr_err("fp wakeup source register failed" "\n");
 #ifndef CONFIG_SIDE_FINGERPRINT
 	if (device_may_wakeup(fp_dev->device)) {
 		pr_debug("device_may_wakeup\n");
@@ -1653,8 +1693,8 @@ static int fp_remove(struct platform_device *driver_device)
 {
 	struct fp_device *fp_dev = &fp;
 	FUNC_ENTRY();
-	wakeup_source_unregister(fp_wakesrc);
-	fp_wakesrc = NULL;
+	wakeup_source_unregister(fp_dev->wakesrc);
+	fp_dev->wakesrc = NULL;
 	/* make sure ops on existing fds can abort cleanly */
 	if (fp_dev->irq_num) {
 		free_irq(fp_dev->irq_num, fp_dev);

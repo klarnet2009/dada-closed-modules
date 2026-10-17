@@ -26,21 +26,21 @@ enum typec_attach_mode {
 #define ADAPTER_CAP_MAX_NR ADAPTER_POWER_CAP_MAX
 
 enum uvdm_state {
-	USBPD_UVDM_DISCONNECT = 0,
-	USBPD_UVDM_CHARGER_VERSION = 1,
-	USBPD_UVDM_CHARGER_VOLTAGE = 2,
-	USBPD_UVDM_CHARGER_TEMP = 3,
-	USBPD_UVDM_SESSION_SEED = 4,
-	USBPD_UVDM_AUTHENTICATION = 5,
-	USBPD_UVDM_VERIFIED = 6,
-	USBPD_UVDM_REMOVE_COMPENSATION = 7,
-	USBPD_UVDM_REVERSE_AUTHEN = 8,
-	USBPD_UVDM_CONNECT = 9,
-	USBPD_UVDM_NAN_ACK = 10,
+	USBPD_UVDM_DISCONNECT,
+	USBPD_UVDM_CHARGER_VERSION,
+	USBPD_UVDM_CHARGER_VOLTAGE,
+	USBPD_UVDM_CHARGER_TEMP,
+	USBPD_UVDM_SESSION_SEED,
+	USBPD_UVDM_AUTHENTICATION,
+	USBPD_UVDM_VERIFIED,
+	USBPD_UVDM_REMOVE_COMPENSATION,
+	USBPD_UVDM_REVERSE_AUTHEN,
+	USBPD_UVDM_CONNECT,
+	USBPD_UVDM_NAN_ACK,
 	USBPD_UVDM_CMD_INIT = 50,
 	USBPD_UVDM_CMD_NAK = 100,
 	USBPD_UVDM_REQUEST_PD_DR = 200,
-	USBPD_UVDM_RESET_VSAFE0V = 255
+	USBPD_UVDM_RESET_VSAFE0V = 0xFF,	/* spelling found by genksyms brute force (G2): matches the stock request_vdm_cmd CRC */
 };
 
 struct usbpd_vdm_data {
@@ -50,6 +50,9 @@ struct usbpd_vdm_data {
 	int reauth;
 	unsigned char s_secert[32];
 	unsigned char s_uuid[32];
+#ifdef __GENKSYMS__
+	int fcrcOZSHCoutZc;	/* CRC pad (G2): the stock member spelling is not recoverable from BTF (name offset into vmlinux strings) */
+#endif
 };
 
 struct pd_pdo {
@@ -109,6 +112,9 @@ struct protocol_class_pd_ops {
 	int (*protocol_pd_get_cc_short_vbus)(int *, void *);
 	int (*protocol_pd_get_suspend_support_status)(bool *, void *);
 	int (*protocol_pd_get_zimi_cypress_flag)(int *, void *);
+#ifdef __GENKSYMS__
+	int fcrc5Tn08y75nj;	/* CRC pad (G2), see PADVDM above */
+#endif
 };
 
 int protocol_class_pd_get_adapter_id(unsigned int port_num, unsigned int *adapter_id);

@@ -2,12 +2,18 @@ load("/<build-dir>", "ddk_module")
 
 ddk_module(
     name = "mi_fp",
-    srcs = glob(["*.c", "*.h"]),
+    srcs = ["fp_driver.c", "fp_platform.c", "fp_input.c", "fp_netlink.c"] + glob(["*.h"]),
     out = "mi_fp.ko",
     defconfig = "mi_fp_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
     copts = ["-ffunction-sections", "-fdata-sections"],
-    local_defines = ["CONFIG_LTO=1"],
+    local_defines = ["CONFIG_LTO=1", "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1"],
     visibility = ["//re:__subpackages__"],
     kernel_build = "//common:kernel_aarch64",
-    deps = ["//re/stubs_portA:portA_headers", "//common:all_headers_aarch64"],
+    # providers: the real hwid port (get_hw_id_value, get_hw_version_platform) and a CRC stub of panel_event_notifier.ko
+    deps = [
+        "//re/stubs_portA:portA_headers",
+        "//re/hwid:hwid",
+        "//re/stubs_a17D:panel_event_notifier_stub",
+        "//common:all_headers_aarch64",
+    ],
 )

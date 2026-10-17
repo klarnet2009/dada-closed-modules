@@ -1,0 +1,28 @@
+static int sy6541_init_device(struct sc8581_device *cp)
+{
+	int ret = 0;
+
+	ret |= cp_update_bits(cp->client, 0x0e, 0x08, 0x08);
+	ret |= cp_update_bits(cp->client, 0x0d, 0x38, 0x28);
+	ret |= cp_update_bits(cp->client, 0x07, 0x30, 0x10);
+	ret |= cp_update_bits(cp->client, 0x03, 0x80, 0x80);
+	ret |= cp_update_bits(cp->client, 0x15, 0x40, 0x00);
+	ret |= cp_update_bits(cp->client, 0x15, 0x01, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x80, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x40, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x20, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x10, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x08, 0x00);
+	ret |= cp_update_bits(cp->client, 0x16, 0x01, 0x00);
+	ret |= cp_update_bits(cp->client, 0x15, 0x80, 0x00);
+	sy6541_set_operation_mode(cp, 1);
+	cp->fsw_cfg.max = 1050;
+	cp->fsw_cfg.min = 300;
+	cp->fsw_cfg.step = 50;
+	sy6541_set_fsw(cp, CP_DEFAULT_FSW);
+	ret |= cp_update_bits(cp->client, 0xf6, 0x20, 0x20);
+#line 1270
+	mca_log_err("%s success to init CP device\n", cp->log_tag);
+
+	return ret;
+}

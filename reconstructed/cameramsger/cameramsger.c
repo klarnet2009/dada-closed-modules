@@ -87,7 +87,7 @@ struct cam_sched_data {
 };
 
 /* ThinLTO promoted the static to a hidden global with a hashed name */
-struct msger_dev c_msger_dev __asm__("c_msger_dev.llvm.12840717646342289955") __attribute__((visibility("hidden")));
+struct msger_dev c_msger_dev __asm__("c_msger_dev.llvm.400187243914933332") __attribute__((visibility("hidden")));
 unsigned int msger_siwtches = 1;
 /*
  * The stock ThinLTO link merges csdata and the two zero-sized lock_class_key objects of cameramsger_init() at one .bss

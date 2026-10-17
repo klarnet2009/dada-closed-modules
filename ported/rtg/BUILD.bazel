@@ -1,0 +1,13 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "rtg",
+    srcs = glob(["*.c", "*.h"]),
+    out = "rtg.ko",
+    defconfig = "rtg_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = ["CONFIG_LTO=1"],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_g1/os4:os4_perf_actuator", "//re/stubs_g1/os4:os4_plat_common", "//common:all_headers_aarch64"],
+)

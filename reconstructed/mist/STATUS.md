@@ -1,5 +1,10 @@
-# mist (perfC) -- status: PARTIAL, 67/70 functions byte-identical
+# mist - PARTIAL (67 of 70 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+Re-checked against `<work-dir>` (real Kleaf ThinLTO build). OS4 change: the promoted statics of the GPU TU are `gflt_enable|gpubw_gflt_load|adreno_gflt_load.llvm.5988974010709438231`
+(was `...11378079736542486605`): updated in `mist_gflt.c`; after that function set (70), relocations (all), objects, exports + CRC (44, one forged as before), imports (51) + CRCs and modinfo are OK.
+Same 3 functions differ as in HyperOS 3 (`parse_cluster_node_map`, `mist_update_rel_freq`, `mist_dflt_init`).
+
+## Earlier rounds
 Module: "mist" (SoC frequency/latency tuner: DDR/LLCC/L3 memlat vote tuner, GPU frame latency tuner, load calibration glue).
 
 Build: Kleaf ddk_module `//re/mist`, `mist_defconfig` = ThinLTO (`# CONFIG_LTO_NONE is not set` + `CONFIG_LTO_CLANG_THIN=y`),

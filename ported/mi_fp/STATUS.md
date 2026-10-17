@@ -1,3 +1,24 @@
+# mi_fp - EQUIVALENT (58 of 58 functions byte+relocation identical to the OS4 stock; objects, 113 import CRCs, modinfo OK; was 20 of 58)
+
+Reference: OS4 `<work-dir>`. Build: `bash work/re/src/g3d_tools/g3_build.sh mi_fp stubs_portA` (real Kleaf/ThinLTO + compare_ko: EQUIVALENT, no forged CRC, no padcrc, no codegen hacks beyond the ones below).
+Quick loop: `DEFS="-DCONFIG_QCOM_PANEL_EVENT_NOTIFIER=1" INCS="-I<build-dir>" FD="func" bash work/re/src/g3d_tools/q.sh mi_fp mi_fp` (relocation names of the lock keys are not visible there, only the real build sees them).
+
+## What was recovered (all from the OS4 disassembly + BTF `btf_os4/mi_fp.txt`)
+- `struct fp_device` re-laid out to the stock BTF: new `struct wakeup_source *wakesrc` (+464), `u32 rst_pull_flag[5]` (+568), `u32 intr2_side_config` (+588), no `intr2_events_lock`, new `struct work_struct intr2_work` at the end (size 12664). The old global `fp_wakesrc` is gone.
+- New functions (GLOBAL in the stock symtab, so non-static + `noinline`): `fp_acquire_stay_wake`, `fp_release_stay_wake` (`__pm_stay_awake/__pm_relax(fp_dev->wakesrc)`, else `pr_err("fp wakeup source is NULL\n")`), `fp_acquire_stay_wake_time_ms` (`__pm_wakeup_event`, "fp wakeup source time is NULL"). Users: `fp_irq`, `qbt_ipc_irq_handler`, `qbt_irq_report_event`, ioctl `QBT_ACQUIRE/RELEASE_WAKELOCK`; `qbt_gpio_isr/work_func` and `fp_release` still use `pm_stay_awake/pm_relax(device)`.
+- `fp_intr2_work_func` (fp_input.c): the "intr2 output low/high" pin switching moved out of `xiaomifp_input_event` into a work item (`schedule_work(&fp_dev->intr2_work)` on SYN_REPORT, `INIT_WORK` at the end of `xiaomifp_evdev_init`, just before the sensorLocation print). No spinlock any more (`set_intr2_fd` lost it too).
+- `fp_screen_state_for_fingerprint_callback`: BLANK is ignored when `fb_black` is already set. `fp_probe`: `wakeup_source_register(...)` failure is logged, `intr2_side_config = 0; irq_gpio = -EINVAL` (one merged 64-bit store, placed after `driver_device = ...`).
+- `fp_parse_dts`: new hwid logic `if (get_hw_version_platform() == 11 && hw_level == 1) regulator "fp_3v1_vreg" + pr_debug(" p11 fp voltage is P01 L9B\n") else "fp_3v3_vreg"`, `hw_level = ((get_hw_id_value() >> 16) & 0xf) * 10 + (get_hw_id_value() & 0xf)`; log "netlink_num = %d, vendor_names = %s"; the error returns are plain `return` (the function prints " exit" only on success).
+- `fp_power_on`: regulator branch logs `hw_level is  %d!!` (same formula) before `regulator_enable`; the NESTED if/else form of the original template is required (the early-return form moves one store).
+- `fp_ioctl`: new case `FP_IOC_INTR2_SIDE_CONFIG _IOR('g', 45, u32)` (copy_to_user of `intr2_side_config`, logs "fp_dev->intr2_side_config = %d"), wake-lock cases via the helpers above. `FP_IOC_RESET_TIME_MS` version of a17D kept.
+## Documented non-source tricks (all compare-visible only, no ABI effect)
+- `fp_poll_wait` (no `smp_mb()` after the qproc call): the stock was built on 6.6.57 (LESSONS_round2 item 6).
+- Lock keys: `MIFP_MUTEX_INIT/MIFP_WQ_INIT/MIFP_SEC` (fp_driver.h): the stock link merges the zero-size `__key`s onto the next .bss object (`fp_probe.__key*` + `retry_count`, `fp_parse_dts.__key*` + `fp_dev`), reproduced by sharing sections `.bss.mifp_k1/.bss.mifp_k2`. The srcs order in BUILD.bazel (`fp_driver.c, fp_platform.c, fp_input.c, fp_netlink.c`) decides which contribution comes first.
+- Providers in `deps`: the real `//re/hwid:hwid` (EQUIVALENT port, exports `get_hw_id_value`/`get_hw_version_platform`) and `//re/stubs_a17D:panel_event_notifier_stub` (CRC stub); `local_defines` `CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1` (the register/unregister calls are otherwise compiled out by the local header).
+- Not recoverable from the binary: the semantic names of `rst_pull_flag`/`FP_IOC_*PWM` (no code in the module uses them except the struct slots); `get_hw_version_platform() == 11` is a literal.
+Note: the user's phone uses the Goodix HAL; this module is only the kernel side of the Xiaomi fingerprint framework. Do not flash without testing.
+
+---- earlier notes (/ g3c) ----
 PARTIAL / COMPILES (reference = OS4 stock `vendor_dlkm/mi_fp.ko`, 58 functions). Not EQUIVALENT.
 
 Source in this dir = the pre-existing earlier attempt (no STATUS then): a MiCode mi_fp variant WITH `FP_IOC_RESET_TIME_MS` / `fp_hw_reset_delay` / `#ifdef FP_ULTRA_QCOM` blocks but WITHOUT the wake-source / panel-notifier part. The same module in `micode_dada` (`drivers/input/fingerprint/mi_fp/*`, copy in `work/re/tplm/dada_fp/`) has the panel notifier + `stay_wake` code but not the reset-delay ioctl. The OS4 stock contains both, i.e. it is a merge/newer revision of the two.
@@ -9,3 +30,8 @@ Unchanged by this run; only measured.
 
 What blocks EQUIVALENT: merge of the two public revisions + reverse engineering of the newer parts (ioctl numbers 40-44, PWM regulator, power-on sequence, wake sources) from the disassembly. Suggested start: dada template + the `FP_IOC_RESET_TIME_MS`, `rst_high_delay/rst_low_delay` parts of this dir's source, local `panel_event_notifier.h` (Xiaomi enum), then per-function diffs (`<work-dir>` + `fd.sh`). Not done within the budget (est. 40+ iterations).
 Note: the user's phone uses the Goodix HAL; this module is only the kernel side of the Xiaomi fingerprint framework.
+
+## Update (17.10.2026, analysis only)
+- Real build (`g3c_tools/g3_build.sh mi_fp`): function set 53/58 (missing `fp_acquire_stay_wake`, `fp_release_stay_wake`, `fp_acquire_stay_wake_time_ms`, `fp_intr2_work_func`, `fp_screen_state_for_fingerprint_callback`), 33 functions differ in bytes, imports differ (`panel_event_notifier_register/unregister`, `__pm_stay_awake`, `__pm_relax`, `get_hw_id_value`, `get_hw_version_platform`, spinlock variants).
+- CORRECTION of the earlier note: the `fp_acquire_stay_wake*`/`fp_intr2_work_func` functions are NOT in `micode_dada` `drivers/input/fingerprint/mi_fp/*` (checked with `git show`; 0 matches). The stock is a newer revision than every public tree (as for `mi_mempool`): those functions and the Qualcomm `panel_event_notifier` based screen-state callback must be reconstructed from the disassembly.
+- The stock BTF gives the struct layouts: `START_ID=141904 python -I export/dada-closed-modules/tools/btf_dump_startid.py local <work-dir>` (copy `scratchpad/btf/mi_fp.txt`).

@@ -726,6 +726,13 @@ static int fsm_check_dev_type(fsm_dev_t *fsm_dev)
 		}
 		return 0;
 	}
+	if (fsm_dev->is1958) {
+		if (HIGH8(dev_type) != 0x17 && HIGH8(dev_type) != 0x29) {
+			pr_addr(err, "invalid type:%04X", dev_type);
+			return -EINVAL;
+		}
+		return 0;
+	}
 	// other series
 	if (HIGH8(fsm_dev->version) != HIGH8(dev_type)) {
 		pr_addr(err, "type:%02X not match version:%02X",
@@ -1047,7 +1054,6 @@ int fsm_get_rstrim(fsm_dev_t *fsm_dev)
 	ret = fsm_reg_read(fsm_dev, reg_rstrim, &value);
 	fsm_access_key(fsm_dev, 0);
 	if (ret || value == 0) {
-		pr_warn("use default rs_trim value");
 		value = FSM_RS_TRIM_DEFAULT;
 	}
 	fsm_dev->rstrim = value;
@@ -1090,10 +1096,17 @@ int fsm_config_vol(fsm_dev_t *fsm_dev)
 	// volume = (fsm_dev->state.calibrated ? cfg->volume : 0xDF); // -12dB
 	if (fsm_dev->is1958) {
 		volctrl = 0x16;
-		volume = ((cfg->volume << 1) + 1) << 7;
+		if ((fsm_dev->version & 0xFF00) == 0x1700) {
+			volume = (cfg->volume << 8) | 0x80;
+		} else {
+			volume = (cfg->volume << 8) | 0xC0;
+		}
 	} else {
 		volctrl = 0x06;
-		volume = ((cfg->volume << 8) & 0xFF00);
+		volume = (cfg->volume << 8);
+	}
+	if ((fsm_dev->pos_mask & 0x8) && (int16_t)fsm_dev->cur_scene == -32768) {
+		volume = 0xFBC0;
 	}
 	pr_addr(debug, "vol: %04X", volume);
 
@@ -1108,6 +1121,46 @@ int fsm_ops_dummy(fsm_dev_t *fsm_dev)
 /*
  * fsm stub api
  */
+
+int fsm_get_index_by_position(uint16_t pos)
+{
+	fsm_config_t *cfg = fsm_get_config();
+	struct preset_file *preset = cfg->preset;
+	int ndev;
+	int idx;
+
+	if (preset == NULL) {
+		pr_err("invalid firmware");
+		return -EINVAL;
+	}
+	ndev = preset->hdr.ndev & 0xff;
+	if (ndev < 2)
+		return 0;
+	switch (ndev) {
+	case 2:
+		return (pos & 0x3) != 0;
+	case 3:
+		idx = (pos == 1) ? 1 : 2;
+		return (pos == 8) ? 0 : idx;
+	case 4:
+		switch (pos) {
+		case 1:
+			return 3;
+		case 2:
+			return 2;
+		case 4:
+			return 1;
+		case 8:
+			return 0;
+		default:
+			pr_err("invalid position:%X", pos);
+			return -EINVAL;
+		}
+	default:
+		pr_err("invalid ndev:%X", ndev);
+		return -EINVAL;
+	}
+}
 
 int fsm_stub_switch_preset(fsm_dev_t *fsm_dev)
 {
@@ -1125,7 +1178,6 @@ int fsm_stub_switch_preset(fsm_dev_t *fsm_dev)
 	}
 	if (cfg->speaker_on) {
 		ret |= fsm_stub_shut_down(fsm_dev);
-		fsm_delay_ms(30);
 	}
 	if ((fsm_dev->own_scene & cfg->next_scene) == 0) {
 		return ret;
@@ -1266,10 +1318,16 @@ void fsm_set_scene(int scene)
 {
 	fsm_config_t *cfg = fsm_get_config();
 	fsm_dev_t *fsm_dev = NULL;
+	bool muted;
 
 	if (!cfg || scene < 0 || scene > FSM_SCENE_MAX) {
 		pr_err("invaild scene:%d", scene);
 		return;
+	}
+	muted = cfg->stream_muted;
+	if (!muted) {
+		fsm_speaker_off();
+		fsm_delay_ms(20);
 	}
 	fsm_mutex_lock();
 	if (scene == 16) {
@@ -1279,20 +1337,19 @@ void fsm_set_scene(int scene)
 	} else {
 		cfg->force_calib = 0; // exit calibration
 	}
+	if (cfg->next_scene != BIT(scene) && cfg->speaker_on) {
+		fsm_list_func(fsm_dev, fsm_stub_shut_down);
+		fsm_delay_ms(20);
+	}
 	cfg->next_scene = BIT(scene);
-	list_for_each_entry(fsm_dev, &fsm_dev_list, list) {
-		if (!fsm_dev->state.dev_inited)
-			continue;
-		if (fsm_dev->own_scene & cfg->next_scene)
-			continue;
-		if (fsm_dev->cur_scene == cfg->next_scene)
-			continue;
-		fsm_dev->cur_scene = cfg->next_scene;
-		if (cfg->speaker_on)
-			fsm_stub_shut_down(fsm_dev);
+	if (cfg->next_scene == FSM_SCENE_MUSIC && cfg->ultrasound_on && !cfg->force_calib) {
+		cfg->next_scene = BIT(4);
 	}
 	fsm_list_func(fsm_dev, fsm_stub_switch_preset);
 	fsm_mutex_unlock();
+	if (!muted) {
+		fsm_speaker_onn();
+	}
 	if (cfg->speaker_on) {
 		fsm_set_calib_mode();
 	}
@@ -1308,7 +1365,6 @@ void fsm_set_volume(int volume)
 	}
 	fsm_mutex_lock();
 	if (volume < 0 || volume > FSM_VOLUME_MAX) {
-		pr_warn("invalid volume: %d, default 0dB", volume);
 		volume = FSM_VOLUME_MAX;
 	}
 	cfg->volume = volume;
@@ -1473,7 +1529,13 @@ void fsm_speaker_onn(void)
 	fsm_dev_t *fsm_dev = NULL;
 	int ret;
 
+	if (cfg->speaker_on && cfg->next_scene == cfg->cur_scene) {
+		return;
+	}
 	pr_info("scene: %04X", cfg->next_scene);
+	if (cfg->speaker_on) {
+		return;
+	}
 	fsm_mutex_lock();
 	cfg->stream_muted = false;
 	ret = fsm_try_init();
@@ -1485,8 +1547,8 @@ void fsm_speaker_onn(void)
 	fsm_list_func(fsm_dev, fsm_stub_switch_preset);
 	fsm_list_func(fsm_dev, fsm_stub_start_up);
 	cfg->cur_angle = cfg->next_angle;
+	cfg->cur_scene = cfg->next_scene;
 	cfg->speaker_on = true;
-	pr_debug("done");
 	fsm_mutex_unlock();
 	fsm_set_calib_mode();
 }
@@ -1497,7 +1559,13 @@ void fsm_speaker_off(void)
 	fsm_dev_t *fsm_dev = NULL;
 	int ret;
 
+	if (!cfg->speaker_on) {
+		return;
+	}
 	pr_info("scene: %04X", cfg->next_scene);
+	if (!cfg->speaker_on) {
+		return;
+	}
 	fsm_mutex_lock();
 	cfg->stream_muted = true;
 	ret = fsm_try_init();
@@ -1509,7 +1577,7 @@ void fsm_speaker_off(void)
 	fsm_list_func(fsm_dev, fsm_stub_shut_down);
 	cfg->speaker_on = false;
 	cfg->force_calib = false;
-	pr_debug("done");
+	cfg->next_scene = FSM_SCENE_MUSIC;
 	fsm_mutex_unlock();
 }
 

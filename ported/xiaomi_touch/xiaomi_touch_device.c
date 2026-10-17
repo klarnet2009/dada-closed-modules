@@ -59,10 +59,10 @@ typedef struct hal_report_piont {
 
 static struct input_dev *input_devs[MAX_TOUCH_PANEL_COUNT];
 static struct input_dev *stylus_input_devs[MAX_TOUCH_PANEL_COUNT];
-static struct mutex ts_report_mutex[MAX_TOUCH_PANEL_COUNT];
+static struct mutex ts_report_mutex[MAX_TOUCH_PANEL_COUNT] XT_SEC(4);
 
 static void *report_point_mmap_base = NULL;
-static dma_addr_t report_point_phy_base = 0;
+dma_addr_t report_point_phy_base __asm__("report_point_phy_base.llvm.8402719633215736957") __attribute__((visibility("hidden"))) = 0;
 
 static void report_point_mmap_addr_init(void)
 {
@@ -71,10 +71,12 @@ static void report_point_mmap_addr_init(void)
 	}
 	report_point_mmap_base = kzalloc_retry(PAGE_SIZE, 3);
 	if (!report_point_mmap_base) {
+#line 74
 		LOG_ERROR("alloc report point mmap addr failed!");
 		return;
 	}
 	report_point_phy_base = virt_to_phys(report_point_mmap_base);
+#line 78
 	LOG_INFO("init report point mmap base %p", report_point_mmap_base);
 }
 
@@ -92,6 +94,7 @@ static void report_point_mmap_addr_release(void)
 	kzalloc_free(report_point_mmap_base);
 	report_point_phy_base = 0;
 	report_point_mmap_base = NULL;
+#line 95
 	LOG_INFO("release report point mmap");
 }
 
@@ -108,11 +111,13 @@ struct input_dev *register_xiaomi_input_dev(s8 touch_id, int max_x, int max_y, i
 	static char phys[MAX_TOUCH_PANEL_COUNT][DEVICE_NAME_LEN_MAX];
 
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 111
 		LOG_ERROR("touch id %d is invalid", touch_id);
 		return NULL;
 	}
 
 	if (input_devs[touch_id] != NULL) {
+#line 116
 		LOG_ERROR("touch id %d has been registered", touch_id);
 		return input_devs[touch_id];
 	}
@@ -120,12 +125,14 @@ struct input_dev *register_xiaomi_input_dev(s8 touch_id, int max_x, int max_y, i
 	input_dev = input_allocate_device();
 
 	if (!input_dev) {
+#line 123
 		LOG_ERROR("Failed to allocate input device %d!", touch_id);
 		return NULL;
 	}
 
 	snprintf(name[touch_id], DEVICE_NAME_LEN_MAX, "Xiaomi_Touch_Input_%d", touch_id);
 	snprintf(phys[touch_id], DEVICE_NAME_LEN_MAX, "Xiaomi_Touch_Device_%d", touch_id);
+#line 129
 	LOG_INFO("xiaomi allocat !!!,the device is %s, %s, %d, %d",name[touch_id], phys[touch_id], XIAOMI_TOUCH_VENDOR_ID, code);
 	input_dev->name = name[touch_id];
 	input_dev->phys = phys[touch_id];
@@ -149,13 +156,15 @@ struct input_dev *register_xiaomi_input_dev(s8 touch_id, int max_x, int max_y, i
 	input_set_abs_params(input_dev, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
 	ret = input_register_device(input_dev);
 	   if (ret) {
+#line 152
 		LOG_INFO("Failed to register input device");
 		input_free_device(input_dev);
 		return NULL;
 	}
-	mutex_init(&ts_report_mutex[touch_id]);
+	XT_MUTEX_INIT(&ts_report_mutex[touch_id], 4);
 	input_devs[touch_id] = input_dev;
 	report_point_mmap_addr_init();
+#line 159
 	LOG_INFO("touch id %d success register input dev", touch_id);
 
 	return input_devs[touch_id];
@@ -167,6 +176,7 @@ void unregister_xiaomi_input_dev(s8 touch_id)
 	struct input_dev *input_dev = input_devs[touch_id];
 
 	if (!input_dev) {
+#line 170
 		LOG_ERROR("input device is NULL, return");
 		return;
 	}
@@ -176,6 +186,7 @@ void unregister_xiaomi_input_dev(s8 touch_id)
 	input_devs[touch_id] = NULL;
 
 	report_point_mmap_addr_release();
+#line 179
 	LOG_INFO("touch id %d success unregister input dev", touch_id);
 
 	return;
@@ -190,6 +201,7 @@ struct input_dev *register_xiaomi_stylus_input_dev(s8 touch_id, int max_x, int m
 	static char phys[MAX_TOUCH_PANEL_COUNT][DEVICE_NAME_LEN_MAX];
 
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 193
 		LOG_ERROR("touch id %d is invalid", touch_id);
 		return NULL;
 	}
@@ -201,12 +213,14 @@ struct input_dev *register_xiaomi_stylus_input_dev(s8 touch_id, int max_x, int m
 	stylus_input_dev = input_allocate_device();
 
 	if (!stylus_input_dev) {
+#line 204
 		LOG_INFO("Failed to allocate input device %d!", touch_id);
 		return NULL;
 	}
 
 	snprintf(name[touch_id], DEVICE_NAME_LEN_MAX, "Xiaomi_Touch_Stylus_Input_%d", touch_id);
 	snprintf(phys[touch_id], DEVICE_NAME_LEN_MAX, "Xiaomi_Touch_Stylus_Device_%d", touch_id);
+#line 210
 	LOG_INFO("xiaomi allocat !!! the device is %s, %s",name[touch_id], phys[touch_id]);
 	stylus_input_dev->name = name[touch_id];
 	stylus_input_dev->phys = phys[touch_id];
@@ -228,6 +242,7 @@ struct input_dev *register_xiaomi_stylus_input_dev(s8 touch_id, int max_x, int m
 	input_set_abs_params(stylus_input_dev, ABS_TILT_Y, -60, 60, 0, 0);
 	ret = input_register_device(stylus_input_dev);
 	   if (ret) {
+#line 231
 		LOG_INFO("Failed to register input device");
 		input_free_device(stylus_input_dev);
 		return NULL;
@@ -235,6 +250,7 @@ struct input_dev *register_xiaomi_stylus_input_dev(s8 touch_id, int max_x, int m
 
 	stylus_input_devs[touch_id] = stylus_input_dev;
 	report_point_mmap_addr_init();
+#line 238
 	LOG_INFO("touch id %d success register input dev", touch_id);
 
 	return stylus_input_devs[touch_id];
@@ -246,6 +262,7 @@ void unregister_xiaomi_stylus_input_dev(s8 touch_id)
 	struct input_dev *input_dev = stylus_input_devs[touch_id];
 
 	if (!input_dev) {
+#line 249
 		LOG_ERROR("input device is NULL, return");
 		return;
 	}
@@ -255,6 +272,7 @@ void unregister_xiaomi_stylus_input_dev(s8 touch_id)
 	stylus_input_devs[touch_id] = NULL;
 
 	report_point_mmap_addr_release();
+#line 258
 	LOG_INFO("touch id %d success unregister stylus input dev", touch_id);
 
 	return;
@@ -267,6 +285,7 @@ static struct input_dev *report_finger_event(s8 touch_id, hal_report_piont_t *re
 	static u16 finger_report_point_bitmap = 0;
 	struct input_dev *input_dev = input_devs[touch_id];
 	if (input_dev == NULL) {
+#line 270
 		LOG_INFO("touch id %d input device is empty ,fail to report!", touch_id);
 		return NULL;
 	}
@@ -296,6 +315,7 @@ static struct input_dev *report_stylus_event(s8 touch_id, hal_report_piont_t *re
 {
 	struct input_dev *stylus_input_dev = stylus_input_devs[touch_id];
 	if (stylus_input_dev == NULL) {
+#line 299
 		LOG_INFO("touch id %d input device is empty ,fail to report!", touch_id);
 		return NULL;
 	}
@@ -329,10 +349,12 @@ int report_touch_event(s8 touch_id, u8 event_count)
 	int index = 0;
 
 	if (IS_TOUCH_ID_INVALID(touch_id)) {
+#line 332
 		LOG_ERROR("touch id %d is invalid", touch_id);
 		return -1;
 	}
 	if (event == NULL) {
+#line 336
 		LOG_ERROR("event memory is NULL");
 		return -1;
 	}
@@ -344,6 +366,7 @@ int report_touch_event(s8 touch_id, u8 event_count)
 		} else if (event[index].input_style == INPUT_STYLE_STYLUS) {
 			stylus_input_dev = report_stylus_event(touch_id, &event[index]);
 		} else {
+#line 347
 			LOG_ERROR("input style %d is invalid", event[index].input_style);
 		}
 		cond_resched();

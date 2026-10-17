@@ -1,0 +1,14 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "xr_qi",
+    srcs = glob(["*.c", "*.h"]),
+    out = "xr_qi.ko",
+    defconfig = "xr_qi_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-unused-function", "-Wno-unused-variable"],  # PARTIAL: many reconstructed helpers are not referenced yet
+    local_defines = ["CONFIG_LTO=1"],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    includes = ["."],
+    deps = ["//re/stubs_g1e/os4:os4_perf_actuator", "//re/stubs_g1e/os4:os4_vip_sched", "//re/stubs_g1e/os4:os4_plat_common", "//common:all_headers_aarch64"],
+)

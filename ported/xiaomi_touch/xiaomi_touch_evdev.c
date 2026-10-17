@@ -204,6 +204,7 @@ void add_input_event_timeline_before_event_time(int type, u64 frame_count, s64 s
 		index--;
 		index -= (old_frame_count - frame_count);
 		if (index >= NO_EVENT_TIME_BUF_SIZE || index < 0) {
+#line 207
 			LOG_ERROR("type %d has error index %d", type, index);
 			return;
 		}
@@ -227,6 +228,7 @@ static void add_input_event_event_time(struct input_handle *handle)
 		return;
 
 	if (unlikely(event_time == 0)) {
+#line 230
 		LOG_ERROR("xiaomi handler get time is 0, please reboot and retry!");
 		return;
 	}
@@ -236,6 +238,7 @@ static void add_input_event_event_time(struct input_handle *handle)
 	input_event_time_line = &input_event_time_line_base[input_event_time_line_index];
 
 	if (input_event_time_line->noEventTimeCount >= NO_EVENT_TIME_BUF_SIZE) {
+#line 239
 		LOG_ERROR("no point irq count is more than buf, maybe lose data!");
 	}
 	input_event_time_line->eventTime  = event_time;
@@ -244,6 +247,7 @@ static void add_input_event_event_time(struct input_handle *handle)
 	input_event_time_line->appNeedCount = 1;
 	input_event_time_line->gpuCompletedTime = 0;
 	input_event_time_line->presentTime = 0;
+#line 247
 	LOG_INFO("add event time %lld in index %d", event_time, input_event_time_line_index);
 
 	input_event_time_line_index++;
@@ -257,6 +261,7 @@ static void xiaomitouch_input_event(struct input_handle *handle,
 		unsigned int type, unsigned int code, int value)
 {
 	if (type == EV_KEY && (code == KEY_POWER || code == KEY_VOLUMEDOWN || code ==  KEY_VOLUMEUP))
+#line 260
 		LOG_INFO("keycode:%d,value:%d", code, value);
 	if (type == EV_ABS) {
 		last_touch_events_collect(handle, type, code, value);
@@ -348,9 +353,11 @@ bool init_input_event_timeline(void)
 	xiaomi_touch->input_event_time_line_phy_base = 0;
 	xiaomi_touch->input_event_time_line_mmap_base = kzalloc_retry(PAGE_SIZE * 45, 3);
 	if (!xiaomi_touch->input_event_time_line_mmap_base) {
+#line 351
 		LOG_ERROR("alloc input event time line memory failed!");
 		return false;
 	} else {
+#line 354
 		LOG_INFO("init input event time line base %p", xiaomi_touch->input_event_time_line_mmap_base);
 		input_event_time_line_base = (input_event_time_line_t *)(xiaomi_touch->input_event_time_line_mmap_base);
 		xiaomi_touch->input_event_time_line_phy_base = virt_to_phys(xiaomi_touch->input_event_time_line_mmap_base);
@@ -368,6 +375,7 @@ void release_input_event_timeline(void)
 	xiaomi_touch->input_event_time_line_mmap_base = NULL;
 	input_event_time_line_base = NULL;
 	input_event_time_line_index = 0;
+#line 371
 	LOG_INFO("input event time line base release");
 }
 
@@ -375,6 +383,7 @@ int xiaomi_touch_evdev_init(xiaomi_touch_t *_xiaomi_touch)
 {
 	int ret;
 
+#line 378
 	LOG_ALWAYS("enter");
 	xiaomi_touch = _xiaomi_touch;
 	ret = input_register_handler(&xiaomitouch_input_handler);
@@ -382,6 +391,7 @@ int xiaomi_touch_evdev_init(xiaomi_touch_t *_xiaomi_touch)
 	if (!last_touch_events_pde) {
 		last_touch_events_pde = proc_create_seq("last_touch_events", 0644, NULL, &last_touch_events_seq_ops);
 		if (!last_touch_events_pde) {
+#line 385
 			LOG_ERROR("last_touch_events_proc create has error, exit!");
 			return -1;
 		}
@@ -392,6 +402,7 @@ int xiaomi_touch_evdev_init(xiaomi_touch_t *_xiaomi_touch)
 
 void xiaomi_touch_evdev_remove(void)
 {
+#line 395
 	LOG_ERROR("enter");
 	release_input_event_timeline();
 	input_unregister_handler(&xiaomitouch_input_handler);
