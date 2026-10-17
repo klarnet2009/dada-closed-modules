@@ -91,6 +91,18 @@ int mca_strategy_ops_register(unsigned int type, mca_strategy_func func,
 }
 EXPORT_SYMBOL(mca_strategy_ops_register);
 
+/* OS4 addition: asks the buck-charge strategy (type 0) for status 27, "PPS 100W supported" */
+#define STRATEGY_STATUS_TYPE_PPS_100W	27
+
+bool mca_strategy_is_support_pps_100w(void)
+{
+	int value = 0;
+
+	mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BUCK_CHARGE, STRATEGY_STATUS_TYPE_PPS_100W, &value);
+	return value == 1;
+}
+EXPORT_SYMBOL(mca_strategy_is_support_pps_100w);
+
 static struct platform_driver mca_strategy_class_driver = {
 	.driver	= {
 		.name = "mca_strategy_class",

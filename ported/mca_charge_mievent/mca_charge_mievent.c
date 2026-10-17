@@ -125,6 +125,20 @@ struct mievent_upload_type_time {
 #define MIEVENT_CODE_BATTERY_TEMP_COLD	0x362e606a
 #define MIEVENT_CODE_BATTERY_VOLTAGE_DIFFER	0x362e73f2
 #define MIEVENT_CODE_WLS_MAG_CASE_ATTACH	0x362e683b
+/* OS4: 13 new plug-type events */
+#define MIEVENT_CODE_RM_FCC_ERR	0x362e740b
+#define MIEVENT_CODE_RECHG_SOC_ERR	0x362e7404
+#define MIEVENT_CODE_NOT_STOP_CHG_ERR	0x362e7405
+#define MIEVENT_CODE_CHG_BROKEN	0x362e451d
+#define MIEVENT_CODE_BATTERY_COV	0x362e73f6
+#define MIEVENT_CODE_BATTERY_OCC	0x362e73f7
+#define MIEVENT_CODE_ISP_LEVEL_ONE	0x362e48ff
+#define MIEVENT_CODE_ISP_LEVEL_TWO	0x362e4900
+#define MIEVENT_CODE_ISP_LEVEL_THREE	0x362e4901
+#define MIEVENT_CODE_CSD_FLAG	0x362e4902
+#define MIEVENT_CODE_SOC_JUMP	0x362e4ce1
+#define MIEVENT_CODE_VBAT_MEAN_SHUTDOWN	0x362e4ce2
+#define MIEVENT_CODE_BATTERY_OVER_VOLTAGE	0x362e6452
 
 enum mievent_plug_type {
 	PLUG_TYPE_PD_AUTH_FAILED,
@@ -169,6 +183,19 @@ enum mievent_plug_type {
 	PLUG_TYPE_BATTERY_OCD,
 	PLUG_TYPE_BATTERY_CUV,
 	PLUG_TYPE_BATTERY_SCD,
+	PLUG_TYPE_RM_FCC_ERR,
+	PLUG_TYPE_RECHG_SOC_ERR,
+	PLUG_TYPE_NOT_STOP_CHG_ERR,
+	PLUG_TYPE_CHG_BROKEN,
+	PLUG_TYPE_BATTERY_COV,
+	PLUG_TYPE_BATTERY_OCC,
+	PLUG_TYPE_ISP_LEVEL_ONE,
+	PLUG_TYPE_ISP_LEVEL_TWO,
+	PLUG_TYPE_ISP_LEVEL_THREE,
+	PLUG_TYPE_CSD_FLAG,
+	PLUG_TYPE_SOC_JUMP,
+	PLUG_TYPE_VBAT_MEAN_SHUTDOWN,
+	PLUG_TYPE_BATTERY_OVER_VOLTAGE,
 	PLUG_TYPE_MAX_NUM,
 };
 
@@ -184,7 +211,10 @@ enum mievent_time_type {
 	TIME_TYPE_MAX_NUM,
 };
 
-static struct charge_mievent_info g_charge_mievent_info[CHARGE_DFX_MAX_NUM] = {
+/* table positions: plug events first, then the time events (the shared header still has the OS3 numbering) */
+#define MIEVENT_EVENT_NUM	(PLUG_TYPE_MAX_NUM + TIME_TYPE_MAX_NUM)
+
+static struct charge_mievent_info g_charge_mievent_info[MIEVENT_EVENT_NUM] = {
 	/* charger mievent upload type for plug*/
 	{
 		.event_code = MIEVENT_CODE_PD_AUTH_FAILED,
@@ -606,6 +636,136 @@ static struct charge_mievent_info g_charge_mievent_info[CHARGE_DFX_MAX_NUM] = {
 		.data_count = 2,
 		.para_name = {"hscdCount", "hscdLastCycle"},
 	},
+	{
+		.event_code = MIEVENT_CODE_RM_FCC_ERR,
+		.event_type = "chgErrInfo",
+		.event_describe = "rmFccErr",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_RM_FCC_ERR,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 8,
+		.para_name = {"rsoc", "uiSoc", "vbat", "temp", "rm", "lastRm", "fcc", "lastFcc"},
+	},
+	{
+		.event_code = MIEVENT_CODE_RECHG_SOC_ERR,
+		.event_type = "chgErrInfo",
+		.event_describe = "RechgSocErr",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_RECHG_SOC_ERR,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 4,
+		.para_name = {"soc", "vbat", "tbat", "cycleCnt"},
+	},
+	{
+		.event_code = MIEVENT_CODE_NOT_STOP_CHG_ERR,
+		.event_type = "chgErrInfo",
+		.event_describe = "NotStopChgErr",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_NOT_STOP_CHG_ERR,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 4,
+		.para_name = {"current", "vbat", "tbat", "cycleCnt"},
+	},
+	{
+		.event_code = MIEVENT_CODE_CHG_BROKEN,
+		.event_type = "chgErrInfo",
+		.event_describe = "ChgBroken",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_CHG_BROKEN,
+		.data_type = MIEVENT_DATA_TYPE_NULL,
+		.data_count = 0,
+		.para_name = {""},
+	},
+	{
+		.event_code = MIEVENT_CODE_BATTERY_COV,
+		.event_type = "chgErrInfo",
+		.event_describe = "BatteryCov",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_BATTERY_COV,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 8,
+		.para_name = {"covCount", "covLastCycle", "hcovCount", "hcovLastCycle", "uiSoc", "voltage", "current", "temp"},
+	},
+	{
+		.event_code = MIEVENT_CODE_BATTERY_OCC,
+		.event_type = "chgErrInfo",
+		.event_describe = "BatteryOcc",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_BATTERY_OCC,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 8,
+		.para_name = {"occCount", "occLastCycle", "hoccCount", "hoccLastCycle", "uiSoc", "voltage", "current", "temp"},
+	},
+	{
+		.event_code = MIEVENT_CODE_ISP_LEVEL_ONE,
+		.event_type = "chgStatInfo",
+		.event_describe = "IspLevelOne",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_ISP_LEVEL_ONE,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 1,
+		.para_name = {"ispLevel"},
+	},
+	{
+		.event_code = MIEVENT_CODE_ISP_LEVEL_TWO,
+		.event_type = "chgStatInfo",
+		.event_describe = "IspLevelTwo",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_ISP_LEVEL_TWO,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 1,
+		.para_name = {"ispLevel"},
+	},
+	{
+		.event_code = MIEVENT_CODE_ISP_LEVEL_THREE,
+		.event_type = "chgStatInfo",
+		.event_describe = "IspLevelThree",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_ISP_LEVEL_THREE,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 1,
+		.para_name = {"ispLevel"},
+	},
+	{
+		.event_code = MIEVENT_CODE_CSD_FLAG,
+		.event_type = "chgErrInfo",
+		.event_describe = "csdFlag",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_CSD_FLAG,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 1,
+		.para_name = {"csdFlag"},
+	},
+	{
+		.event_code = MIEVENT_CODE_SOC_JUMP,
+		.event_type = "chgErrInfo",
+		.event_describe = "socJump",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_SOC_JUMP,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 10,
+		.para_name = {"preUIsoc", "preRsoc", "uisoc", "rsoc", "temp", "vbat", "online", "current", "fcc", "qmax"},
+	},
+	{
+		.event_code = MIEVENT_CODE_VBAT_MEAN_SHUTDOWN,
+		.event_type = "chgStatInfo",
+		.event_describe = "vbatMeanShutdown",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_VBAT_MEAN_SHUTDOWN,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 3,
+		.para_name = {"vbat_mean", "current", "temp"},
+	},
+	{
+		.event_code = MIEVENT_CODE_BATTERY_OVER_VOLTAGE,
+		.event_type = "chgErrInfo",
+		.event_describe = "BatteryOverVoltage",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_BATTERY_OVER_VOLTAGE,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 4,
+		.para_name = {"targerVoltage", "vbat", "cycleCnt", "chgMode"},
+	},
 	/* charger mievent upload type for time*/
 	{
 		.event_code = MIEVENT_CODE_BATTERY_CYCLECOUNT,
@@ -732,6 +892,19 @@ static struct mievent_upload_type_plug g_upload_type_plug_info[PLUG_TYPE_MAX_NUM
 	{DEFAULT_MAX_COUNT, 0},
 	{DEFAULT_MAX_COUNT, 0},
 	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
 };
 
 static struct mievent_upload_type_time g_upload_type_time_info[TIME_TYPE_MAX_NUM] = {
@@ -756,20 +929,20 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 	char **string;
 	struct mca_event_notify_data n_data = { 0 };
 
-	if (event_index >= CHARGE_DFX_MAX_NUM || event_index < 0) {
-#line 611
+	if (event_index >= MIEVENT_EVENT_NUM || event_index < 0) {
+#line 754
 		mca_log_err("event_index[%d] invalid", event_index);
 		return;
 	}
 
 	mievent = &g_charge_mievent_info[event_index];
 	if (size != mievent->data_count) {
-#line 617
+#line 760
 		mca_log_err("data_type is int param size invalid\n");
 		return;
 	} else {
 		if (size && !data) {
-#line 621
+#line 764
 			mca_log_err("data_type is int param null invalid\n");
 			return;
 		}
@@ -777,7 +950,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 
 	if (!strcmp(mievent->event_type, "chgErrInfo") &&
 		mievent->event_code != MIEVENT_CODE_NOT_STANDARD_ADAPTER)
-#line 627
+#line 770
 		__mca_log_err("[ARCH-TF-CHARGER]" "[" MCA_LOG_TAG "]%s:%d %s %s\n", __func__, __LINE__,
 			mievent->event_type, mievent->event_describe);
 
@@ -785,7 +958,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 	if (mievent->upload_type == MIEVENT_UPLOAD_TYPE_PLUG) {
 		if (g_upload_type_plug_info[g_index].count < g_upload_type_plug_info[g_index].max_count) {
 			is_report = true;
-#line 633
+#line 776
 			mca_log_err("event_code[%d][%s] must report fault\n", mievent->event_code, mievent->event_describe);
 		}
 		g_upload_type_plug_info[g_index].count++;
@@ -795,7 +968,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 			time_now - g_upload_type_time_info[g_index].time_last >=
 			g_upload_type_time_info[g_index].time_interval) {
 			is_report = true;
-#line 641
+#line 784
 			mca_log_err("event_code[%d] must report fault\n", mievent->event_code, mievent->event_describe);
 			g_upload_type_time_info[g_index].time_last = time_now;
 		}
@@ -809,20 +982,20 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 
 		event = cdev_tevent_alloc(mievent->event_code);
 		if (!event) {
-#line 654
+#line 797
 			mca_log_err("cdev_tevent_alloc failed");
 			return;
 		}
 
 		cdev_tevent_add_str(event, mievent->event_type, mievent->event_describe);
-#line 659
+#line 802
 		mca_log_err("[%d] [%s] [%s]\n", mievent->event_code, mievent->event_type, mievent->event_describe);
 		switch (mievent->data_type) {
 		case MIEVENT_DATA_TYPE_INT:
 			param = (int *)data;
 			for (int i = 0; i < mievent->data_count; i++) {
 				cdev_tevent_add_int(event, mievent->para_name[i], param[i]);
-#line 665
+#line 808
 				mca_log_err("[%s] [%d]\n", mievent->para_name[i], param[i]);
 			}
 			break;
@@ -830,12 +1003,12 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 			string = (char **)data;
 			for (int i = 0; i < mievent->data_count; i++) {
 				if (strlen(string[i]) >= MIEVENT_STRING_MAX_LEN) {
-#line 672
+#line 815
 					mca_log_err("[%s] [%s] String Len overflow\n", mievent->para_name[i], string[i]);
 					continue;
 				}
 				cdev_tevent_add_str(event, mievent->para_name[i], string[i]);
-#line 676
+#line 819
 				mca_log_err("[%s] [%s]\n", mievent->para_name[i], string[i]);
 			}
 			break;
@@ -858,7 +1031,7 @@ void mca_charge_mievent_set_state(enum charge_mievent_state_ele state, int value
 	switch (state) {
 	case MIEVENT_STATE_PLUG:
 		if (value) {
-#line 701
+#line 844
 			mca_log_info("don't plug out can't reset fault status");
 			return;
 		}
@@ -866,8 +1039,8 @@ void mca_charge_mievent_set_state(enum charge_mievent_state_ele state, int value
 			g_upload_type_plug_info[i].count = 0;
 		break;
 	case MIEVENT_STATE_END:
-		if (value >= CHARGE_DFX_MAX_NUM || value < 0) {
-#line 709
+		if (value >= MIEVENT_EVENT_NUM || value < 0) {
+#line 852
 			mca_log_err("event_index[%d] invalid", value);
 			return;
 		}

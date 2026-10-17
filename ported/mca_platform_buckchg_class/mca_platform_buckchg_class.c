@@ -970,6 +970,18 @@ int platform_class_buckchg_ops_set_too_hot_limit(unsigned int role, int limit)
 }
 EXPORT_SYMBOL(platform_class_buckchg_ops_set_too_hot_limit);
 
+/* OS4 addition (op #83 of struct platform_class_buckchg_ops, offset 656); prototype local, the stubs_g5 header only has the op */
+int platform_class_buckchg_ops_set_cp_vendor_id(unsigned int role, int *val)
+{
+	struct platform_class_buckchg_data *temp_data = platform_class_buckchg_get_ops_data(role);
+
+	if (platform_class_buckchg_invalid_ops(temp_data, set_cp_vendor_id))
+		return -1;
+
+	return temp_data->ops->set_cp_vendor_id(temp_data->data, val);
+}
+EXPORT_SYMBOL(platform_class_buckchg_ops_set_cp_vendor_id);
+
 static struct platform_driver platform_class_buckchg_driver = {
 	.driver	= {
 		.name = "platform_class_buckchg",

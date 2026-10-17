@@ -6,11 +6,13 @@
 
 #define pr_fmt(fmt) "qi: " fmt
 
+#include <linux/cred.h>
 #include <linux/kobject.h>
 #include <linux/module.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/sysctl.h>
+#include <linux/uaccess.h>
 #include <trace/hooks/dtask.h>
 #include <trace/hooks/binder.h>
 #include <trace/hooks/rwsem.h>
@@ -18,14 +20,11 @@
 
 #include "xr_qi.h"
 
-#define CREATE_TRACE_POINTS
 #include "trace_xr_qi.h"
 
 #define SYS_MODE	0640
 
 static volatile unsigned long g_qi_enable;
-static DEFINE_SPINLOCK(g_binder_lock);
-static DEFINE_SPINLOCK(g_qi_lock);
 static DEFINE_SPINLOCK(g_stats_lock);
 static struct ctl_table_header *xr_qos_cth;
 
@@ -65,50 +64,7 @@ static inline int fair_policy(int policy)
 	return policy == SCHED_NORMAL || policy == SCHED_BATCH;
 }
 
-noinline struct qi_struct *get_task_qi(struct task_struct *p)
-{
-	struct qi_vendor *v = android_task_vendor_data(p);
-
-	if (!v)
-		return NULL;
-	return smp_load_acquire(&v->qi);
-}
-
-struct qi_struct *get_alloc_task_qi(struct task_struct *p)
-{
-	struct qi_vendor *v = android_task_vendor_data(p);
-	struct qi_struct *qi;
-	unsigned long flags;
-	int i;
-
-	if (v) {
-		qi = smp_load_acquire(&v->qi);
-		if (qi)
-			return qi;
-	}
-	spin_lock_irqsave(&g_qi_lock, flags);
-	if (v) {
-		qi = smp_load_acquire(&v->qi);
-		if (qi)
-			goto out;
-	}
-	qi = kzalloc(sizeof(*qi), GFP_ATOMIC);
-	if (!qi)
-		goto out;
-	spin_lock_init(&qi->lock);
-	for (i = 0; i < QOS_TYPE_NUM; i++)
-		INIT_LIST_HEAD(&qi->inherit[i].list);
-	qi->static_prio = 120;
-	qi->dyn_prio = 120;
-	smp_wmb();
-	if (v)
-		v->qi = qi;
-out:
-	spin_unlock_irqrestore(&g_qi_lock, flags);
-	return qi;
-}
-
-void update_static_prio(struct task_struct *task, int prio, int vip_prio GKPAD(fcrc0sDJLyNXnI))
+void update_static_prio(struct task_struct *task, int prio, int vip_prio GKPAD(fcrc5KDk031J1g))
 {
 	struct qi_struct *qi;
 
@@ -124,7 +80,7 @@ void update_static_prio(struct task_struct *task, int prio, int vip_prio GKPAD(f
 }
 EXPORT_SYMBOL_GPL(update_static_prio);
 
-u32 get_static_qos_lvl(struct task_struct *task GKPAD(fcrc9MB0_bGrcl))
+u32 get_static_qos_lvl(struct task_struct *task GKPAD(fcrc63JozGiuwN))
 {
 	struct qi_struct *qi = get_task_qi(task);
 
@@ -161,7 +117,7 @@ u32 get_task_qos(struct task_struct *task)
 	return (s & 0xf) < (d & 0xf) ? (d | (s & 0xf0)) : (s | (d & 0xf0));
 }
 
-int get_task_prio(struct task_struct *task GKPAD(fcrc5mMF35Dihv))
+int get_task_prio(struct task_struct *task GKPAD(fcrcr2lXe04u7v))
 {
 	struct qi_struct *qi = get_task_qi(task);
 
@@ -171,13 +127,13 @@ int get_task_prio(struct task_struct *task GKPAD(fcrc5mMF35Dihv))
 }
 EXPORT_SYMBOL_GPL(get_task_prio);
 
-u32 get_qos_lvl(struct task_struct *task GKPAD(fcrcqPOppdmcYd))
+u32 get_qos_lvl(struct task_struct *task GKPAD(fcrcG4u98hqq6J))
 {
 	return max(get_dyn_qos_lvl(task), get_static_qos_lvl(task));
 }
 EXPORT_SYMBOL_GPL(get_qos_lvl);
 
-bool is_qos_task(struct task_struct *task GKPAD(fcrcUZoL8g8VvT))
+bool is_qos_task(struct task_struct *task GKPAD(fcrcnTDbsZh2d8))
 {
 	if (!task)
 		return false;
@@ -192,7 +148,7 @@ bool is_qos_rt_task(struct task_struct *task)
 	return is_qos_task(task);
 }
 
-u32 get_task_qos_lvl(struct task_struct *task GKPAD(fcrcY_7sUMcsGm))
+u32 get_task_qos_lvl(struct task_struct *task GKPAD(fcrcaIh0tGelF4))
 {
 	u32 lvl;
 
@@ -203,7 +159,7 @@ u32 get_task_qos_lvl(struct task_struct *task GKPAD(fcrcY_7sUMcsGm))
 }
 EXPORT_SYMBOL_GPL(get_task_qos_lvl);
 
-int get_proc_static_qos_lvl(struct task_struct *task GKPAD(fcrch5GlIPlGdv))
+int get_proc_static_qos_lvl(struct task_struct *task GKPAD(fcrcowoRoWNTBR))
 {
 	struct qi_struct *qi;
 
@@ -297,11 +253,10 @@ static void iter_ptrs_start(struct task_struct *p, void *ptr)
 
 	if (!v)
 		return;
-	v->iter_ptr = ptr;
 	v->iter_a = NULL;
 	v->iter_b = NULL;
-	v->iter_x = 0;
-	v->iter_active = 1;
+	v->iter_ptr = ptr;
+	v->iter_depth = 1;
 }
 
 static void iter_ptrs_end(struct task_struct *p)
@@ -310,11 +265,10 @@ static void iter_ptrs_end(struct task_struct *p)
 
 	if (!v)
 		return;
-	v->iter_ptr = NULL;
 	v->iter_a = NULL;
 	v->iter_b = NULL;
-	v->iter_x = 0;
-	v->iter_active = 0;
+	v->iter_ptr = NULL;
+	v->iter_depth = 0;
 }
 
 static void android_vh_dup_task_struct(void *unused, struct task_struct *tsk, struct task_struct *orig)
@@ -323,12 +277,13 @@ static void android_vh_dup_task_struct(void *unused, struct task_struct *tsk, st
 
 	if (!v)
 		return;
-	v->f34 = 0;
-	v->f1 = 0x17;
+	spin_lock_init(&v->lock);
+	v->f1_lo = 7;
+	v->f1_b4 = 1;
 	v->f4 = -1;
 }
 
-bool qi_is_gpu_blocked_task(struct task_struct *task GKPAD(fcrckHqAV4SjCz))
+bool qi_is_gpu_blocked_task(struct task_struct *task GKPAD(fcrcXgucAeK9kc))
 {
 	struct qi_struct *qi = get_task_qi(task);
 
@@ -357,19 +312,20 @@ EXPORT_SYMBOL_GPL(qi_gpu_blocked_longest);
 int qi_acquire_gpu_blockeds(struct gpu_blocked_info *info, u32 max)
 {
 	struct gpu_blocked_node *n;
-	int cnt = 0;
+	int ret = -EINVAL;
 
 	if (!info || !max)
-		return -EINVAL;
+		return ret;
 	spin_lock(&g_stats_lock);
+	ret = 0;
 	list_for_each_entry(n, &g_gpu_blocked_list, list) {
-		info[cnt].pid = n->pid;
-		info[cnt].blocked_ns = ktime_get() - n->start;
-		if (++cnt >= max)
+		info[ret].pid = n->pid;
+		info[ret].blocked_ns = ktime_get() - n->start;
+		if (ret++ == max - 1)
 			break;
 	}
 	spin_unlock(&g_stats_lock);
-	return cnt;
+	return ret;
 }
 EXPORT_SYMBOL_GPL(qi_acquire_gpu_blockeds);
 
@@ -398,13 +354,328 @@ static void android_vh_mutex_opt_spin_finish(void *unused, struct mutex *lock, b
 		qi->opt_spin_start_time = 0;
 }
 
-/*
- * PARTIAL: the stock init_module additionally runs the ten qi_vh_*_register()/qi_stats_register()/qi_sysctl_register()
- * hooks of the other source files and registers four xr_fbt ioctl handlers; those parts are not reconstructed yet.
- */
+/* ---- qos setters/getters (ioctl side of the stock source file) ---- */
+static bool cred_valid(struct task_struct *p)
+{
+	kuid_t uid = current_uid();
+
+	if (uid_eq(uid, GLOBAL_ROOT_UID) || __kuid_val(uid) == 1000)
+		return true;
+	if (!uid_valid(uid)) {
+		pr_err("invalid uid\n");
+		return false;
+	}
+	return uid_eq(uid, task_uid(p));
+}
+
+static int __qi_set_task_qos(struct task_struct *task, u32 qos, u32 qos_lvl)
+{
+	struct qievent_struct event = {};
+	struct qi_struct *qi, *gl_qi;
+	struct task_struct *t;
+	unsigned long flags;
+	u32 old, max_lvl;
+	unsigned long act;
+	bool new_on, old_on;
+
+	if (!cred_valid(task)) {
+		pr_err("qi_set_task_qos: FAILED - task=%s[%d] cred_valid failed\n", task->comm, task->pid);
+		return -EINVAL;
+	}
+	if (task->__state == TASK_DEAD) {
+		pr_err("qi_set_task_qos: FAILED - task=%s[%d] is DEAD\n", task->comm, task->pid);
+		return -EINVAL;
+	}
+	qi = get_alloc_task_qi(task);
+	if (!qi) {
+		pr_err("qi_set_task_qos: FAILED - task=%s[%d] get_alloc_task_qi\n", task->comm, task->pid);
+		return -ENOMEM;
+	}
+	old = atomic_read(&qi->static_qos);
+	if (old == qos)
+		return 0;
+
+	new_on = qos_lvl != 0;
+	old_on = (old & 0xf) != 0;
+	act = (new_on && !old_on) ? QIEVENT_QOS_SET : QIEVENT_QOS_RESTORE;
+	if (new_on && old_on)
+		act = QIEVENT_QOS_UNSET;
+
+	spin_lock_irqsave(&qi->lock, flags);
+	atomic_set(&qi->static_qos, qos);
+
+	max_lvl = 0;
+	gl_qi = get_task_qi(task->group_leader);
+	if (gl_qi && (atomic_read(&gl_qi->proc_static_qos) & 0xf) > qos_lvl) {
+		for_each_thread(task, t) {
+			u32 lvl = get_static_qos_lvl(t);
+
+			if (lvl > max_lvl)
+				max_lvl = lvl;
+		}
+	}
+	gl_qi = get_alloc_task_qi(task->group_leader);
+	if (!gl_qi)
+		pr_err("alloc task qi failed\n");
+	else
+		atomic_set(&gl_qi->proc_static_qos, max(max_lvl, qos_lvl));
+
+	event.to = task;
+	event.from_qos.qos = qos;
+	event.to_qos.qos = get_task_qos(task);
+	event.prio = get_task_prio(task);
+	event.vip_prio = qi->dyn_vip_prio;
+	call_qievent_notifiers(act, &event);
+	trace_qi_set_qos(task, atomic_read(&qi->static_qos), atomic_read(&qi->dyn_qos));
+	spin_unlock_irqrestore(&qi->lock, flags);
+	return 0;
+}
+
+int kern_qi_set_qos(struct task_struct *task, u32 qos GKPAD(fcrcaNQafAojQ5))
+{
+	u32 qos_lvl = qos & 0xf;
+	int ret;
+
+	if (!task) {
+		pr_err("qi_set_task_qos: FAILED - task is NULL\n");
+		return -EINVAL;
+	}
+	if (qos_lvl >= 11) {
+		pr_err("qi_set_task_qos: FAILED - task=%s[%d] invalid qos_lvl=%u\n", task->comm, task->pid, qos_lvl);
+		return -EINVAL;
+	}
+	get_task_struct(task);
+	ret = __qi_set_task_qos(task, qos, qos_lvl);
+	put_task_struct(task);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kern_qi_set_qos);
+
+struct qi_ioctl_arg {
+	u32 val;
+	pid_t pid;
+};
+
+static int qi_set_qos(void *arg)
+{
+	struct qi_ioctl_arg a = {};
+	struct task_struct *task;
+	u32 qos_lvl;
+	int ret;
+
+	if (!(g_qi_enable & 1))
+		return 0;
+	if (!arg) {
+		pr_err("set qos: invalid arg from user space\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&a, (void __user *)arg, sizeof(a))) {
+		pr_err("set qos: failed to copy from user\n");
+		return -EFAULT;
+	}
+	qos_lvl = a.val & 0xf;
+	if (unlikely(a.pid < 1 || qos_lvl >= 11)) {
+		pr_err("set qos: invalid pid[%u] or qos level[%u]\n", a.pid, qos_lvl);
+		return -EINVAL;
+	}
+	rcu_read_lock();
+	task = find_task_by_vpid(a.pid);
+	if (!task) {
+		rcu_read_unlock();
+		pr_err("set qos: find task failed\n");
+		return -EINVAL;
+	}
+	get_task_struct(task);
+	rcu_read_unlock();
+	ret = __qi_set_task_qos(task, a.val, qos_lvl);
+	put_task_struct(task);
+	return ret;
+}
+
+static int qi_get_qos_by_pid(void *arg)
+{
+	struct qi_ioctl_arg a = {};
+	struct task_struct *task, *t;
+	u32 qos;
+	int ret;
+
+	if (!arg) {
+		pr_err("get qos by pid: invalid arg from user space\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&a, (void __user *)arg, sizeof(a))) {
+		pr_err("get qos by pid: failed to copy from user\n");
+		return -EFAULT;
+	}
+	rcu_read_lock();
+	task = find_task_by_vpid(a.pid);
+	if (!task) {
+		rcu_read_unlock();
+		pr_err("get qos by pid: find task failed\n");
+		return -EINVAL;
+	}
+	if (!cred_valid(task)) {
+		rcu_read_unlock();
+		pr_err("set qos: cred check failed\n");
+		return -EINVAL;
+	}
+	if (unlikely(!thread_group_leader(task) || task->__state == TASK_DEAD)) {
+		rcu_read_unlock();
+		pr_err("get qos by pid: not a group leader or dead task, pid=%d, tgid=%d\n", task->pid, task->tgid);
+		return -EINVAL;
+	}
+	qos = 0;
+	for_each_thread(task, t)
+		qos = max(get_qos_lvl(t), qos);
+	rcu_read_unlock();
+	a.val = qos;
+	if (copy_to_user((void __user *)arg, &a, sizeof(a))) {
+		pr_err("get qos by pid: failed to copy to user\n");
+		ret = -EFAULT;
+	} else {
+		ret = 0;
+	}
+	trace_qi_get_qos_by_pid(a.pid, a.val, ret);
+	return ret;
+}
+
+static int qi_get_qos_by_tid(void *arg)
+{
+	struct qi_ioctl_arg a = {};
+	struct task_struct *task;
+	int ret;
+
+	if (!arg) {
+		pr_err("get qos by tid: invalid arg from user space\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&a, (void __user *)arg, sizeof(a))) {
+		pr_err("get qos by tid: failed to copy from user\n");
+		return -EFAULT;
+	}
+	rcu_read_lock();
+	task = find_task_by_vpid(a.pid);
+	if (!task) {
+		rcu_read_unlock();
+		pr_err("get qos by tid: find task failed\n");
+		return -EINVAL;
+	}
+	if (!cred_valid(task)) {
+		rcu_read_unlock();
+		pr_err("set qos: cred check failed\n");
+		return -EINVAL;
+	}
+	if (task->__state == TASK_DEAD) {
+		rcu_read_unlock();
+		pr_err("get qos: task is dead\n");
+		return -EINVAL;
+	}
+	a.val = get_qos_lvl(task);
+	rcu_read_unlock();
+	if (copy_to_user((void __user *)arg, &a, sizeof(a))) {
+		pr_err("get qos by tid: failed to copy to user\n");
+		ret = -EFAULT;
+	} else {
+		ret = 0;
+	}
+	trace_qi_get_qos_by_tid(a.pid, a.val, ret);
+	return ret;
+}
+
+static int qi_set_async_binder(void *arg)
+{
+	struct qi_ioctl_arg a = {};
+	struct task_struct *task;
+	struct qi_struct *qi;
+	unsigned long flags;
+	bool async;
+	int ret;
+
+	if (!(g_qi_enable & 1))
+		return 0;
+	if (!arg) {
+		pr_err("set async binder: invalid arg from user space\n");
+		return -EINVAL;
+	}
+	if (copy_from_user(&a, (void __user *)arg, sizeof(a))) {
+		pr_err("set async binder: failed to copy from user\n");
+		return -EFAULT;
+	}
+	if (a.pid <= 0) {
+		pr_err("set async binder: invalid pid[%u]\n", a.pid);
+		return -EINVAL;
+	}
+	async = a.val;
+	rcu_read_lock();
+	task = find_task_by_vpid(a.pid);
+	if (!task) {
+		rcu_read_unlock();
+		pr_err("set async binder: find task failed\n");
+		return -EINVAL;
+	}
+	get_task_struct(task);
+	rcu_read_unlock();
+	if (!cred_valid(task)) {
+		pr_err("set async binder: cred check failed\n");
+		ret = -EINVAL;
+		goto out;
+	}
+	if (task->__state == TASK_DEAD) {
+		pr_err("set async binder: task is dead\n");
+		ret = 0;
+		goto out;
+	}
+	qi = get_alloc_task_qi(task);
+	if (!qi) {
+		ret = -ENOMEM;
+		goto out;
+	}
+	spin_lock_irqsave(&qi->lock, flags);
+	qi->async_binder_todo = a.val;
+	trace_qi_set_async_binder(task, atomic_read(&qi->static_qos), atomic_read(&qi->dyn_qos), async);
+	spin_unlock_irqrestore(&qi->lock, flags);
+	ret = 0;
+out:
+	put_task_struct(task);
+	return ret;
+}
+
+int qi_vh_comm_register(void);
+void qi_vh_comm_unregister(void);
+int qi_vh_binder_register(void);
+void qi_vh_binder_unregister(void);
+int qi_vh_mutex_register(void);
+void qi_vh_mutex_unregister(void);
+int qi_vh_rwsem_register(void);
+void qi_vh_rwsem_unregister(void);
+int qi_vh_percpu_rwsem_register(void);
+void qi_vh_percpu_rwsem_unregister(void);
+int qi_vh_futex_register(void);
+void qi_vh_futex_unregister(void);
+int qi_vh_fuse_register(void);
+void qi_vh_fuse_unregister(void);
+int qi_vh_rcu_register(void);
+void qi_vh_rcu_unregister(void);
+int qi_stats_register(void);
+void qi_stats_unregister(void);
+int qi_sysctl_register(void);
+void qi_sysctl_unregister(void);
+
+static int (*const g_qi_regs[])(void) = {
+	qi_vh_comm_register, qi_vh_binder_register, qi_vh_mutex_register, qi_vh_rwsem_register,
+	qi_vh_percpu_rwsem_register, qi_vh_futex_register, qi_vh_fuse_register, qi_vh_rcu_register,
+	qi_stats_register, qi_sysctl_register,
+};
+
+static void (*const g_qi_unregs[])(void) = {
+	qi_sysctl_unregister, qi_stats_unregister, qi_vh_rcu_unregister, qi_vh_fuse_unregister,
+	qi_vh_futex_unregister, qi_vh_percpu_rwsem_unregister, qi_vh_rwsem_unregister,
+	qi_vh_mutex_unregister, qi_vh_binder_unregister, qi_vh_comm_unregister,
+};
+
 static int __init qi_init(void)
 {
-	int ret;
+	int ret, err, i;
 	struct kobject *qi_kobj;
 
 	qi_kobj = kobject_create_and_add("qos_inherit", kernel_kobj);
@@ -412,9 +683,27 @@ static int __init qi_init(void)
 		return -ENOMEM;
 	ret = sysfs_create_group(qi_kobj, &qi_attr_group);
 	if (ret) {
-		kobject_put(qi_kobj);
 		pr_err("qi init: failed to create sys node\n");
+		goto err_put;
 	}
+	for (i = 0; i < ARRAY_SIZE(g_qi_regs); i++) {
+		err = g_qi_regs[i]();
+		if (!ret && err < 0)
+			ret = err;
+	}
+	if (ret < 0) {
+		for (i = 0; i < ARRAY_SIZE(g_qi_unregs); i++)
+			g_qi_unregs[i]();
+		sysfs_remove_group(qi_kobj, &qi_attr_group);
+		goto err_put;
+	}
+	register_xr_fbt(0x40087807, qi_set_qos);
+	register_xr_fbt(0xc0087808, qi_get_qos_by_pid);
+	register_xr_fbt(0xc0087809, qi_get_qos_by_tid);
+	register_xr_fbt(0x4008780b, qi_set_async_binder);
+	return ret;
+err_put:
+	kobject_put(qi_kobj);
 	return ret;
 }
 

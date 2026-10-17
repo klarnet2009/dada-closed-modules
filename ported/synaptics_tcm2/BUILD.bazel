@@ -1,0 +1,61 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+
+# Synaptics TCM2 (Xiaomi framework flavour). Template: XRING `xiaomi-modules/touch_driver/o2` (+ Qualcomm trusted touch `qts/`).
+# ThinLTO build like the stock (defconfig); providers: our EQUIVALENT xiaomi_touch + CRC stubs of the OS4 Gunyah / pinctrl-msm modules.
+ddk_headers(
+    name = "syna_headers",
+    hdrs = glob(["**/*.h"]),
+    includes = [".", "tcm", "qts", "xiaomi/xt_inc"],
+)
+
+ddk_module(
+    name = "synaptics_tcm2",
+    srcs = [
+        "syna_tcm2.c",
+        "syna_tcm2_cdev.c",
+        "tcm/synaptics_touchcom_core_v1.c",
+        "tcm/synaptics_touchcom_core_v2.c",
+        "tcm/synaptics_touchcom_func_base.c",
+        "tcm/synaptics_touchcom_func_touch.c",
+        "tcm/synaptics_touchcom_func_reflash.c",
+        "tcm/synaptics_touchcom_func_romboot.c",
+        "syna_tcm2_platform_spi.c",
+        "syna_tcm2_sysfs.c",
+        "syna_tcm2_testing.c",
+        "syna_xiaomi_driver.c",
+        "qts/qts_core.c",
+    ] + glob(["**/*.h"]),
+    out = "synaptics_tcm2.ko",
+    defconfig = "synaptics_tcm2_defconfig",
+    local_defines = [
+        "CONFIG_LTO=1",
+        "__linux__",
+        "CONFIG_TOUCHSCREEN_SYNA_TCM2_REFLASH",
+        "CONFIG_TOUCHSCREEN_SYNA_TCM2_SYSFS",
+        "CONFIG_TOUCHSCREEN_SYNA_TCM2_TESTING",
+        "CONFIG_TRUSTED_TOUCH",
+        "CONFIG_GH_RM_DRV=1",
+        "CONFIG_GH_IRQ_LEND=1",
+        "CONFIG_GH_MEM_NOTIFIER=1",
+        "TOUCH_SYNA_BOOTLOADER_RECOVERY",
+        "CONFIG_DRM=1",
+        "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1",
+        "CONFIG_MIEV=1",
+        "TOUCH_SPI_CS_CLK_DELAY",
+        "TOUCH_STYLUS_SUPPORT=1",
+        "TOUCH_FOD_SUPPORT=1",
+        "TOUCH_THP_SUPPORT=1",
+        "TOUCH_KNOCK_SUPPORT=1",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        ":syna_headers",
+        "//re/xt_g3g:xiaomi_touch",
+        "//re/stubs_g3g:os4_gh_irq_lend",
+        "//re/stubs_g3g:os4_gh_mem_notifier",
+        "//re/stubs_g3g:os4_gh_rm_drv",
+        "//re/stubs_g3g:os4_pinctrl-msm",
+        "//common:all_headers_aarch64",
+    ],
+)

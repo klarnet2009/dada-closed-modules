@@ -96,6 +96,7 @@
 #define QCOM_PROP_EU_MODEL		0x2028
 #define QCOM_PROP_AICL_STATUS		0x2029
 #define QCOM_PROP_PACK_TBAT		0x202a
+#define QCOM_PROP_CP_VENDOR_ID		0x202c
 #define QCOM_PROP_WLS_VDD_FLAG		0x100c
 #define QCOM_PROP_WLS_INPUT_SUSPEND	0x1004
 #define QCOM_PROP_WLS_INPUT_CURRENT	0x1003
@@ -119,7 +120,8 @@
 #define QCOM_NOTIFY_BSINK_SUSPEND	8
 #define QCOM_NOTIFY_CP_REVERT		9
 #define QCOM_NOTIFY_OTG_CP_CFG		10
-#define QCOM_NOTIFY_CID_STS		11
+#define QCOM_NOTIFY_SBU_LPD		11	/* OS4: new */
+#define QCOM_NOTIFY_CID_STS		12	/* OS3: 11 */
 
 /* deferred ADSP notification (allocated in the glink callback, consumed by notify_change_work) */
 struct qcom_subpmic_notify_node {
@@ -167,6 +169,7 @@ struct qcom_subpmic {
 	union qcom_otg_data otg_data;
 	u8 bsink_suspend;
 	u8 eu_model;
+	int sbu_lpd;	/* OS4: new (+0x314), cid_status moved to +0x318, kzalloc 0x320 */
 	int cid_status;
 };
 
@@ -228,7 +231,7 @@ static int qcom_subpmic_set_qc_volt(void *data, int volt)
 	step_mv = chip->usb_real_type == 8 ? 20 : 200;
 	step_ms = chip->usb_real_type == 8 ? 5 : 50;
 	if (volt < 5000 || volt > 12000) {
-#line 577
+#line 584
 		mca_log_err("invalid qc voltage: %d\n", volt);
 		return -1;
 	}
@@ -238,7 +241,7 @@ static int qcom_subpmic_set_qc_volt(void *data, int volt)
 	vbus /= 1000;
 	diff = volt - vbus;
 	target = (diff > 0 ? -tol : tol) + volt;
-#line 586
+#line 593
 	mca_log_info("real_type: %d, volt: %d, vbus: %d\n", chip->usb_real_type, volt, vbus, diff, target);
 	rc = mca_adsp_glink_write_prop(QCOM_PROP_QC_VOLT, &set_volt, sizeof(set_volt));
 	if (rc)
@@ -258,10 +261,10 @@ static int qcom_subpmic_set_qc_volt(void *data, int volt)
 		msleep(50);
 		mca_adsp_glink_read_prop(QCOM_PROP_BUS_VOLT, &vbus, sizeof(vbus));
 		vbus /= 1000;
-#line 598
+#line 605
 		mca_log_info("vbus: %d\n", vbus);
 		if (vbus < 4000 || !chip->usb_online) {
-#line 600
+#line 607
 			mca_log_err("usb removed, break\n");
 			return 0;
 		}
@@ -272,7 +275,7 @@ static int qcom_subpmic_set_qc_volt(void *data, int volt)
 			return 0;
 
 		if (ktime_to_ms(ktime_sub(ktime_get_boottime(), start)) > timeout_ms) {
-#line 609
+#line 616
 			mca_log_info("wait time out, break\n");
 			return 0;
 		}
@@ -281,7 +284,7 @@ static int qcom_subpmic_set_qc_volt(void *data, int volt)
 
 static int qcom_subpmic_set_qc_volt_cmd(void *data, int hvdcp_cmd)
 {
-#line 619
+#line 626
 	mca_log_info("set_qc_volt_cmd: %d", hvdcp_cmd);
 	return mca_adsp_glink_write_prop(QCOM_PROP_QC_VOLT_CMD, &hvdcp_cmd, sizeof(hvdcp_cmd));
 }
@@ -493,6 +496,7 @@ static void qcom_subpmic_notify_change_work(struct work_struct *work)
 			default:
 				break;
 			}
+			kfree(node);	/* OS4: the node is freed now (OS3 leaked it) */
 			spin_lock(&chip->notify_lock);
 		}
 		spin_unlock(&chip->notify_lock);
@@ -513,7 +517,7 @@ static int qcom_subpmic_ship_mode(struct notifier_block *nb, unsigned long actio
 			platform_class_cp_get_chip_vendor(0, &chip_vendor);
 #line 311
 			mca_log_info("cp type: %d\n", chip_vendor);
-			if (chip_vendor != 0)
+			if (chip_vendor != 0 && chip_vendor != 4)
 				platform_class_cp_enable_ovpgate(0, false);
 			rc = mca_adsp_glink_write_prop(QCOM_PROP_SHIP_MODE, &cmd, sizeof(cmd));
 			if (rc < 0)
@@ -623,14 +627,14 @@ static int qcom_subpmic_get_wls_curr(void *data, int *wls_curr)
 
 static int qcom_subpmic_set_input_suspend(void *data, bool suspend)
 {
-#line 651
+#line 658
 	mca_log_info("set input suspend %d\n", suspend);
 	return mca_adsp_glink_write_prop(QCOM_PROP_INPUT_SUSPEND, &suspend, sizeof(suspend));
 }
 
 static int qcom_subpmic_set_wireless_input_suspend(void *data, bool suspend)
 {
-#line 657
+#line 664
 	mca_log_info("set wls input suspend %d\n", suspend);
 	return mca_adsp_glink_write_prop(QCOM_PROP_WLS_INPUT_SUSPEND, &suspend, sizeof(suspend));
 }
@@ -657,28 +661,28 @@ static int qcom_subpmic_set_charge_current(void *data, int curr)
 
 static int qcom_subpmic_enable_charging(void *data, bool en)
 {
-#line 469
+#line 470
 	mca_log_info("enable charging: %d\n", en);
 	return mca_adsp_glink_write_prop(QCOM_PROP_ENABLE_CHARGING, &en, sizeof(en));
 }
 
 static int qcom_subpmic_set_buck_fsw(void *data, int fsw)
 {
-#line 475
+#line 476
 	mca_log_info("set buck fsw: %d\n", fsw);
 	return mca_adsp_glink_write_prop(QCOM_PROP_BUCK_FSW, &fsw, sizeof(fsw));
 }
 
 static int qcom_subpmic_set_term_current(void *data, int curr)
 {
-#line 486
+#line 487
 	mca_log_info("set iterm: %d\n", curr);
 	return mca_adsp_glink_write_prop(QCOM_PROP_TERM_CURRENT, &curr, sizeof(curr));
 }
 
 static int qcom_subpmic_set_term_volt(void *data, int volt)
 {
-#line 497
+#line 498
 	mca_log_info("set vterm: %d\n", volt);
 	return mca_adsp_glink_write_prop(QCOM_PROP_TERM_VOLT, &volt, sizeof(volt));
 }
@@ -723,56 +727,56 @@ static int qcom_subpmic_get_otg_boost_src(void *data, int *otg_boost_src)
 	struct qcom_subpmic *chip = data;
 
 	*otg_boost_src = chip->otg_boost_src;
-#line 666
+#line 673
 	mca_log_info("get otg_boost_src: %d\n", *otg_boost_src);
 	return chip->otg_boost_src;
 }
 
 static int qcom_subpmic_get_otg_gate_enable_status(void *data, int *otg_gate_enable_status)
 {
-#line 678
+#line 685
 	mca_log_info("get otg plugin status\n");
 	return mca_adsp_glink_read_prop(QCOM_PROP_OTG_GATE_ENABLE, otg_gate_enable_status, sizeof(*otg_gate_enable_status));
 }
 
 static int qcom_subpmic_get_otg_boost_enable_status(void *data, int *otg_boost_enable_sts)
 {
-#line 672
+#line 679
 	mca_log_info("get otg enable status\n");
 	return mca_adsp_glink_read_prop(QCOM_PROP_OTG_BOOST_ENABLE, otg_boost_enable_sts, sizeof(*otg_boost_enable_sts));
 }
 
 static int qcom_subpmic_set_boost_enable(void *data, int src_enable)
 {
-#line 684
+#line 691
 	mca_log_info("set otg enable: 0x%2x\n", src_enable);
 	return mca_adsp_glink_write_prop(QCOM_PROP_BOOST_ENABLE, &src_enable, sizeof(src_enable));
 }
 
 static int qcom_subpmic_set_boost_voltage(void *data, int src_voltage)
 {
-#line 690
+#line 697
 	mca_log_info("set boost voltage: 0x%2x\n", src_voltage);
 	return mca_adsp_glink_write_prop(QCOM_PROP_BOOST_VOLTAGE, &src_voltage, sizeof(src_voltage));
 }
 
 static int qcom_subpmic_set_aicl_enable(void *data, bool en)
 {
-#line 696
+#line 703
 	mca_log_info("set aicl enable: %d\n", en);
 	return mca_adsp_glink_write_prop(QCOM_PROP_AICL_ENABLE, &en, sizeof(en));
 }
 
 static int qcom_subpmic_set_rerun_aicl(void *data, bool en)
 {
-#line 702
+#line 709
 	mca_log_info("set rerun aicl: %d\n", en);
 	return mca_adsp_glink_write_prop(QCOM_PROP_RERUN_AICL, &en, sizeof(en));
 }
 
 static int qcom_subpmic_set_restart_aicl(void *data, bool en)
 {
-#line 708
+#line 715
 	mca_log_info("set restart aicl: %d\n", en);
 	return mca_adsp_glink_write_prop(QCOM_PROP_RESTART_AICL, &en, sizeof(en));
 }
@@ -805,7 +809,7 @@ static int qcom_subpmic_get_ship_mode(void *data, bool *en)
 
 static int qcom_subpmic_set_wls_vdd_flag(void *data, bool en)
 {
-#line 714
+#line 721
 	mca_log_info("set wls vdd flag: %d\n", en);
 	return mca_adsp_glink_write_prop(QCOM_PROP_WLS_VDD_FLAG, &en, sizeof(en));
 }
@@ -916,12 +920,19 @@ static int qcom_subpmic_get_pack_tbat(void *data, int *ptbat)
 	return mca_adsp_glink_read_prop(QCOM_PROP_PACK_TBAT, ptbat, sizeof(*ptbat));
 }
 
+static int qcom_subpmic_set_cp_vendor_id(void *data, int *cp_vendor_id)
+{
+#line 559
+	mca_log_info("set_cp_vendor_id = %d\n", *cp_vendor_id);
+	return mca_adsp_glink_write_prop(QCOM_PROP_CP_VENDOR_ID, cp_vendor_id, 8);
+}
+
 static void moisture_detection_uevent(int moisture_sts)
 {
 	char uevent_buf[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data n_data = { 0 };
 
-#line 844
+#line 851
 	mca_log_info("moisture detection uevent notify\n");
 	n_data.event_len = snprintf(uevent_buf, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_MOISTURE_DET_STS=%d", moisture_sts);
 	n_data.event = uevent_buf;
@@ -933,7 +944,7 @@ static void cc_short_vbus_uevent(int cc_short_vbus)
 	char uevent_buf[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data n_data = { 0 };
 
-#line 859
+#line 866
 	mca_log_info("cc short vbus uevent notify\n");
 	n_data.event_len = snprintf(uevent_buf, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_CC_SHORT_VBUS=%d", cc_short_vbus);
 	n_data.event = uevent_buf;
@@ -944,7 +955,7 @@ static void qcom_subpmic_glink_down_cb(void *priv)
 {
 	struct qcom_subpmic *chip = priv;
 
-#line 821
+#line 828
 	mca_log_info("glink down\n");
 	chip->glink_down = 1;
 	mca_event_block_notify(5, 0x32, NULL);
@@ -954,7 +965,7 @@ static void qcom_subpmic_sync_cb(void *priv)
 {
 	struct qcom_subpmic *chip = priv;
 
-#line 831
+#line 838
 	mca_log_info("glink up\n");
 	mca_event_block_notify(5, 0x33, NULL);
 	queue_delayed_work(system_wq, &chip->update_usb_type_work, 0);
@@ -985,7 +996,7 @@ static void qcom_subpmic_notify_cb(int notify_id, void *data, int len, void *pri
 		node->type = notify_id;
 		if (notify_id == QCOM_NOTIFY_ENABLE_BOOST) {
 			node->val = *val;
-#line 893
+#line 900
 			mca_log_err("recv enable boost notify: %d\n", *val);
 		}
 		spin_lock(&chip->notify_lock);
@@ -995,21 +1006,21 @@ static void qcom_subpmic_notify_cb(int notify_id, void *data, int len, void *pri
 		break;
 	case QCOM_NOTIFY_LPD:
 		chip->lpd_status = *val;
-#line 909
+#line 916
 		mca_log_err("recv adsp report lpd status: %d\n", chip->lpd_status);
 		moisture_detection_uevent(chip->lpd_status);
 		mca_event_block_notify(4, 0x29, &chip->lpd_status);
 		break;
 	case QCOM_NOTIFY_CC_SHORT_VBUS:
 		chip->cc_short_vbus = *val;
-#line 915
+#line 922
 		mca_log_err("recv cc short vbus notify: %d\n", chip->cc_short_vbus);
 		cc_short_vbus_uevent(chip->cc_short_vbus);
 		mca_event_block_notify(4, 0x2b, &chip->cc_short_vbus);
 		break;
 	case QCOM_NOTIFY_PPS_PTF:
 		chip->pps_ptf = *val;
-#line 921
+#line 928
 		mca_log_err("recv pps ptf notify: %d\n", chip->pps_ptf);
 		mca_strategy_func_process(1, 0x37, chip->pps_ptf);
 		mca_strategy_func_process(0, 0x37, chip->pps_ptf);
@@ -1017,25 +1028,31 @@ static void qcom_subpmic_notify_cb(int notify_id, void *data, int len, void *pri
 	case QCOM_NOTIFY_BSINK_SUSPEND:
 		if (!chip->eu_model)
 			break;
-#line 902
+#line 909
 		mca_log_err("recv bsinkpowersuspend change\n");
 		chip->bsink_suspend = *(u8 *)data;
 		mca_event_block_notify(1, 0x45, &chip->bsink_suspend);
 		break;
 	case QCOM_NOTIFY_CP_REVERT:
 		chip->otg_data.val = *val;
-#line 927
+#line 934
 		mca_log_info("recv cp revert notify");
 		mca_event_block_notify(4, 0x2e, &chip->otg_data);
 		break;
 	case QCOM_NOTIFY_OTG_CP_CFG:
-#line 931
+#line 938
 		mca_log_info("recv otg cp config notify: %d", *val);
 		platform_class_cp_set_revchg(0, *val != 0);
 		break;
+	case QCOM_NOTIFY_SBU_LPD:
+		chip->sbu_lpd = *val;
+#line 943
+		mca_log_info("recv sbu_lpd: %d", *val);
+		mca_event_block_notify(4, 0x53, &chip->sbu_lpd);
+		break;
 	case QCOM_NOTIFY_CID_STS:
 		chip->cid_status = *val;
-#line 936
+#line 948
 		mca_log_info("recv cid_sts: %d", *val);
 		mca_event_block_notify(4, 0x30, &chip->cid_status);
 		break;
@@ -1107,6 +1124,7 @@ static struct platform_class_buckchg_ops g_qcom_buckchg_ops = {
 	.get_aicl_status = qcom_subpmic_get_aicl_status,
 	.set_too_hot_limit = qcom_subpmic_set_too_hot_limit,
 	.get_pack_tbat = qcom_subpmic_get_pack_tbat,
+	.set_cp_vendor_id = qcom_subpmic_set_cp_vendor_id,
 };
 
 static struct platform_bc12_class_ops g_qcom_pmic_bc12_ops = {
@@ -1131,7 +1149,7 @@ static int qcom_subpmic_probe(struct platform_device *pdev)
 	struct qcom_subpmic *chip;
 	int ret;
 
-#line 1044
+#line 1057
 	mca_log_info("probe start\n");
 
 	chip = devm_kzalloc(&pdev->dev, sizeof(*chip), GFP_KERNEL);
@@ -1142,7 +1160,7 @@ static int qcom_subpmic_probe(struct platform_device *pdev)
 
 	ret = qcom_subpmic_parse_dt(chip);
 	if (ret) {
-#line 1053
+#line 1066
 		mca_log_err("%s parse dt fail\n", __func__);
 		return -ENOMEM;
 	}
@@ -1165,35 +1183,35 @@ static int qcom_subpmic_probe(struct platform_device *pdev)
 
 	ret = platform_bc12_class_ops_register(0, &g_qcom_pmic_bc12_ops, chip);
 	if (ret) {
-#line 1079
+#line 1092
 		mca_log_err("%s register protocol ops fail\n", __func__);
 		goto err;
 	}
 
 	ret = protocol_class_qc_register_ops(0, &g_adsp_qc_ops, chip);
 	if (ret) {
-#line 1084
+#line 1097
 		mca_log_err("%s register qc ops fail\n", __func__);
 		goto err;
 	}
 
 	ret = platform_class_buckchg_ops_register(0, chip, &g_qcom_buckchg_ops);
 	if (ret) {
-#line 1090
+#line 1103
 		mca_log_err("%s register buckchg ops fail\n", __func__);
 		goto err;
 	}
 
 	ret = mca_adsp_glink_resister_ops(&g_qcom_subpmic_glink_cb, chip);
 	if (ret) {
-#line 1095
+#line 1108
 		mca_log_err("%s register glink ops fail\n", __func__);
 		goto err;
 	}
 
 	queue_delayed_work(system_wq, &chip->update_usb_type_work, 0);
 	queue_delayed_work(system_wq, &chip->sync_cfg_work, msecs_to_jiffies(100));
-#line 1101
+#line 1114
 	mca_log_err("probe ok\n");
 	return 0;
 

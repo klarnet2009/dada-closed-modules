@@ -1,3 +1,13 @@
+# scene_swappiness - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `scene_swappiness.ko` (md5 69553712..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/scene_swappiness`) + compare_ko.py (EQUIVALENT).
+
+CHANGED in OS4 and fixed: `to_set_swappiness()` got extra rules after the kswapd branch: if comm != "swapon01" and (current->group_leader->signal->oom_score_adj == 0 or group_leader comm == "com.miui.home") and global_node_page_state(NR_INACTIVE_FILE) > 51200 pages then swappiness = 0, else s_anon_swappiness (new imports strcmp, vm_node_stat). compare_ko vs OS4: function set (6), bytes, relocations, objects, imports+CRC (24), modinfo all OK. No hacks.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # scene_swappiness - EQUIVALENT
 
 `compare_ko.py`: function set (6), function bytes, relocations, global objects, imports + CRCs, modinfo all identical; no exports.

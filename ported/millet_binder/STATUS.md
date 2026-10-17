@@ -1,4 +1,9 @@
-# millet_binder - EQUIVALENT
+# millet_binder - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 11 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/millet_binder.ko`: compare_ko.py EQUIVALENT (11 functions, 0 exports, 21 imports).
+
+Earlier headline (HyperOS 3 round): millet_binder - EQUIVALENT
+
 
 Template: XRING `dijun-v-oss` `millet_binder.c` (+ `binder_oem.h`); the dada stock is a newer revision, adapted from its disassembly.
 compare_ko: 11 functions byte-identical, relocations, objects, 0 exports, 21 imports + CRCs, modinfo (`depends=binder_gki,millet_core,millet_pkg`): all OK -> EQUIVALENT.

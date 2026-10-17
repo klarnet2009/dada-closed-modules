@@ -1,3 +1,13 @@
+# qcom_adsp_pd_protocol - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `qcom_adsp_pd_protocol.ko` (md5 9d4b1f48..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/qcom_adsp_pd_protocol`) + compare_ko.py (EQUIVALENT).
+
+unchanged since HyperOS 3: no source change; real Kleaf build + compare_ko.py vs the OS4 stock: function set (41), bytes, relocations, global objects, exports (0), imports+CRC (13), modinfo all OK.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # qcom_adsp_pd_protocol - EQUIVALENT
 
 Built with the ThinLTO defconfig. compare_ko: 41 functions byte-identical, relocations identical, global objects, imports CRCs (13 symbols) identical.

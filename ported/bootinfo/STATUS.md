@@ -1,4 +1,9 @@
-# bootinfo - EQUIVALENT
+# bootinfo - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 8 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/bootinfo.ko`: compare_ko.py EQUIVALENT (8 functions, 0 exports, 13 imports).
+
+Earlier headline (HyperOS 3 round): bootinfo - EQUIVALENT
+
 
 Template: NOT the XRING `vendor_stability/bootinfo` (that one is the XRING power-down-reason variant; the dada stock is the Qualcomm PMIC variant).
 Used: MiCode `breeze-u-oss` `drivers/misc/bootinfo.c` (module form: `module_param_string pureason/pdreason`, `kstrtou32`, `powerup_reasons/powerdown_reasons/reset_reasons`; found by scanning all

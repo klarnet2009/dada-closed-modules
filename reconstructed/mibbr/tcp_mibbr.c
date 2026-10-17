@@ -13,10 +13,28 @@
 #include "mibbr_internal.h"
 
 /* sysctl "net/bbr" tunables */
+/* OS4 (HyperOS 4.0) layout, in the order of the stock .data/.bss: .data = nonagle, enable_opt, init_cwnd_opt, no_pacing, srtt/mrtt/min_rtt_win factors,
+ * (bbr_update_gains.__already_done), cap_rtt, avoid_burst, cwnd_limit, probe_rtt_cwnd; .bss = enable_debug, trace_uid, pace_factor */
+static int bbr_nonagle = 1;
 static int bbr_enable_opt = 1;
-static int bbr_pace_factor = 10;
-static int bbr_rtt_factor = 10;
+static int bbr_init_cwnd_opt = 1;
+static int bbr_no_pacing = 1;
+static int bbr_srtt_factor = 5;
+static int bbr_mrtt_factor = 10;
+static int bbr_min_rtt_win_factor = 10;
+static int bbr_cap_rtt_factor = 15;
+static int bbr_avoid_burst = 125;
+static int bbr_cwnd_limit_factor = 15;
+static int bbr_probe_rtt_cwnd_factor = 10;
 static int bbr_enable_debug;
+static int bbr_trace_uid;
+static int bbr_pace_factor;
+
+/* the uid whose sockets get the "bbr_tx" trace line in the netfilter output hook (minet_ext.c) */
+noinline int is_trace_id(int uid)
+{
+	return bbr_trace_uid && bbr_trace_uid == uid;
+}
 
 /* resolved at load time through kallsyms_lookup_name() (see symbol_table in minet_ext.c) */
 extern void (*xm_tcp_cleanup_congestion_control)(struct sock *sk);
@@ -319,7 +337,7 @@ __bpf_kfunc static void mibbr_cwnd_event(struct sock *sk, enum tcp_ca_event even
 static u32 bbr_bdp(struct sock *sk, u32 bw, int gain)
 {
 	struct bbr *bbr = inet_csk_ca(sk);
-	u32 bdp;
+	u32 bdp, rtt;
 	u64 w;
 
 	/* If we've never had a valid RTT sample, cap cwnd at the initial
@@ -331,10 +349,11 @@ static u32 bbr_bdp(struct sock *sk, u32 bw, int gain)
 	if (unlikely(bbr->min_rtt_us == ~0U))	 /* no valid RTT samples yet? */
 		return TCP_INIT_CWND;  /* be safe: cap at default initial cwnd*/
 
-	if (bbr_enable_opt)
-		w = (u64)bw * (tcp_sk(sk)->srtt_us >> 3) * bbr_rtt_factor / 10;
-	else
-		w = (u64)bw * bbr->min_rtt_us;
+	rtt = bbr->min_rtt_us;
+	if (bbr_enable_opt && bbr_srtt_factor && bbr_mrtt_factor)
+		rtt = min((tcp_sk(sk)->srtt_us >> 3) * bbr_srtt_factor / 10,
+			  bbr->min_rtt_us * bbr_mrtt_factor / 10);
+	w = (u64)bw * rtt;
 
 	/* Apply a gain to the given value, remove the BW_SCALE shift, and
 	 * round the value up to avoid a negative feedback loop.
@@ -484,6 +503,7 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
 	u32 cwnd = tcp_snd_cwnd(tp), target_cwnd = 0;
+	u32 ocwnd = cwnd;
 
 	if (!acked)
 		goto done;  /* no packet fully ACKed; just apply caps */
@@ -491,6 +511,13 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 	if (bbr_set_cwnd_to_recover_or_restore(sk, rs, acked, &cwnd))
 		goto done;
 
+	/* Xiaomi: when the RTT sample is far above min_rtt, size the target with gain 1.0 */
+	if (bbr_cap_rtt_factor && rs->rtt_us > bbr->min_rtt_us * bbr_cap_rtt_factor / 10) {
+		if (bbr_enable_debug)
+			printk("mibbr:rtt,sk=%p,rs_rtt=%ld,min_rtt=%u,cwnd=%u,gain=%d\n",
+			       sk, rs->rtt_us, bbr->min_rtt_us, cwnd, gain);
+		gain = BBR_UNIT;
+	}
 	target_cwnd = bbr_bdp(sk, bw, gain);
 
 	/* Increment the cwnd to account for excess ACKed data that seems
@@ -499,17 +526,43 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 	target_cwnd += bbr_ack_aggregation_cwnd(sk);
 	target_cwnd = bbr_quantization_budget(sk, target_cwnd);
 
+	if (bbr_avoid_burst && cwnd >= 128 && target_cwnd > bbr_avoid_burst * cwnd / 100) {
+		if (bbr_enable_debug)
+			printk("mibbr:sk=%p,target_cwnd=%d,cwnd=%d,bw=%u,una=%u,nxt=%u\n",
+			       sk, target_cwnd, cwnd, bw, tp->snd_una, tp->snd_nxt);
+		target_cwnd = bbr_avoid_burst * cwnd / 100;
+	}
+
 	/* If we're below target cwnd, slow start cwnd toward target cwnd. */
 	if (bbr_full_bw_reached(sk))  /* only cut cwnd if we filled the pipe */
 		cwnd = min(cwnd + acked, target_cwnd);
 	else if (cwnd < target_cwnd || tp->delivered < TCP_INIT_CWND)
 		cwnd = cwnd + acked;
+	if (bbr_avoid_burst)
+		cwnd = min(cwnd, target_cwnd);
 	cwnd = max(cwnd, bbr_cwnd_min_target);
+
+	if (bbr_cwnd_limit_factor) {
+		u32 limit = tcp_packets_in_flight(tp) * bbr_cwnd_limit_factor / 10;
+
+		if (cwnd >= limit && ocwnd >= 128) {
+			if (bbr_enable_debug)
+				printk("bbr_limit,sk=%p,target_cwnd=%u,cwnd=%u,ocwnd=%u,flight=%u,bw=%u,una=%u,nxt=%u\n",
+				       sk, target_cwnd, cwnd, ocwnd, tcp_packets_in_flight(tp), bw,
+				       tp->snd_una, tp->snd_nxt);
+			cwnd = min(cwnd, ocwnd);
+		}
+	}
 
 done:
 	tcp_snd_cwnd_set(tp, min(cwnd, tp->snd_cwnd_clamp));	/* apply global cap */
-	if (bbr->mode == BBR_PROBE_RTT)  /* drain queue, refresh min_rtt */
-		tcp_snd_cwnd_set(tp, min(tcp_snd_cwnd(tp), bbr_cwnd_min_target));
+	if (bbr->mode == BBR_PROBE_RTT) {  /* drain queue, refresh min_rtt */
+		if (bbr_enable_opt && bbr_probe_rtt_cwnd_factor)
+			tcp_snd_cwnd_set(tp, max(tcp_snd_cwnd(tp) * bbr_probe_rtt_cwnd_factor / 10,
+						 bbr_cwnd_min_target));
+		else
+			tcp_snd_cwnd_set(tp, min(tcp_snd_cwnd(tp), bbr_cwnd_min_target));
+	}
 }
 
 /* End cycle phase if it's time and/or we hit the phase's in-flight target. */
@@ -745,6 +798,10 @@ static void bbr_update_bw(struct sock *sk, const struct rate_sample *rs)
 	 * ratio will be <<1 for most connections. So delivered is first scaled.
 	 */
 	bw = div64_long((u64)rs->delivered * BW_UNIT, rs->interval_us);
+	if (bbr_enable_debug)
+		printk("mibbr:sk=%p,cnt=%u,start=%u,max_bw=%u,bw=%llu,pdeli=%u,deli=%u,tp_deli=%u,inter_us=%ld\n",
+		       sk, bbr->rtt_cnt, bbr->round_start, bbr_max_bw(sk), bw,
+		       rs->prior_delivered, rs->delivered, tp->delivered, rs->interval_us);
 
 	/* If this sample is application-limited, it is likely to have a very
 	 * low delivered count that represents application behavior rather than
@@ -907,8 +964,10 @@ static void bbr_update_min_rtt(struct sock *sk, const struct rate_sample *rs)
 	bool filter_expired;
 
 	/* Track min RTT seen in the min_rtt_win_sec filter window: */
-	filter_expired = after(tcp_jiffies32,
-			       bbr->min_rtt_stamp + bbr_min_rtt_win_sec * HZ);
+	filter_expired = after(tcp_jiffies32, bbr->min_rtt_stamp +
+			       ((bbr_enable_opt && bbr_min_rtt_win_factor) ?
+				bbr_min_rtt_win_sec * HZ * bbr_min_rtt_win_factor / 10 :
+				bbr_min_rtt_win_sec * HZ));
 	if (rs->rtt_us >= 0 &&
 	    (rs->rtt_us < bbr->min_rtt_us ||
 	     (filter_expired && !rs->is_ack_delayed))) {
@@ -988,6 +1047,7 @@ static void bbr_update_model(struct sock *sk, const struct rate_sample *rs)
 
 __bpf_kfunc static void mibbr_main(struct sock *sk, const struct rate_sample *rs)
 {
+	struct tcp_sock *tp = tcp_sk(sk);
 	struct bbr *bbr = inet_csk_ca(sk);
 	u32 bw;
 
@@ -996,6 +1056,24 @@ __bpf_kfunc static void mibbr_main(struct sock *sk, const struct rate_sample *rs
 	bw = bbr_bw(sk);
 	bbr_set_pacing_rate(sk, bw, bbr->pacing_gain);
 	bbr_set_cwnd(sk, rs, rs->acked_sacked, bw, bbr->cwnd_gain);
+
+	if (bbr_enable_debug) {
+		printk("mibbr:sk=%p,bw=%u,pacing_gain=%u,acked_sacked=%u,cwnd_gain=%u,wmalc=%u\n",
+		       sk, bw, bbr->pacing_gain, rs->acked_sacked, bbr->cwnd_gain,
+		       refcount_read(&sk->sk_wmem_alloc));
+		printk("mibbr:sk=%p,mode=%u,una=%u,nxt=%u,wseq=%u,cwnd=%u,inflight=%u,srtt=%u,mrtt=%u,pacing=%lu",
+		       sk, bbr->mode, tp->snd_una, tp->snd_nxt, tp->write_seq, tcp_snd_cwnd(tp),
+		       tcp_packets_in_flight(tp), tp->srtt_us >> 3, bbr->min_rtt_us, sk->sk_pacing_rate);
+	}
+
+	/* Xiaomi: push out a sub-MSS tail instead of letting Nagle hold it back */
+	if (bbr_nonagle && before(tp->write_seq, tp->snd_nxt + tp->mss_cache) &&
+	    tp->snd_nxt != tp->write_seq) {
+		tp->nonagle |= TCP_NAGLE_PUSH;
+		if (bbr_enable_debug)
+			printk("mibbr:sk=%p,nonagle=%u,nxt=%u,write_seq=%u\n",
+			       sk, tp->nonagle, tp->snd_nxt, tp->write_seq);
+	}
 }
 
 __bpf_kfunc static void mibbr_init(struct sock *sk)
@@ -1038,10 +1116,11 @@ __bpf_kfunc static void mibbr_init(struct sock *sk)
 	bbr->extra_acked[1] = 0;
 
 	/* Xiaomi: start with a larger cwnd unless the RTT is known to be below 1 ms */
-	if (tp->srtt_us == 0 || tp->srtt_us >= 8000)
+	if (bbr_enable_opt && bbr_init_cwnd_opt && (tp->srtt_us == 0 || tp->srtt_us >= 8000))
 		tcp_snd_cwnd_set(tp, 44);
 
-	cmpxchg(&sk->sk_pacing_status, SK_PACING_NONE, SK_PACING_NEEDED);
+	if (!(bbr_enable_opt && bbr_no_pacing))
+		cmpxchg(&sk->sk_pacing_status, SK_PACING_NONE, SK_PACING_NEEDED);
 }
 
 __bpf_kfunc static u32 mibbr_sndbuf_expand(struct sock *sk)
@@ -1129,28 +1208,98 @@ static struct ctl_table bbr_sysctl_table[] = {
 		.procname	= "bbr_enable_opt",
 		.data		= &bbr_enable_opt,
 		.maxlen		= sizeof(int),
-		.mode		= 0644,
+		.mode		= 0600,
 		.proc_handler	= proc_dointvec,
 	},
 	{
 		.procname	= "bbr_enable_debug",
 		.data		= &bbr_enable_debug,
 		.maxlen		= sizeof(int),
-		.mode		= 0644,
+		.mode		= 0600,
 		.proc_handler	= proc_dointvec,
 	},
 	{
-		.procname	= "bbr_rtt_factor",
-		.data		= &bbr_rtt_factor,
+		.procname	= "bbr_srtt_factor",
+		.data		= &bbr_srtt_factor,
 		.maxlen		= sizeof(int),
-		.mode		= 0644,
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_mrtt_factor",
+		.data		= &bbr_mrtt_factor,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
 		.proc_handler	= proc_dointvec,
 	},
 	{
 		.procname	= "bbr_pace_factor",
 		.data		= &bbr_pace_factor,
 		.maxlen		= sizeof(int),
-		.mode		= 0644,
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_min_rtt_win_factor",
+		.data		= &bbr_min_rtt_win_factor,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_probe_rtt_cwnd_factor",
+		.data		= &bbr_probe_rtt_cwnd_factor,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_no_pacing",
+		.data		= &bbr_no_pacing,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_init_cwnd_opt",
+		.data		= &bbr_init_cwnd_opt,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_trace_uid",
+		.data		= &bbr_trace_uid,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_nonagle",
+		.data		= &bbr_nonagle,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_avoid_burst",
+		.data		= &bbr_avoid_burst,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_cwnd_limit_factor",
+		.data		= &bbr_cwnd_limit_factor,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "bbr_cap_rtt_factor",
+		.data		= &bbr_cap_rtt_factor,
+		.maxlen		= sizeof(int),
+		.mode		= 0600,
 		.proc_handler	= proc_dointvec,
 	},
 };

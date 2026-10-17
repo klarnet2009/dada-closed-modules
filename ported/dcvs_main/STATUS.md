@@ -1,4 +1,10 @@
-# dcvs_main - PARTIAL (15 of 18 functions byte-identical vs the OS4 stock; no public source, reconstructed from the disassembly) (17.10.2026)
+# dcvs_main - PARTIAL (15 of 18 functions byte-identical vs the OS4 stock; exports + CRCs now all OK; no public source, reconstructed from the disassembly) (+ g4d, 17.10.2026)
+
+## g4d addendum (17.10.2026)
+- DOCUMENTED CRC HACK: the export CRC of `mi_recalculate_freq_mhz` (stock 4076948266) is now forced with a GENKSYMS-only stand-in prototype (`unsigned int mi_recalculate_freq_mhz(char (*)[sizeof("fcrc_Pod6ehnfI")]);`, `DCVS_FORGE_CRC` in `BUILD.bazel`/`dcvs_main.c`, salt from `work/a17/g4d/forge_crc.py`);
+  compare_ko: exports + CRCs (9) OK. Code and ABI are untouched. Lesson: in the real Kbuild genksyms run the stand-in must use a builtin type (`unsigned int`, `int`); with the typedef `u32` the real CRC differs from our emulation (0x8e1f1b59 instead of the forged 0xf3014b2a).
+- Real build re-run: function set (18), relocations, objects, imports (23) + CRCs, modinfo OK; function bytes: `dcvs_arbi_second_store`, `mi_calculate_mon_sampling_freq`, `mi_update_memlat_fp_vote` differ (unchanged, see below). `dcvs_arbi_second_store`: stock layout = `cbz val` (->is_second=1 block placed AFTER the epilogue-side blocks), `cmp val,#1; b.ne default`, fall-through into the `is_second=0` block; every source order of the switch/if-chain gives `cmp #1; b.eq` first.
+
 
 Reference: `<work-dir>` (OS4, 6.6.57). Module "Dcvs Arbi Moudle": a Xiaomi addition to the Qualcomm DCVS/memlat stack, 18 functions, 3 KB of code.
 Template: none. The only public relatives are `drivers/soc/qcom/dcvs/memlat.c` of the MiCode `dada-v-oss` tree (struct `cpu_stats`; the Xiaomi-patched version with `delta_pre` and the call sites of the `mi_*` hooks is not public).

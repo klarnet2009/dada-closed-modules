@@ -2,6 +2,9 @@
 
 SAFETY: charging / fuel-gauge strategy module: community-only source, never flash it, never put it into a ROM build (the ROM uses the stock module).
 
+## G2e (17.10.2026): not worked on (budget went to nuvolta_1652 / mca_wireless_revchg / mca_pwm_fan); state unchanged, still 74 of 97 identical, does not link
+Notes for the next attempt: use the G2e loop (`work/re/g2e_tools/sm.sh`, `fgq.sh`, `ndiff.py`; the sm.sh `ok` flag only compares the `__LINE__` immediates, a function with worddiff>0 and reldiff=0 is a REAL difference: look at it with `fgq.sh <mod> <func>`), declare locals in the stock frame order (it decided 16 bytes of frame in mca_wireless_revchg), check `imports` early: the real Kleaf compare (`bin/rb.sh`) lists imports that the source never calls (they are the new OS4 calls: the 10 missing ISC / li-plating / vcutoff-v2 functions will bring the missing imports).
+
 ## G2d (17.10.2026): rebuilt against the OS4 stock (97 functions, 4 translation units)
 Loop: `INC=stubs_g2d work/re/g2d_tools/sm.sh mca_strategy_fg_comp [maxwords]` (multi-TU ThinLTO emulation vs `<work-dir>`, compact summary; `work/re/g2d_tools/fgq.sh <mod> <func..>` prints the diff of single functions; `fg/pin.sh` re-pins every `__LINE__` with pb_pin2 from `g2d_tools/dump_mca_strategy_fg_comp`; patch scripts `g2d_tools/fg/p*.py` use `g2d_tools/ed.py`). Server scratch `<work-dir>`, include overlay `<build-dir>` (copy of stubs_mcaB + OS4 additions, saved in `g2d_tools/stubs_g2d/`).
 Status: 74 functions identical (bytes + relocations + __LINE__), 13 differ, 10 are still missing. NOT built with Bazel / `compare_ko.py` yet (the new functions are missing, so the module cannot link; exports/imports/CRCs not checked; new platform ops (`platform_fg_ops_get_fast_mode_times/set_fast_mode_times/get_vsiloss/get_iaver/get_cc_coulomb_integral/get_batt_qmax`) and the ops struct additions exist only in the stubs_g2d overlay).

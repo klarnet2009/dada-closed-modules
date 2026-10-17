@@ -1,4 +1,9 @@
-# hwid - EQUIVALENT
+# hwid - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 -> OS4 stock changed only in product_name_get() (new SoC id 659 / project 13 = "darwin"; SoC 618 table grew from 11 to 12 entries: project 12 = "warsaw"). hwid.c updated accordingly (2 edits). Real Kleaf build vs OS4 stock vendor_ramdisk/hwid.ko: compare_ko.py EQUIVALENT (15 functions, 9 exports, 9 imports); the compiler-generated pointer table of product_name_get (37 entries in 12/7/6/12 order, no symbol so compare_ko does not see it) checked separately with g6/tabdiff.py: identical to stock.
+
+Earlier headline (HyperOS 3 round): hwid - EQUIVALENT
+
 
 `compare_ko.py`: 15 functions, bytes, relocations, global objects, 9 export CRCs, 9 import CRCs, modinfo: all OK. `work/scripts/portC_data.py`: 15 data objects identical, kCFI words identical, 36 switch-table pointers identical.
 

@@ -138,7 +138,7 @@ static void extend_android_vh_binder_proc_transaction_finish(void *data,
 
 	if (alloc->oneway_spam_detected) {
 		if (!t->buffer->oneway_spam_suspect)
-			goto out_unlock;
+			{ spin_unlock(&alloc->lock); return; }
 		for (n = rb_first(&alloc->allocated_buffers); n; n = rb_next(n)) {
 			struct binder_buffer *b = rb_entry(n, struct binder_buffer, rb_node);
 
@@ -152,11 +152,11 @@ static void extend_android_vh_binder_proc_transaction_finish(void *data,
 	}
 
 	if (atomic_read(&low_buffer_status_mask) & status)
-		goto out_unlock;
+		{ spin_unlock(&alloc->lock); return; }
 	atomic_or(status, &low_buffer_status_mask);
 
 	if (!spin_trylock(&binder_info_lock))
-		goto out_unlock;
+		{ spin_unlock(&alloc->lock); return; }
 	clear_binder_info_locked();
 	ktime_get_real_ts64(&ts);
 	binder_info.ts = ts;

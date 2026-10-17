@@ -1,5 +1,7 @@
 # sia91xx_dlkm - COMPILES-only: builds (Bazel/ThinLTO, GKI 6.6.144); 8 of 104 functions byte-identical, 62 differ, 34 missing (OS4 stock)
 
+g3g 17.10.2026: not touched (no better template found; the T545 kernel only has the old `aw8896`). Still COMPILES-only; the stock needs the newer vendor SDKs described below.
+
 Reference: OS4 `<work-dir>` (SI-IN SIA81xx/91xx smart PA; the separate `sia91xx_tuning` module is EQUIVALENT elsewhere), .
 
 Template: MiCode `yunluo-s-oss: sound/soc/codecs/sia81xx/*` (Android S, kernel 5.4: old SIA81xx driver; ref `refs/remotes/o/yunluo-s-oss` of `<build-dir>`). Copies of the tuning/afe/socket files not used by the stock are in `work/re/src/tpl_a17C/sia_tuning/`.

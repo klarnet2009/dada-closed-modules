@@ -8,7 +8,7 @@
 #include <linux/firmware.h>
 #include <linux/slab.h>
 
-bool g_fsm_fw_init __asm__("g_fsm_fw_init.llvm.10112469624167539498") __attribute__((visibility("hidden"))) = 0;
+uint8_t g_fsm_fw_init __asm__("g_fsm_fw_init.llvm.10112469624167539498") __attribute__((visibility("hidden"))) = 0;
 
 #ifdef FSM_UNUSED_CODE
 static void *fsm_devm_kzalloc(struct device *dev, void *buf, size_t size)
@@ -57,13 +57,15 @@ static void fsm_firmware_inited(const struct firmware *cont, void *context)
 int fsm_firmware_init(char *fw_name)
 {
 	struct device *dev;
+	uint8_t inited;
 	int ret;
 
 	if (fw_name == NULL) {
 		pr_err("invalid firmware name");
 		return -EINVAL;
 	}
-	if (fsm_get_presets() || g_fsm_fw_init) {
+	inited = g_fsm_fw_init;
+	if (fsm_get_presets() || (inited & 1)) {
 		return MODULE_INITED;
 	}
 	dev = fsm_get_pdev();

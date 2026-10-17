@@ -27,6 +27,12 @@
 #include <mca/common/mca_sysfs.h>
 #include <mca/common/mca_event.h>
 
+/* OS4: the notify buffer grew from 128 to 500 bytes (header in stubs_mcaA still has the OS3 value) */
+#undef MCA_EVENT_NOTIFY_SIZE
+#define MCA_EVENT_NOTIFY_SIZE	500
+
+void mca_event_report_multiple_uevent(const struct mca_event_notify_data *n_data, int count);
+
 struct mca_event_dev {
 	struct device *dev;
 	struct kobject *sysfs_ne;
@@ -84,6 +90,62 @@ void mca_event_block_notify(unsigned int type, unsigned long event, void *data)
 	mutex_unlock(&l_dev->block_notify_mutex);
 }
 EXPORT_SYMBOL(mca_event_block_notify);
+
+void mca_event_report_multiple_uevent(const struct mca_event_notify_data *n_data, int count)
+{
+	struct mca_event_dev *l_dev = g_mca_event_dev;
+	char *buf;
+	char **envp;
+	size_t i;
+	int ret;
+
+	if (!l_dev || !l_dev->sysfs_ne) {
+		pr_err("l_dev or sysfs_ne is null\n");
+		return;
+	}
+
+	if (!n_data || count <= 0) {
+		pr_err("Invalid params\n");
+		return;
+	}
+
+	buf = kcalloc(count, MCA_EVENT_NOTIFY_SIZE, GFP_KERNEL);
+	if (!buf)
+		return;
+
+	envp = kcalloc(count + 1, sizeof(char *), GFP_KERNEL);
+	if (!envp) {
+		kfree(buf);
+		return;
+	}
+
+	for (i = 0; i < count; i++) {
+		if (!n_data[i].event) {
+			pr_err("n_data[%d] event is null\n", (int)i);
+			goto out;
+		}
+
+		if (n_data[i].event_len >= MCA_EVENT_NOTIFY_SIZE) {
+			pr_err("n_data[%d] event_len is invalid\n", (int)i);
+			goto out;
+		}
+
+		memcpy(buf + i * MCA_EVENT_NOTIFY_SIZE, n_data[i].event, n_data[i].event_len);
+		pr_info("receive uevent_bufs[%d] %d, %s\n", (int)i, n_data[i].event_len,
+			buf + i * MCA_EVENT_NOTIFY_SIZE);
+		envp[i] = buf + i * MCA_EVENT_NOTIFY_SIZE;
+	}
+
+	envp[count] = NULL;
+	ret = kobject_uevent_env(l_dev->sysfs_ne, KOBJ_CHANGE, envp);
+	if (ret < 0)
+		pr_err("notify uevent fail, ret=%d\n", ret);
+
+out:
+	kfree(buf);
+	kfree(envp);
+}
+EXPORT_SYMBOL(mca_event_report_multiple_uevent);
 
 void mca_event_report_uevent(const struct mca_event_notify_data *n_data)
 {

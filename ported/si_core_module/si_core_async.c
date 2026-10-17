@@ -69,7 +69,7 @@ EXPORT_SYMBOL_GPL(get_async_proto_version);
 
 /* 'async_si_buffer' return the available async buffer in the output buffer. */
 
-struct si_buffer async_si_buffer(struct si_object_invoke_ctx *oic) PA_PROMOTED(async_si_buffer, 13117605046560047247);
+struct si_buffer async_si_buffer(struct si_object_invoke_ctx *oic) PA_PROMOTED(async_si_buffer, 1634875710961754174);
 struct si_buffer async_si_buffer(struct si_object_invoke_ctx *oic)
 {
 	int i;

@@ -236,7 +236,13 @@ struct task_struct *binder_buff_owner(size_t *free_async_space)
 	return proc->tsk;
 }
 
+#ifdef BINDER_GKI_SHOULD_FAIL
+/* 6.6.144 GKI declares the hook with an extra `bool *should_fail`; kCFI needs the probe type to match it (NOT stock-equivalent) */
+void mi_binder_alloc_new_buf_locked(void *data, size_t size, size_t *free_async_space, int is_async,
+				    bool *should_fail)
+#else
 void mi_binder_alloc_new_buf_locked(void *data, size_t size, size_t *free_async_space, int is_async)
+#endif
 {
 	struct task_struct *owner;
 
@@ -276,10 +282,9 @@ void mi_binder_transaction(void *data, struct binder_proc *target_proc, struct b
 		char desc[TOKEN_BUFF_SIZE] = { 0 };
 		struct task_struct *task;
 		size_t len, i;
-		u32 flags;
 
-		flags = tr->flags;
-		if (!target_proc || !(flags & TF_ONE_WAY))
+		/* codegen hint: the stock keeps a full 32-bit load here (no ldrb narrowing) */
+		if (!target_proc || !(*(volatile u32 *)&tr->flags & TF_ONE_WAY))
 			return;
 		if (task_uid(target_proc->tsk).val < 10001)
 			return;
@@ -290,19 +295,26 @@ void mi_binder_transaction(void *data, struct binder_proc *target_proc, struct b
 		len = min_t(size_t, tr->data_size, TOKEN_BUFF_SIZE);
 		if (copy_from_user(token, (void __user *)tr->data.ptr.buffer, len))
 			return;
-		if (len >= TOKEN_OFFSET + 2) {
-			char *p = token + TOKEN_OFFSET, *q = desc;
+		/* codegen hints (g4h): the trip count is computed BEFORE the guard (then the post-loop `i >= 140` check keeps the stock closed form
+		 * `len - 18 >= 0x116`; computed inside the guard the compiler proves it dead), and the guard has probability 0.1 (the loop goes out of line
+		 * AND comes first in the cold tail like the stock; unlikely() = too cold, the loop block ends up after the fortify block) */
+		{
 			size_t cnt = (len - (TOKEN_OFFSET + 2)) / 2 + 1;
 
-			for (i = 0; i < cnt; i++) {
-				if (!*p)
-					break;
-				*q++ = *p;
-				p += 2;
+			if (__builtin_expect_with_probability(len >= TOKEN_OFFSET + 2, 1, 0.1)) {
+				char *p = token + TOKEN_OFFSET, *q = desc;
+
+				for (i = 0; i < cnt; i++) {
+					if (!*p)
+						goto out;	/* a NUL ends the token and skips the overflow check */
+					*q++ = *p;
+					p += 2;
+				}
+				if (i >= TOKEN_BUFF_SIZE)
+					desc[TOKEN_BUFF_SIZE - 1] = 0;
 			}
-			if (i >= TOKEN_BUFF_SIZE)
-				desc[TOKEN_BUFF_SIZE - 1] = 0;
 		}
+out:
 		printk(KERN_ERR "millet_kernel calleruid:%d callerPid:%d targetUid:%d targetPid:%d  code:%d  desc:%s",
 		       task_uid(proc->tsk).val, proc->tsk->tgid, task_uid(target_proc->tsk).val,
 		       target_proc->tsk->tgid, tr->code, desc);
@@ -370,7 +382,11 @@ static int __init init_binder_gki(void)
 {
 	pr_err("enter init_binder_gki func!\n");
 	/* the stock (6.6.57 headers) probe has 4 arguments, the 6.6.144 hook has an extra `bool *should_fail`: keep the stock type */
+#ifdef BINDER_GKI_SHOULD_FAIL
+	register_trace_android_vh_binder_alloc_new_buf_locked(mi_binder_alloc_new_buf_locked, NULL);
+#else
 	register_trace_android_vh_binder_alloc_new_buf_locked((void *)mi_binder_alloc_new_buf_locked, NULL);
+#endif
 	register_trace_android_vh_binder_reply(mi_binder_replay, NULL);
 	register_trace_android_vh_binder_trans(mi_binder_transaction, NULL);
 	register_trace_android_vh_binder_wait_for_work(mi_binder_wait_for_work, NULL);

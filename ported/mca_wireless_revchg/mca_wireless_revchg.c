@@ -250,6 +250,15 @@ static int mca_wireless_rev_download_firmware(void)
 	event_data.event_len = len;
 	mca_event_report_uevent(&event_data);
 	ret = platform_class_wireless_download_fw(WIRELESS_ROLE_MASTER);
+	if (ret) {
+		const char *fail_info = NULL;
+
+		if (platform_class_wireless_get_fw_upgrade_fail_info(WIRELESS_ROLE_MASTER, &fail_info) != -EOPNOTSUPP) {
+			if (!fail_info)
+				fail_info = "Unknown";
+			mca_charge_mievent_report(0x24, &fail_info, 1);
+		}
+	}
 	return ret;
 }
 
@@ -336,9 +345,9 @@ int mca_wireless_rev_update_fw_version(int cmd)
 	struct mca_event_notify_data event_data = { 0 };
 	int power_good = 0;
 	int usb_online = 0, rsoc = 0, vcell = 0;
+	struct mca_wireless_revchg *info = g_wls_rev_info;
 	bool fw_revchg_notify = true;
 	int cp_mode = 0;
-	struct mca_wireless_revchg *info = g_wls_rev_info;
 
 	if (!info)
 		return -1;
@@ -815,12 +824,14 @@ int mca_wireless_rev_enable_reverse_charge(bool enable)
 {
 	struct mca_wireless_revchg *info = g_wls_rev_info;
 	int power_good = 0;
-	int pen_hall3;
-	int pen_hall4;
 	int ret = 0;
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data = { 0 };
 	int len;
+	int cp_mode = 0;
+	int cp_delay;
+	int pen_hall3;
+	int pen_hall4;
 
 	if (!info)
 		return -1;
@@ -894,20 +905,30 @@ int mca_wireless_rev_enable_reverse_charge(bool enable)
 
 #line 1002
 		mca_log_err("start reverse_charge_config_work\n");
+		platform_class_cp_get_mode(CP_ROLE_MASTER, &cp_mode);
+		cp_delay = (cp_mode & 4) ? 5000 : 0;
 		if (info->support_tx_only)
 			schedule_delayed_work(&info->reverse_charge_config_work, msecs_to_jiffies(0));
 		else
-			schedule_delayed_work(&info->reverse_charge_config_work, msecs_to_jiffies(200));
-		schedule_delayed_work(&info->tx_ping_timeout_work, msecs_to_jiffies(REVERSE_PING_TIMEOUT_TIMER));
+			schedule_delayed_work(&info->reverse_charge_config_work, msecs_to_jiffies(200 + cp_delay));
+		schedule_delayed_work(&info->tx_ping_timeout_work, msecs_to_jiffies(REVERSE_PING_TIMEOUT_TIMER + cp_delay));
 		schedule_delayed_work(&info->monitor_work, msecs_to_jiffies(300));
 		if (info->support_tx_only)
 			schedule_delayed_work(&info->pen_place_err_check_work, msecs_to_jiffies(REVERSE_PPE_TIMEOUT_TIMER));
+		mca_event_block_notify(0, 4, &enable);
 	} else {
-		mca_log_err("close");
+#line 1016
+		mca_log_err("close reverse charge");
 		if (!info->proc_data.wireless_reverse_closing) {
+			mca_event_block_notify(0, 4, &enable);
 			info->proc_data.wireless_reverse_closing = true;
 			mca_charge_mievent_set_state(MIEVENT_STATE_PLUG, 0);
 			cancel_delayed_work_sync(&info->monitor_work);
+			if (!info->proc_data.revchg_config_close) {
+				cancel_delayed_work_sync(&info->reverse_charge_config_work);
+				if (info->support_tx_only)
+					cancel_delayed_work_sync(&info->pen_place_err_check_work);
+			}
 			ret |= platform_class_wireless_enable_reverse_chg(WIRELESS_ROLE_MASTER, false);
 #line 1028
 			mca_log_err("start reverse_charge_config\n");

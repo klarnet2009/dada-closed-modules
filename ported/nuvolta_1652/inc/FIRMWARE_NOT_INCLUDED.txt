@@ -1,0 +1,2 @@
+fw_update_nu1652.h and fw_update_nu1661.h (fw_data_1652[2][32768], fw_data_1661[1][32768]) are third-party wireless-charging IC firmware arrays.
+They are NOT published here. The driver code is equivalent to the stock module, but to build it you must generate these two headers yourself from the .data of your own stock nuvolta_1652.ko.

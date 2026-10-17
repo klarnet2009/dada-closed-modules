@@ -106,7 +106,12 @@ const char *product_name_get(void)
 		case 9: name = "piano"; break;
 		case 10: name = "yupei"; break;
 		case 11: name = "annibale"; break;
+		case 12: name = "warsaw"; break;
 		}
+		break;
+	case 659:
+		if (project == 13)
+			name = "darwin";
 		break;
 	}
 	return name;

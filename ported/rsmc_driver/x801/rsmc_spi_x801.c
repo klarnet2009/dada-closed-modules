@@ -38,7 +38,7 @@
 #define DELAY_100_MS 100
 #define SPI_READ_RETRY_TIME 5
 
-struct smc_core_data *g_smc_core PA_PROMOTED(g_smc_core, 11734744625934473405) = NULL;
+struct smc_core_data *g_smc_core PA_PROMOTED(g_smc_core, 7801521484132415741) = NULL;
 
 struct smc_core_data *smc_get_core_data_x801(void)
 {
@@ -352,7 +352,7 @@ static int smc_setup_gpio(struct smc_core_data *cd)
 	return 0;
 }
 
-void smc_free_gpio(struct smc_core_data *cd) PA_PROMOTED(smc_free_gpio, 11734744625934473405);
+void smc_free_gpio(struct smc_core_data *cd) PA_PROMOTED(smc_free_gpio, 7801521484132415741);
 void smc_free_gpio(struct smc_core_data *cd)
 {
 	if (cd == NULL)
@@ -375,7 +375,7 @@ void smc_free_gpio(struct smc_core_data *cd)
 		gpio_free(cd->gpios.irq_gpio);
 }
 
-void rsmc_tcxo_power_free(struct smc_core_data *cd) PA_PROMOTED(rsmc_tcxo_power_free, 11734744625934473405);
+void rsmc_tcxo_power_free(struct smc_core_data *cd) PA_PROMOTED(rsmc_tcxo_power_free, 7801521484132415741);
 void rsmc_tcxo_power_free(struct smc_core_data *cd)
 {
 	struct rsmc_power_supply *power = NULL;
@@ -946,6 +946,43 @@ int smc_parse_config_x801(struct device_node *smc_node,
 	return 0;
 }
 
+int is_pic_mode;
+long long current_Num;
+unsigned char current_ServerID;
+int is_sending;
+int is_sent_last;
+
+static ssize_t rsmc_pic_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return 0;
+}
+
+static ssize_t rsmc_pic_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	if (buf[0] == '1') {
+		is_pic_mode = 1;
+		printk(KERN_ERR"Set rsmc_pic to 1\n");
+	} else if (buf[0] == '2') {
+		is_pic_mode = 2;
+		printk(KERN_ERR"Set rsmc_pic to 2\n");
+	} else {
+		is_pic_mode = 0;
+		printk(KERN_ERR"Set rsmc_pic to 0\n");
+	}
+	return count;
+}
+
+static DEVICE_ATTR(rsmc_pic, 0664, rsmc_pic_show, rsmc_pic_store);
+
+static struct attribute *dev_attrs[] = {
+	&dev_attr_rsmc_pic.attr,
+	NULL,
+};
+
+static struct attribute_group dev_attr_group = {
+	.attrs = dev_attrs,
+};
+
 static int smc_probe(struct spi_device *sdev)
 {
 	struct smc_core_data *cd = NULL;
@@ -970,6 +1007,9 @@ static int smc_probe(struct spi_device *sdev)
 	if (rc != EOK)
 		return -ENODEV;
 	g_smc_core = cd;
+	rc = sysfs_create_group(&sdev->dev.kobj, &dev_attr_group);
+	if (rc < 0)
+		printk(KERN_INFO"sysfs_create_group failed\n");
 	printk(KERN_INFO"%s: out\n", __func__);
 	return 0;
 }
@@ -982,6 +1022,7 @@ static void smc_remove(struct spi_device *sdev)
 	mutex_destroy(&cd->spi_mutex);
 	kfree(cd);
 	cd = NULL;
+	sysfs_remove_group(&sdev->dev.kobj, &dev_attr_group);
 }
 
 const struct of_device_id g_rsmc_psoc_match_table_x801[] = {
@@ -997,7 +1038,7 @@ static const struct spi_device_id g_rsmc_device_id_x801[] = {
 
 MODULE_DEVICE_TABLE(spi, g_rsmc_device_id_x801);
 
-struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 11734744625934473405) = {
+struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 7801521484132415741) = {
 	.probe = smc_probe,
 	.remove = smc_remove,
 	.id_table = g_rsmc_device_id_x801,
@@ -1009,8 +1050,8 @@ struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 1173474462593
 	},
 };
 
-const char pa_str62[] PA_SYM(".str.62.llvm.11734744625934473405") = KERN_INFO"%s: call spi_register_driver ret %d";
-const char pa_fn_spi_init[] PA_SYM("__func__.rsmc_spi_init_x801.llvm.11734744625934473405") = "rsmc_spi_init_x801";
+const char pa_str62[] PA_SYM(".str.62.llvm.7801521484132415741") = KERN_INFO"%s: call spi_register_driver ret %d";
+const char pa_fn_spi_init[] PA_SYM("__func__.rsmc_spi_init_x801.llvm.7801521484132415741") = "rsmc_spi_init_x801";
 
 int rsmc_spi_init_x801(void)
 {

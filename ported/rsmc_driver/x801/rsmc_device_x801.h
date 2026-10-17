@@ -101,5 +101,12 @@ void up_spi_sema(void);
 void rsmc_start_spi_recv_timer(void);
 bool get_chip_on_status(void);
 
+/* OS4 (HyperOS 4.0) "pic mode" state, defined in rsmc_device_x801.c */
+extern int is_pic_mode;
+extern long long current_Num;
+extern unsigned char current_ServerID;
+extern int is_sending;
+extern int is_sent_last;
+
 #endif /* RSMC_DEVICE_H */
 

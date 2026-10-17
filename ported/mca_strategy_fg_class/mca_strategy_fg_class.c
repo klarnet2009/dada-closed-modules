@@ -18,7 +18,7 @@
  */
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <mca/strategy/strategy_fg_class.h>
+#include "strategy_fg_class_os4.h"
 
 static struct strategy_fg_class_info g_stg_fg_class_info;
 
@@ -207,6 +207,15 @@ int strategy_class_fg_get_rm(int *rm)
 }
 EXPORT_SYMBOL(strategy_class_fg_get_rm);
 
+int strategy_class_fg_get_comp_rm(int *comp_rm)
+{
+	if (is_invalid_ops(strategy_fg_get_comp_rm))
+		return -1;
+
+	return strategy_fg_class_ops_with_one_para(strategy_fg_get_comp_rm, comp_rm);
+}
+EXPORT_SYMBOL(strategy_class_fg_get_comp_rm);
+
 int strategy_class_fg_get_fcc(int *fcc)
 {
 
@@ -216,6 +225,15 @@ int strategy_class_fg_get_fcc(int *fcc)
 	return strategy_fg_class_ops_with_one_para(strategy_fg_get_fcc, fcc);
 }
 EXPORT_SYMBOL(strategy_class_fg_get_fcc);
+
+int strategy_class_fg_get_comp_fcc(int *comp_fcc)
+{
+	if (is_invalid_ops(strategy_fg_get_comp_fcc))
+		return -1;
+
+	return strategy_fg_class_ops_with_one_para(strategy_fg_get_comp_fcc, comp_fcc);
+}
+EXPORT_SYMBOL(strategy_class_fg_get_comp_fcc);
 
 int strategy_class_fg_is_chip_ok(void)
 {
@@ -281,6 +299,15 @@ int strategy_class_fg_get_temp_offset_flag(int *temp_offset_flag)
 	return strategy_fg_class_ops_with_one_para(strategy_fg_get_temp_offset_flag, temp_offset_flag);
 }
 EXPORT_SYMBOL(strategy_class_fg_get_temp_offset_flag);
+
+int strategy_class_fg_set_allow_new_soc_smooth(int allow)
+{
+	if (is_invalid_ops(strategy_fg_set_allow_new_soc_smooth))
+		return -1;
+
+	return strategy_fg_class_ops_with_one_para(strategy_fg_set_allow_new_soc_smooth, allow);
+}
+EXPORT_SYMBOL(strategy_class_fg_set_allow_new_soc_smooth);
 
 static struct platform_driver strategy_fg_class_driver = {
 	.driver	= {

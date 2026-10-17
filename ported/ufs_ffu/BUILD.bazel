@@ -1,0 +1,23 @@
+load("/<build-dir>", "ddk_module")
+
+# Xiaomi UFS field firmware update (stock: vendor_ramdisk/ufs_ffu.ko). The ~25 MB of third-party UFS firmware images of the stock
+# module are NOT in this tree: ufs_ffu_blobs.S only reserves the symbols (zero filled placeholder, NEVER flash such a build).
+ddk_module(
+    name = "ufs_ffu",
+    srcs = [
+        "ufs_ffu_main.c",
+        "ufs_ffu_blobs.S",
+        "ufs_ffu_blobs.h",
+        "ufs_ffu_table.h",
+    ],
+    out = "ufs_ffu.ko",
+    local_defines = ["CONFIG_LTO=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    defconfig = "ufs_ffu_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_g4:os4_ufs_qcom",  # mi_scsi_execute_cmd (forged OS4 CRC)
+        "//re/stubs_g4:os4_qcom-reboot-reason",  # ufs_ffu_reboot_reason_reboot (forged OS4 CRC)
+    ],
+)

@@ -7,7 +7,7 @@
 #include <linux/kobject.h>
 
 /* Default refill mark for every page pool. */
-#define MI_DYNAMIC_POOL_LOW_MARK_PERCENT 40UL
+#define MI_DYNAMIC_POOL_LOW_MARK_PERCENT 80UL
 /* The minimum interval to awake the refill_worker. */
 #define MI_DYNAMIC_POOL_REFILL_MIN_INTERVAL_MS 300
 /*
@@ -20,7 +20,11 @@
 /* Default threshold of the system to use the reserved memory. */
 #define MI_DYNAMIC_POOL_DEFAULT_DIRECT_RELCAIM_THRESHOLD_MB 11UL
 /* Default limit for every process to use the reserved memory. */
-#define MI_DYNAMIC_POOL_OOM_DEFAULT_LOW_PERCENT 10
+#define MI_DYNAMIC_POOL_OOM_DEFAULT_LOW_PERCENT 7
+/* Default limit for the key threads of system_server. */
+#define MI_DYNAMIC_POOL_SYSTEM_SERVER_KEY_THREAD_LOW_PERCENT 15
+/* Cold start: every process may use the pool above this percent of the order-0 high mark. */
+#define MI_DYNAMIC_POOL_COLD_START_PERCENT 70
 /* Max retries for first refill. */
 #define MI_DYNAMIC_POOL_MAX_FIRST_REFILL_RETRIES 16
 
@@ -54,8 +58,9 @@ struct proc_node {
 
 static gfp_t order_flags[] = {LOW_ORDER_GFP, HIGH_ORDER_GFP, HIGH_ORDER_GFP,
 	HIGH_ORDER_GFP};
-static const unsigned int orders[] = {0, 1, 4, 5}; /* Orders for mi_mempool to reserve. */
-static const unsigned int high_mark_mb[] = {32, 1, 1, 1};/* Reserved upper limit */
+static const unsigned int orders[] __attribute__((section(".rodata.adj_whitelist"))) = {0, 1, 4, 5}; /* Orders for mi_mempool to reserve. */
+static unsigned int high_mark_mb[] = {64, 1, 1, 1};/* Reserved upper limit */
+static const unsigned int direct_reclaim_mark_mb[] = {17, 1, 1, 1};
 static unsigned int order_map[MAX_ORDER + 1];
 static const unsigned int refill_limited_order[] = {4, 5};
 #define NUM_ORDERS ARRAY_SIZE(orders)
@@ -63,17 +68,24 @@ static const unsigned int refill_limited_order[] = {4, 5};
 #define INVALID_ADJ -2000
 /* The comm of processes in  whitelist. */
 static char *comm_whitelist[] = {"composer", "surfaceflinger",
-		"com.miui.home", "com.android.systemui", "system_server",
-		".globallauncher", NULL};
-#define WHITELIST_LEN (ARRAY_SIZE(comm_whitelist) - 1)
-static int comm_whitelist_sizes[WHITELIST_LEN];
+		"com.miui.home", "ndroid.systemui", "system_server",
+		".globallauncher", "droid.bluetooth", "comm_direct_reclaim",
+		"app_main", NULL};
+#define COMM_WHITELIST_LEN (ARRAY_SIZE(comm_whitelist) - 1)
+static int comm_whitelist_sizes[COMM_WHITELIST_LEN];
 /* The oom_adj_score of processes in  whitelist. */
-static int adj_whitelist[] = {-1000, -1000,  INVALID_ADJ, INVALID_ADJ, -900,
-			INVALID_ADJ};
+static const int adj_whitelist[] __attribute__((section(".rodata.adj_whitelist"))) = {-1000, -1000, INVALID_ADJ, INVALID_ADJ, -900,
+			INVALID_ADJ, INVALID_ADJ, -3000, INVALID_ADJ, INVALID_ADJ};
+/* Pids (written to the sysfs node "pids") which are in the whitelist as well. */
+#define PID_WHITELIST_LEN 5
+static int pid_whitelist[PID_WHITELIST_LEN];
+static bool invalid_pid_whitelist[PID_WHITELIST_LEN];
+#define WHITELIST_LEN (COMM_WHITELIST_LEN + PID_WHITELIST_LEN)
+static int system_server_id = -1;
+static int system_server_key_thread_low_mark = -1;
 /* Process use limit policy  */
-static struct oom_low_mark_policy oom_low_mark_policys[] = {{1, -1,
-	MI_DYNAMIC_POOL_LOW_MARK_PERCENT}, {0, 4, 60},
-        {4, -1, 100}, {5, -1, 100}};
+static struct oom_low_mark_policy oom_low_mark_policys[] = {{1, -1, 80},
+	{0, 4, 15}, {0, 7, 70}, {0, 8, 80}, {4, -1, 100}, {5, -1, 100}};
 
 enum mi_mempool_config {
 	NEED_PROCESS_USE_COUNT = 1,
@@ -100,6 +112,7 @@ struct mi_dynamic_page_pool {
 	atomic_t oom_use_count;
 	int low_mark;
 	int high_mark;
+	int direct_reclaim_mark;
 	ktime_t last_check_watermark_time;
 	int oom_low_mark[WHITELIST_LEN];
 	bool first_filled;
@@ -113,7 +126,10 @@ struct mi_mempool {
 	atomic_long_t last_refill_time;
 	int last_refill_count;
 	int history_refill_count;
-	unsigned long direct_relcaim_pages_threshold;
+	/* Below this free page count the whitelist may always use the pool. */
+	unsigned long try_to_free_pages_threshold;
+	/* -1: use max(try_to_free_pages_threshold, min watermark + 10MB). */
+	unsigned long direct_reclaim_threshold;
 	bool has_lowmark_pool;
 	bool refill_check_wakeup;
 	/* Used for protecting refill_worker_running. */

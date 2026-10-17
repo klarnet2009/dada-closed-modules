@@ -20,12 +20,157 @@
 #include <linux/ktime.h>
 #include <linux/hrtimer.h>
 #include <linux/proc_fs.h>
+#include <linux/hashtable.h>
+#include <linux/slab.h>
+#include <linux/seq_file.h>
+#include <linux/spinlock.h>
 #include "millet.h"
 
-#define MAX_CORE_UID 74
 #define MAX_CORE_PID 10
-atomic_t core_uid_rec[MAX_CORE_UID];
-EXPORT_SYMBOL_GPL(core_uid_rec);
+
+/* OS4: the core-uid record is a 64-bucket uid hash table (OS3: atomic_t core_uid_rec[74]); a second identical set records pkg uids */
+struct millet_uid_node {
+	uid_t uid;
+	struct hlist_node node;
+};
+
+#define MILLET_UID_HASH(pfx) \
+static DEFINE_SPINLOCK(pfx##_hash_lock); \
+static DEFINE_HASHTABLE(pfx##_hashtable, 6); \
+ \
+int pfx##_hash_add(uid_t uid) \
+{ \
+	struct millet_uid_node *e; \
+	unsigned long flags; \
+ \
+	if (!uid) \
+		return -EINVAL; \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each_possible(pfx##_hashtable, e, node, uid) { \
+		if (e->uid == uid) { \
+			spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+			return 0; \
+		} \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	e = kmalloc(sizeof(*e), GFP_KERNEL); \
+	if (!e) \
+		return -ENOMEM; \
+	e->uid = uid; \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_add(pfx##_hashtable, &e->node, uid); \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	return 0; \
+} \
+ \
+int pfx##_hash_del(uid_t uid) \
+{ \
+	struct millet_uid_node *e; \
+	unsigned long flags; \
+ \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each_possible(pfx##_hashtable, e, node, uid) { \
+		if (e->uid == uid) { \
+			hash_del(&e->node); \
+			spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+			kfree(e); \
+			return 0; \
+		} \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	return -ENOENT; \
+} \
+ \
+int pfx##_hash_find(uid_t uid) \
+{ \
+	struct millet_uid_node *e; \
+	unsigned long flags; \
+	int found = 0; \
+ \
+	if (!uid) \
+		return 0; \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each_possible(pfx##_hashtable, e, node, uid) { \
+		if (e->uid == uid) { \
+			found = 1; \
+			break; \
+		} \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	return found; \
+} \
+ \
+int pfx##_hash_find_and_clear(uid_t uid) \
+{ \
+	struct millet_uid_node *e; \
+	unsigned long flags; \
+ \
+	if (!uid) \
+		return 0; \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each_possible(pfx##_hashtable, e, node, uid) { \
+		if (e->uid == uid) { \
+			hash_del(&e->node); \
+			spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+			kfree(e); \
+			return 1; \
+		} \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	return 0; \
+} \
+ \
+void pfx##_hash_clear(void) \
+{ \
+	struct millet_uid_node *e; \
+	struct hlist_node *tmp; \
+	struct hlist_head del_list = HLIST_HEAD_INIT; \
+	unsigned long flags; \
+	int bkt; \
+ \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each_safe(pfx##_hashtable, bkt, tmp, e, node) { \
+		hash_del(&e->node); \
+		hlist_add_head(&e->node, &del_list); \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	hlist_for_each_entry_safe(e, tmp, &del_list, node) { \
+		hlist_del(&e->node); \
+		kfree(e); \
+	} \
+} \
+ \
+void pfx##_hash_show(struct seq_file *m, char *sep) \
+{ \
+	struct millet_uid_node *e; \
+	uid_t uids[128] = { 0 }; \
+	unsigned long flags; \
+	int cnt = 0; \
+	int bkt, i; \
+ \
+	spin_lock_irqsave(&pfx##_hash_lock, flags); \
+	hash_for_each(pfx##_hashtable, bkt, e, node) { \
+		if (cnt < ARRAY_SIZE(uids)) \
+			uids[cnt++] = e->uid; \
+	} \
+	spin_unlock_irqrestore(&pfx##_hash_lock, flags); \
+	for (i = 0; i < cnt; i++) \
+		seq_printf(m, "%d%s", uids[i], sep); \
+}
+
+MILLET_UID_HASH(core_uid)
+EXPORT_SYMBOL_GPL(core_uid_hash_add);
+EXPORT_SYMBOL_GPL(core_uid_hash_del);
+EXPORT_SYMBOL_GPL(core_uid_hash_find);
+EXPORT_SYMBOL_GPL(core_uid_hash_clear);
+EXPORT_SYMBOL_GPL(core_uid_hash_show);
+MILLET_UID_HASH(uid_rec)
+EXPORT_SYMBOL_GPL(uid_rec_hash_add);
+EXPORT_SYMBOL_GPL(uid_rec_hash_del);
+EXPORT_SYMBOL_GPL(uid_rec_hash_find);
+EXPORT_SYMBOL_GPL(uid_rec_hash_find_and_clear);
+EXPORT_SYMBOL_GPL(uid_rec_hash_clear);
+EXPORT_SYMBOL_GPL(uid_rec_hash_show);
 atomic_t core_black_pid_rec[MAX_CORE_PID];
 EXPORT_SYMBOL_GPL(core_black_pid_rec);
 atomic_t core_black_uid_rec[MAX_CORE_PID];
@@ -337,11 +482,9 @@ static int millet_sock_show(struct seq_file *m, void *v)
 	seq_printf(m, "send_fail: %llu\n", total_send_fail);
 	seq_printf(m, "runtime: %llu us\n", total_runtime);
 	seq_printf(m, "core_uid_rec:\n");
-	for (i = 0; i < MAX_CORE_UID; i++) {
-		val = atomic_read(&core_uid_rec[i]);
-		if (val)
-			seq_printf(m, "%d,", val);
-	}
+	core_uid_hash_show(m, ",");
+	seq_printf(m, "\nuid_rec:\n");
+	uid_rec_hash_show(m, "\t");
 	seq_printf(m, "\ncore_black_pid_rec:\n");
 	for (i = 0; i < MAX_CORE_PID; i++) {
 		val = atomic_read(&core_black_pid_rec[i]);
@@ -503,6 +646,8 @@ static int __init millet_init(void)
 		.input = recv_handler,
 	};
 
+	hash_init(core_uid_hashtable);
+	hash_init(uid_rec_hashtable);
 	pr_err("enter millet_init func!\n");
 	millet_sk.sock =
 		netlink_kernel_create(&init_net, NETLINK_MILLET, &cfg);
@@ -529,7 +674,24 @@ static int __init millet_init(void)
 	return RET_OK;
 }
 
-late_initcall(millet_init);
+static void __exit millet_exit(void)
+{
+	if (millet_rootdir) {
+		remove_proc_entry("millet_stat", millet_rootdir);
+		remove_proc_entry("version", millet_rootdir);
+		remove_proc_entry("millet", NULL);
+	}
+	if (millet_sk.sock) {
+		netlink_kernel_release(millet_sk.sock);
+		millet_sk.sock = NULL;
+	}
+	uid_rec_hash_clear();
+	core_uid_hash_clear();
+}
 
+late_initcall(millet_init);
+module_exit(millet_exit);
+
+MODULE_DESCRIPTION("Millet smart frozen control subsystem");
 MODULE_LICENSE("GPL");
 // END Power_ProcessFreeze

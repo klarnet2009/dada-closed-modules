@@ -1,4 +1,9 @@
-# xm_power - EQUIVALENT
+# xm_power - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 15 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/xm_power.ko`: compare_ko.py EQUIVALENT (15 functions, 0 exports, 37 imports).
+
+Earlier headline (HyperOS 3 round): xm_power - EQUIVALENT
+
 
 `compare_ko.py`: 15 functions (bytes+relocs), objects, 0 exports, 37 import CRCs, modinfo: all OK; `portC_data.py`: 15 data objects identical, kCFI identical; rodata strings identical.
 

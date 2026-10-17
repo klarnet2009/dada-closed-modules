@@ -21,7 +21,7 @@
 #include <linux/device.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <mca/platform/platform_cp_class.h>
+#include "platform_cp_class_os4.h"
 #include <mca/common/mca_log.h>
 #include <mca/common/mca_parse_dts.h>
 #include <mca/common/mca_sysfs.h>
@@ -297,6 +297,28 @@ int platform_class_cp_set_mode(unsigned int role, int mode)
 }
 EXPORT_SYMBOL(platform_class_cp_set_mode);
 
+int platform_class_cp_enable_vbus_errorhi(unsigned int role, bool en)
+{
+	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
+
+	if (platform_cp_ops_invalid(temp_data, cp_enable_vbus_errorhi))
+		return -1;
+
+	return temp_data->ops->cp_enable_vbus_errorhi(en, temp_data->data);
+}
+EXPORT_SYMBOL(platform_class_cp_enable_vbus_errorhi);
+
+int platform_class_cp_enable_vbus_errorlo(unsigned int role, bool en)
+{
+	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
+
+	if (platform_cp_ops_invalid(temp_data, cp_enable_vbus_errorlo))
+		return -1;
+
+	return temp_data->ops->cp_enable_vbus_errorlo(en, temp_data->data);
+}
+EXPORT_SYMBOL(platform_class_cp_enable_vbus_errorlo);
+
 int platform_class_cp_get_mode(unsigned int role, int *mode)
 {
 	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
@@ -525,7 +547,7 @@ int platform_class_cp_enable_busucp(unsigned int role, bool en)
 }
 EXPORT_SYMBOL(platform_class_cp_enable_busucp);
 
-#line 543 /* keep __LINE__ of the stock logs */
+#line 567 /* keep __LINE__ of the stock logs */
 int platform_class_cp_set_fsw(unsigned int role, int fsw)
 {
 	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
@@ -645,28 +667,6 @@ int platform_class_cp_set_busovp(unsigned int role, int value)
 }
 EXPORT_SYMBOL(platform_class_cp_set_busovp);
 
-int platform_class_cp_set_pmid2out_uvp_dis(unsigned int role, bool en)
-{
-	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
-
-	if (platform_cp_ops_invalid(temp_data, cp_set_pmid2out_uvp_dis))
-		return -1;
-
-	return temp_data->ops->cp_set_pmid2out_uvp_dis(en, temp_data->data);
-}
-EXPORT_SYMBOL(platform_class_cp_set_pmid2out_uvp_dis);
-
-int platform_class_cp_get_pmid2out_uvp_dis(unsigned int role, bool en)
-{
-	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
-
-	if (platform_cp_ops_invalid(temp_data, cp_get_pmid2out_uvp_dis))
-		return -1;
-
-	return temp_data->ops->cp_get_pmid2out_uvp_dis(en, temp_data->data);
-}
-EXPORT_SYMBOL(platform_class_cp_get_pmid2out_uvp_dis);
-
 int platform_class_cp_set_manual_revchg_mode(unsigned int role, bool en)
 {
 	struct platform_cp_class_ops_data *temp_data = platform_cp_class_get_ic_ops(role);
@@ -689,7 +689,7 @@ int platform_class_cp_set_cp_reverse_mode(unsigned int role, bool en)
 }
 EXPORT_SYMBOL(platform_class_cp_set_cp_reverse_mode);
 
-#line 705 /* keep __LINE__ of the stock logs */
+#line 707 /* keep __LINE__ of the stock logs */
 static int platform_cp_dev_parse_dt(struct platform_cp_dev *cp)
 {
 	struct device_node *node = cp->dev->of_node;
@@ -871,7 +871,7 @@ static const char * const cp_dev_list[MCA_CP_MAX_NUM] = {
 	[CP_ROLE_THIRD] = "third",
 };
 
-#line 885 /* keep __LINE__ of the stock logs */
+#line 887 /* keep __LINE__ of the stock logs */
 static void cp_sysfs_create_group(struct platform_cp_dev *cp)
 {
 	const char *cp_dev_name;

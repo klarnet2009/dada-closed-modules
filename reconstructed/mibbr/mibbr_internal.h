@@ -9,6 +9,7 @@ struct proc_dir_entry;
 
 /* tcp_mibbr.c */
 int xm_set_mibbr(struct sock *sk);
+int is_trace_id(int uid);
 int mibbr_register(void);
 void mibbr_unregister(void);
 

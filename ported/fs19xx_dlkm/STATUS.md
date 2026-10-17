@@ -1,4 +1,4 @@
-# fs19xx_dlkm - PARTIAL (127 of 128 functions byte-identical to the OS4 stock; the last difference is ONE instruction in `fsm_firmware_init` (cbz vs tbz); export CRC now identical via a forged member name)
+# fs19xx_dlkm - EQUIVALENT (128 of 128 functions byte-identical to the OS4 stock, compare_ko.py EQUIVALENT; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
 
 Reference: OS4 `<work-dir>` (FourSemi FS19xx smart PA, v4.0.7). History: 98/128, round 1 117/128, round 2 127/128 (real Kleaf/ThinLTO build, `compare_ko.py`).
 Build: `bash work/re/src/g3_tools/g3_build.sh fs19xx_dlkm` (deps `//re/stubs_a17C:stub_machine`, `stub_miev`); quick loop `work/re/src/g3_tools/fs.sh` (ThinLTO emulation + per-function diff, `FD="func ..."`).
@@ -41,3 +41,16 @@ ThinLTO-promoted statics defined as hidden globals with the stock names (`g_fsm_
 ## Update (17.10.2026)
 No change in the count (still 127 of 128, only the `cbz` vs `tbz w8,#0` of `g_fsm_fw_init` in `fsm_firmware_init`). Diagnosis (from `ld.lld -r -mllvm -print-before=codegenprepare -mllvm -filter-print-funcs=fsm_firmware_init`): the stock IR must be the SimplifyCFG-folded form `select(presets==NULL, trunc(load i8) ^ 1, false)` WITHOUT `!range` on the load (the cheap `trunc` condition lowers to `tbz #0`, and is still cheap enough to be folded, which is what hoists `mov w20,#0x350b`).
 Every C form that drops the range (u8 `& 1`, memcpy into a bool, volatile, atomic) is more than 2 IR instructions and is not folded (the `mov w20` is no longer hoisted, 17 words differ); `bool` keeps `!range` and gives `cbz`; `unlikely/likely/!!/(int)/==true/__builtin_unpredictable` give either `cbz` or a worse layout. Not solved.
+
+## Update (17.10.2026)
+No change (still 127 of 128). New facts from the prelink IR (`llvm-dis` of `<work-dir>`): with `bool g_fsm_fw_init` the prelink pass already builds `select(presets==NULL, icmp eq (load i8 !range), 0, false)` (so the hoisted `mov w20,#0x350b` comes from that select, and the load keeps `!range`, hence `cbz`). Tried a 1-bit `bool` bitfield view (`((struct { bool v:1; } *)&g_fsm_fw_init)->v`): the load loses `!range` and a `tbz w8,#0` is emitted, but the condition is `and i8 x,1; icmp eq 0` (2 instructions, over the speculation budget), the select is not formed and the block layout changes (`mov w20,#0x350b` sunk below the `tbz`, shared EINVAL tail moved: 14 lines differ). Reverted; the tree is unchanged. What is still needed: a range-less load that is a single `trunc i8 to i1` (stock IR), e.g. produced by a different declaration of the object than a plain static `bool`.
+
+
+## Update (17.10.2026) - SOLVED, EQUIVALENT
+`fsm_firmware_init` fixed: `g_fsm_fw_init` is now `uint8_t` (was `bool`), and the function loads it into a local BEFORE the presets test:
+`inited = g_fsm_fw_init; if (fsm_get_presets() || (inited & 1)) return MODULE_INITED;` (fsm_firmware.inc.h).
+Why: with the load already in the dominating block, SimplifyCFG's FoldBranchToCommonDest only has to clone the single `and i8 x,1` (within the bonus-instruction budget of 1), so the select/`mov w20,#0x350b` hoist of the stock is formed and the range-less
+`and 1` condition lowers to `tbz w8,#0`; machine sinking puts the `ldrb` back after the `cbnz`. (A plain `& 1` test without the early load was not folded - the earlier rounds' dead end.)
+Real Kleaf/ThinLTO build + compare_ko.py (both the <build-dir> and the g3e copy): function set/bytes/relocs/globals/exports(1)/imports(76)/modinfo all OK -> EQUIVALENT.
+Documented hacks in this module: forged member name `fcrcJLl3fZ3UN6` in `struct fsm_config` (export CRC of fsm_get_config), ThinLTO-promoted statics as hidden `name.llvm.<hash>` globals, the uint8_t+`&1` load form above (codegen hint, ABI unchanged).
+Tools of this round: `work/re/src/g3f_tools` (copies of g3e_tools pointing to <work-dir> `varsearch.py` now needs env STOCK=<stock module>; `vs_fw*.py` = this search).

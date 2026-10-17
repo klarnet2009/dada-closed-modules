@@ -268,7 +268,7 @@ int mi_idletimer_tg_checkentry_v1(mi_idletimer_tg_info *info)
 		INIT_WORK(&info->timer->work, idletimer_tg_work);
 
 		timer_setup(&info->timer->timer, idletimer_tg_expired, 0);
-		mod_timer(&info->timer->timer, msecs_to_jiffies(info->timeout * 1000) + jiffies);
+		mod_timer(&info->timer->timer, msecs_to_jiffies(info->timer->timeout * 1000) + jiffies);
 	}
 
 	mutex_unlock(&list_mutex);

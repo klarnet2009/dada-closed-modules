@@ -1,4 +1,9 @@
-# mca_charge_mievent - EQUIVALENT (port task)
+# mca_charge_mievent - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS4 stock has 13 more plug-type MiSight events (event table 50 -> 63 entries: plug events 0..54, then the 8 time events 55..62; g_upload_type_plug_info 42 -> 55 entries, all new ones DEFAULT_MAX_COUNT). Decoded from the OS4 .data (g6/mievdec.py): codes 0x362e740b rmFccErr, 0x362e7404 RechgSocErr, 0x362e7405 NotStopChgErr, 0x362e451d ChgBroken, 0x362e73f6 BatteryCov, 0x362e73f7 BatteryOcc, 0x362e48ff/4900/4901 IspLevelOne/Two/Three (chgStatInfo), 0x362e4902 csdFlag, 0x362e4ce1 socJump, 0x362e4ce2 vbatMeanShutdown (chgStatInfo), 0x362e6452 BatteryOverVoltage, with their parameter-name lists; added to mca_charge_mievent.c (table size is now the local MIEVENT_EVENT_NUM = PLUG_TYPE_MAX_NUM + TIME_TYPE_MAX_NUM = 63, the shared stubs header keeps the OS3 CHARGE_DFX_* numbering). All `#line` pins moved by +143 (the stock source grew by 143 lines). HAZARD for other modules: in OS4 the event index of every time-type event is 13 higher than in the OS3 header (BATTERY_CYCLECOUNT 42 -> 55 ... WLS_MAG_CASE_ATTACH 49 -> 62), callers must be built with that numbering. Real Kleaf build vs OS4 stock vendor_ramdisk/mca_charge_mievent.ko: compare_ko.py EQUIVALENT (2 functions, 2 exports, 13 imports); named data objects (the three tables) identical (g6/datacmp.py). Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): mca_charge_mievent - EQUIVALENT (port task)
+
 
 Template: XRING tree work/re/xiaomi-modules/mca/mca_common/mca_charge_mievent.c (function bodies); the event table is NOT from the template (the stock has 50 events, the template 42)
 Result: EQUIVALENT: compiles on 6.6.144; function set (2), bytes + relocs, exports + CRC (2), imports + CRC (13), modinfo (depends mca_log,mca_event,miev), 3 data objects (28000-byte event table + plug/time upload tables) identical

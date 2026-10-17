@@ -18,6 +18,7 @@
 #include <linux/notifier.h>
 #include <linux/string.h>
 #include <linux/jiffies.h>
+#include <linux/delay.h>
 #include <mca/common/mca_log.h>
 #include <mca/common/mca_event.h>
 #include <mca/common/mca_hwid.h>
@@ -47,6 +48,7 @@ enum pwm_fan_speed_level {
 	FAN_SPEED_LEVEL_DBG_LOW,
 	FAN_SPEED_LEVEL_DBG_MED,
 	FAN_SPEED_LEVEL_DBG_HIGH,
+	FAN_SPEED_LEVEL_DBG_TURBO,
 };
 
 struct pwm_fan_speed_adjust_cfg {
@@ -100,8 +102,10 @@ _Static_assert(offsetof(struct pwm_fan_ctx, speed_dynamic_adjust_work) == 304, "
 _Static_assert(offsetof(struct pwm_fan_ctx, ldo_nb) == 88, "ldo_nb");
 
 /* functions not reconstructed yet (see STATUS.md) */
-int pwm_fan_power_on(struct pwm_fan_ctx *ctx, bool on);
-int set_pwn_fan_target_level(struct pwm_fan_ctx *ctx, unsigned int level);
+static int pwm_fan_power_on(struct pwm_fan_ctx *ctx, bool on);
+static int set_pwn_fan_target_level(struct pwm_fan_ctx *ctx, unsigned int level);
+int pwm_reg_config(struct pwm_fan_ctx *ctx, unsigned int duty_percent);
+static int set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty);
 
 static ssize_t fan_sysfs_show(struct device *dev, struct device_attribute *attr, char *buf);
 ssize_t fan_sysfs_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
@@ -118,6 +122,267 @@ static struct attribute *fan_sysfs_attrs[FAN_PROP_MAX + 1];
 static const struct attribute_group fan_sysfs_attr_group = {
 	.attrs = fan_sysfs_attrs,
 };
+
+static int pwm_fan_power_on(struct pwm_fan_ctx *ctx, bool on)
+{
+	int ret;
+
+	if (!ctx->fan_support) {
+#line 68
+		mca_log_err("ctx is NULL or not support\n");
+		return -EINVAL;
+	}
+	if (ctx->fan_enabled == on) {
+#line 73
+		mca_log_err("pwm_fan power mode no change\n");
+		return 0;
+	}
+	if (!ctx->ldo) {
+#line 78
+		mca_log_err("ldo regulator is NULL\n");
+		return -EINVAL;
+	}
+
+	if (on) {
+		ret = regulator_set_voltage(ctx->ldo, ctx->ldo_voltage_uv, INT_MAX);
+		if (ret < 0) {
+#line 84
+			mca_log_err("set ldo voltage failed\n");
+			return ret;
+		}
+		ret = regulator_enable(ctx->ldo);
+		if (ret < 0) {
+#line 89
+			mca_log_err("regulator_enable failed\n");
+			return ret;
+		}
+	} else {
+		ret = regulator_disable(ctx->ldo);
+		if (ret < 0) {
+#line 95
+			mca_log_err("regulator_disable failed\n");
+			return ret;
+		}
+	}
+#line 101
+	mca_log_err("Power %s\n", on ? "ON" : "OFF");
+	ctx->fan_enabled = on;
+	if (!on)
+		ctx->real_speed = 2;
+	return 0;
+}
+
+int pwm_reg_config(struct pwm_fan_ctx *ctx, unsigned int duty_percent)
+{
+	struct pwm_state state;
+	int ret;
+
+	if (!ctx || !ctx->fan_support || !ctx->pwm_dev) {
+#line 115
+		mca_log_err("ctx is NULL or not support\n");
+		return -EINVAL;
+	}
+
+	if (duty_percent > 100) {
+#line 122
+		mca_log_err("Invalid duty_percent: %d, must be %d-%d\n", duty_percent, 0, 100);
+		return -EINVAL;
+	}
+
+	ctx->fan_pwm_state.enabled = duty_percent != 0;
+	ctx->fan_pwm_state.duty_cycle = div_u64(ctx->fan_pwm_state.period * duty_percent, 100);
+	state = ctx->fan_pwm_state;
+#line 137
+	mca_log_err("[Set PWM] period=%llu duty=%llu enable=%d polarity=%d\n", state.period, state.duty_cycle, state.enabled, state.polarity);
+
+	ret = pwm_apply_state(ctx->pwm_dev, &state);
+	if (ret < 0) {
+#line 141
+		mca_log_err("pwm_apply_state failed\n");
+		return ret;
+	}
+
+	{
+		struct pwm_state *cur = &ctx->pwm_dev->state;
+		u64 per = cur->period, du = cur->duty_cycle;
+		int pol = cur->polarity;
+		bool en = cur->enabled;
+
+#line 150
+		mca_log_err("[Set PWM AFTER] period=%llu duty=%llu enable=%d polarity=%d\n", per, du, en, pol);
+	}
+	return ret;
+}
+EXPORT_SYMBOL(pwm_reg_config);
+
+static int __set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty)
+{
+	int ret;
+
+	if (!ctx->fan_support) {
+#line 159
+		mca_log_err("ctx is NULL or not support\n");
+		return -EINVAL;
+	}
+
+#line 164
+	mca_log_err("__set_pwm enter: duty=%lu, cur_duty=%lu, enabled=%d\n", duty, (unsigned long)ctx->pwm_duty, ctx->fan_enabled);
+	if (ctx->pwm_duty == duty) {
+#line 167
+		mca_log_err("pwm duty is same, no need to set\n");
+		return 0;
+	}
+
+	if (!ctx->fan_enabled && duty) {
+		ret = pwm_fan_power_on(ctx, true);
+		if (ret < 0) {
+#line 174
+			mca_log_err("pwm_fan_power_on failed\n");
+			return ret;
+		}
+		if (ctx->gpio_shifter_en >= 0) {
+			gpio_set_value(ctx->gpio_shifter_en, 1);
+#line 180
+			mca_log_err("enable gpio_shifter success\n");
+		}
+		ret = pwm_reg_config(ctx, 0);
+		if (ret < 0) {
+#line 184
+			mca_log_err("pre pwm_reg_config failed\n");
+			return ret;
+		}
+		msleep(100);
+		ret = pwm_reg_config(ctx, duty);
+		if (ret < 0) {
+#line 190
+			mca_log_err("pwm_reg_config failed\n");
+			return ret;
+		}
+	} else if (ctx->fan_enabled && !duty) {
+		ret = pwm_reg_config(ctx, 0);
+		if (ret < 0) {
+#line 196
+			mca_log_err("pwm_reg_config failed\n");
+			return ret;
+		}
+		msleep(100);
+		if (ctx->gpio_shifter_en >= 0) {
+			gpio_set_value(ctx->gpio_shifter_en, 0);
+#line 202
+			mca_log_err("set gpio_shifter_en = 0\n");
+		}
+		ret = pwm_fan_power_on(ctx, false);
+		if (ret < 0) {
+#line 207
+			mca_log_err("pwm_fan_power_on failed\n");
+			return ret;
+		}
+	} else {
+		ret = pwm_reg_config(ctx, duty);
+		if (ret < 0) {
+#line 213
+			mca_log_err("pwm_reg_config failed\n");
+			return ret;
+		}
+		if (!duty && ctx->gpio_shifter_en >= 0) {
+			gpio_set_value(ctx->gpio_shifter_en, 0);
+#line 218
+			mca_log_err("set gpio_shifter_en = 0\n");
+		}
+	}
+
+#line 222
+	mca_log_err("__set_pwm exit: new duty=%lu\n", duty);
+	ctx->pwm_duty = duty;
+	return 0;
+}
+
+static int set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty)
+{
+	int ret;
+
+	if (!ctx->fan_support) {
+#line 231
+		mca_log_err("ctx is NULL or not support\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&ctx->lock);
+	ret = __set_pwm(ctx, duty);
+	mutex_unlock(&ctx->lock);
+	return ret;
+}
+
+static int set_pwn_fan_target_level(struct pwm_fan_ctx *ctx, unsigned int level)
+{
+	int ret;
+
+	if (!ctx->fan_support) {
+#line 265
+		mca_log_err("ctx is NULL or not support\n");
+		return -EINVAL;
+	}
+
+	if (level >= FAN_SPEED_LEVEL_MAX) {
+		if (level > FAN_SPEED_LEVEL_DBG_OFF && level <= FAN_SPEED_LEVEL_DBG_TURBO) {
+			ctx->target_level_dbg = level;
+			level -= FAN_SPEED_LEVEL_DBG_OFF;
+		} else if (level == FAN_SPEED_LEVEL_DBG_OFF) {
+			if (ctx->target_level_dbg == FAN_SPEED_LEVEL_DBG_OFF) {
+#line 286
+				mca_log_err("target_level_dbg is same, no need to set\n");
+				return 0;
+			}
+			level = ctx->target_level;
+			ctx->target_level_dbg = FAN_SPEED_LEVEL_DBG_OFF;
+		} else {
+#line 300
+			mca_log_err("target_level invalid\n");
+			return 0;
+		}
+	} else {
+		if (ctx->target_level_dbg != FAN_SPEED_LEVEL_DBG_OFF) {
+#line 276
+			mca_log_err("target_level_dbg active, target_level not set\n");
+			return 0;
+		}
+		if (ctx->target_level == level) {
+#line 279
+			mca_log_err("target_level is same, no need to set\n");
+			return 0;
+		}
+		ctx->target_level = level;
+	}
+
+	ctx->target_speed = ctx->duty_speed_map[level].speed;
+
+	mutex_lock(&ctx->lock);
+	if ((ctx->fan_enabled && !level) || (!ctx->fan_enabled && level)) {
+		ctx->speed_adjust_cnt = 0;
+		ctx->err_stat_report_cnt = 0;
+		cancel_delayed_work_sync(&ctx->speed_detect_req_work);
+		if (ctx->ldo_type == 1)
+			cancel_delayed_work_sync(&ctx->ldo_status_detect_work);
+		schedule_delayed_work(&ctx->speed_detect_req_work, msecs_to_jiffies(1000));
+		if (ctx->ldo_type == 1)
+			schedule_delayed_work(&ctx->ldo_status_detect_work, msecs_to_jiffies(2000));
+	}
+	mutex_unlock(&ctx->lock);
+
+	ret = set_pwm(ctx, ctx->duty_speed_map[level].duty);
+	if (ret) {
+#line 320
+		mca_log_err("setting speed_level failed!\n");
+		return ret;
+	}
+
+#line 326
+	mca_log_err("level:%d[%d %d], duty:%d, speed:%d, en:%d\n", level, ctx->target_level, ctx->target_level_dbg, ctx->duty_speed_map[level].duty, ctx->target_speed, ctx->fan_enabled);
+	cancel_delayed_work_sync(&ctx->speed_dynamic_adjust_work);
+	if (ctx->fan_enabled)
+		schedule_delayed_work(&ctx->speed_dynamic_adjust_work, msecs_to_jiffies(5000));
+	return 0;
+}
 
 static ssize_t fan_sysfs_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -206,9 +471,10 @@ static void pwm_fan_shutdown(struct platform_device *pdev)
 static int pwm_fan_ldo_notify(struct notifier_block *nb, unsigned long event, void *data)
 {
 	struct pwm_fan_ctx *ctx = container_of(nb, struct pwm_fan_ctx, ldo_nb);
-	char buf[FAN_EVENT_BUF_SIZE] = "MCA_FAN_ERROR_INFO=FAN_LDO_OCP";
-	struct mca_event_notify_data event_data = { .event_len = 30 };
+	char buf[FAN_EVENT_BUF_SIZE] = { 0 };
+	struct mca_event_notify_data event_data = { 0 };
 
+	event_data.event_len = 30;
 	if (!ctx || !ctx->fan_support) {
 #line 708
 		mca_log_err("ctx is NULL or not support\n");
@@ -222,11 +488,96 @@ static int pwm_fan_ldo_notify(struct notifier_block *nb, unsigned long event, vo
 		ctx->target_level_dbg = FAN_SPEED_LEVEL_DBG_OFF;
 		ctx->real_speed = 2;
 		set_pwn_fan_target_level(ctx, 0);
+		memcpy(buf, "MCA_FAN_ERROR_INFO=FAN_LDO_OCP", sizeof("MCA_FAN_ERROR_INFO=FAN_LDO_OCP"));
 		event_data.event = buf;
 		mca_event_report_uevent(&event_data);
 	}
 
 	return NOTIFY_OK;
+}
+
+static int pwm_fan_ldo_init(struct pwm_fan_ctx *ctx)
+{
+	int ret;
+
+	if (!of_find_property(ctx->dev->of_node, "ldo-supply", NULL)) {
+#line 812
+		mca_log_err("Failed to get ldo-supply cfg\n");
+		return -EINVAL;
+	}
+
+	ctx->ldo = devm_regulator_get(ctx->dev, "ldo");
+	if (IS_ERR(ctx->ldo)) {
+		ret = PTR_ERR(ctx->ldo);
+#line 818
+		mca_log_err("Failed to get ldo regulator: %d\n", ret);
+		ctx->ldo = NULL;
+		return ret;
+	}
+
+	ctx->ldo_nb.notifier_call = pwm_fan_ldo_notify;
+	ret = devm_regulator_register_notifier(ctx->ldo, &ctx->ldo_nb);
+	if (ret) {
+#line 825
+		mca_log_err("Failed to register ldo notifier: %d\n", ret);
+		return ret;
+	}
+
+	if (regulator_is_enabled(ctx->ldo)) {
+#line 829
+		mca_log_err("ldo is on, need to turn off\n");
+		ret = regulator_disable(ctx->ldo);
+		if (ret)
+#line 832
+			mca_log_err("Failed to disable ldo: %d\n", ret);
+		msleep(10);
+	}
+
+	ctx->fan_enabled = regulator_is_enabled(ctx->ldo) != 0;
+#line 836
+	mca_log_err("ldo is %s\n", ctx->fan_enabled ? "on" : "off");
+	return 0;
+}
+
+static void ldo_status_detect_work_func(struct work_struct *work)
+{
+	struct pwm_fan_ctx *ctx = container_of(work, struct pwm_fan_ctx, ldo_status_detect_work.work);
+	char buf[FAN_EVENT_BUF_SIZE] = { 0 };
+	struct mca_event_notify_data event_data = { 0 };
+	int mode;
+
+	if (!ctx || !ctx->fan_support) {
+#line 657
+		mca_log_err("ctx is NULL or not support\n");
+		return;
+	}
+
+	if (!ctx->fan_enabled) {
+#line 662
+		mca_log_err("pwm fan is disabled\n");
+		ctx->err_stat_report_cnt = 0;
+		return;
+	}
+
+	if (ctx->target_level_dbg == FAN_SPEED_LEVEL_DBG_OFF && !ctx->target_level) {
+#line 668
+		mca_log_err("target level is 0\n");
+		ctx->err_stat_report_cnt = 0;
+		return;
+	}
+
+	mode = regulator_get_mode(ctx->ldo);
+#line 674
+	mca_log_err("ldo_error flags:%d, cnt:%d\n", mode, ctx->err_stat_report_cnt);
+	if (mode) {
+		ctx->err_stat_report_cnt++;
+		memcpy(buf, "MCA_FAN_ERROR_INFO=FAN_LDO_ERROR", sizeof("MCA_FAN_ERROR_INFO=FAN_LDO_ERROR"));
+		event_data.event = buf;
+		event_data.event_len = 32;
+		mca_event_report_uevent(&event_data);
+	}
+	if (ctx->err_stat_report_cnt <= 2)
+		schedule_delayed_work(&ctx->ldo_status_detect_work, msecs_to_jiffies(2000));
 }
 
 static void speed_detect_req_work_func(struct work_struct *work)
@@ -241,12 +592,15 @@ static void speed_detect_req_work_func(struct work_struct *work)
 		return;
 	}
 
-	if (ctx->target_level_dbg != FAN_SPEED_LEVEL_DBG_OFF || ctx->target_level || ctx->fan_enabled)
+	if (ctx->target_level_dbg != FAN_SPEED_LEVEL_DBG_OFF || ctx->target_level || ctx->fan_enabled) {
 		memcpy(buf, "MCA_FAN_ENABLE=1", sizeof("MCA_FAN_ENABLE=1"));
-	else
+		event_data.event = buf;
+		event_data.event_len = 16;
+	} else {
 		memcpy(buf, "MCA_FAN_ENABLE=0", sizeof("MCA_FAN_ENABLE=0"));
-	event_data.event = buf;
-	event_data.event_len = 16;
+		event_data.event = buf;
+		event_data.event_len = 16;
+	}
 	mca_event_report_uevent(&event_data);
 }
 
@@ -266,7 +620,7 @@ static const struct dev_pm_ops pwm_fan_pm = {
 
 /* temporary: keep the not yet referenced statics alive for the comparison loop */
 static void *const fan_keep[] __used = {
-	fan_sysfs_create_group, pwm_fan_ldo_notify, speed_detect_req_work_func, pwm_fan_remove, pwm_fan_shutdown, (void *)&pwm_fan_pm,
+	fan_sysfs_create_group, pwm_fan_ldo_init, ldo_status_detect_work_func, pwm_fan_cancel_work, set_pwm, set_pwn_fan_target_level, pwm_fan_ldo_notify, speed_detect_req_work_func, pwm_fan_remove, pwm_fan_shutdown, (void *)&pwm_fan_pm,
 };
 
 MODULE_DESCRIPTION("PWM FAN driver");

@@ -1,4 +1,9 @@
-# mi_power - EQUIVALENT
+# mi_power - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 -> OS4 stock differ in 2 of 54 functions (cxvt_state_show, cxvt_stats_sysfs_print): the CX vote array grew from 28 to 29 entries (new constant MAX_CX_DRV=29 in mi_power.c, the DDR vote array keeps MAX_DRV=28; the define replaces a blank line, so __LINE__ values are untouched). Rest identical (sections, exports, imports). Real Kleaf build vs OS4 stock vendor_ramdisk/mi_power.ko: compare_ko.py EQUIVALENT (54 functions, 13 exports, 57 imports).
+
+Earlier headline (HyperOS 3 round): mi_power - EQUIVALENT
+
 
 `compare_ko.py`: 54 functions (bytes+relocs), objects, 13 export CRCs, 57 import CRCs, modinfo: all OK. `work/scripts/portC_data.py`: 41 data objects identical, kCFI words identical (54); rodata strings identical.
 

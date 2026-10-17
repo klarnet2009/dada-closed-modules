@@ -12,7 +12,9 @@ ddk_module(
         "dbitmap.h",
     ],
     out = "binder_gki.ko",
-    local_defines = ["CONFIG_LTO=1", "BINDER_FORGE_CRC=1"],
+    # BINDER_GKI_SHOULD_FAIL=1: the probe takes the 5th argument `bool *should_fail`; g7 (17.10.2026) found that the STOCK probe hash (0x0c6377dc) equals the hash
+    # that vmlinux __traceiter_android_vh_binder_alloc_new_buf_locked checks, i.e. the stock type already has should_fail. Without the define our probe hash is 0x862c7abc (kCFI trap).
+    local_defines = ["CONFIG_LTO=1", "BINDER_FORGE_CRC=1", "BINDER_GKI_SHOULD_FAIL=1"],
     copts = ["-ffunction-sections", "-fdata-sections"],
     defconfig = "binder_gki_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
     kernel_build = "//common:kernel_aarch64",

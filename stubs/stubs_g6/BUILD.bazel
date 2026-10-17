@@ -1,0 +1,5 @@
+load("/<build-dir>", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+# goal-G6: stub providers with the exact OS4 stock export CRCs, named like the stock module (so that modinfo depends= matches)
+
+ddk_module(name = "mca_qcom_smem_stub", srcs = ["mca_qcom_smem_stub.c"], out = "mca_qcom_smem.ko", kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

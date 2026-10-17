@@ -1,4 +1,9 @@
-# charger_partition - EQUIVALENT (36 functions byte-identical, relocations, objects, 19 exports + CRCs, 36 imports + CRCs, modinfo)
+# charger_partition - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 36 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/charger_partition.ko`: compare_ko.py EQUIVALENT (36 functions, 19 exports, 36 imports). Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): charger_partition - EQUIVALENT (36 functions byte-identical, relocations, objects, 19 exports + CRCs, 36 imports + CRCs, modinfo)
+
 
 Template: XRING `work/re/xiaomi-modules/mca/mca_shared_memory/{charger_partition.c,inc/charger_partition.h}` (kernel API already 6.6: scsi_execute_cmd/exec_args). ~12 builds.
 The dada stock is a later design: the partition blocks are cached in the driver struct and written through.

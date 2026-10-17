@@ -110,7 +110,7 @@ void free_si_object(struct si_object *object)
 }
 EXPORT_SYMBOL_GPL(free_si_object);
 
-struct xarray xa_si_objects PA_PROMOTED(xa_si_objects, 6182029828322236042) = XARRAY_INIT(xa_si_objects, XA_FLAGS_ALLOC);
+struct xarray xa_si_objects PA_PROMOTED(xa_si_objects, 11199766761704967050) = XARRAY_INIT(xa_si_objects, XA_FLAGS_ALLOC);
 
 /* 'get_si_object' and 'put_si_object'. */
 

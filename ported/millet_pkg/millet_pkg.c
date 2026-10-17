@@ -22,12 +22,17 @@
 #include "millet.h"
 
 
-#define MAX_REC_UID 64
-#define MAX_CORE_UID 74
 #define MAX_CORE_PID 10
 #define FREEZEBINDER_UID 111
-static atomic_t uid_rec[MAX_REC_UID];
-extern atomic_t core_uid_rec[MAX_CORE_UID];
+extern int core_uid_hash_add(uid_t uid);
+extern int core_uid_hash_del(uid_t uid);
+extern int core_uid_hash_find(uid_t uid);
+extern void core_uid_hash_clear(void);
+extern int uid_rec_hash_add(uid_t uid);
+extern int uid_rec_hash_del(uid_t uid);
+extern int uid_rec_hash_find_and_clear(uid_t uid);
+extern void uid_rec_hash_clear(void);
+extern void uid_rec_hash_show(struct seq_file *m, char *sep);
 extern atomic_t core_black_pid_rec[MAX_CORE_PID];
 extern atomic_t core_black_uid_rec[MAX_CORE_PID];
 extern int freezebinder_enable;
@@ -46,17 +51,13 @@ extern int init_millet_subsystem(int type);
 
 int pkg_stat_show(struct seq_file *m, void *v)
 {
-	int i;
-
-	for (i = 0; i < MAX_REC_UID; i++)
-		if (atomic_read(&uid_rec[i]))
-			seq_printf(m, "%d\t", atomic_read(&uid_rec[i]));
+	uid_rec_hash_show(m, "\t");
 	seq_printf(m, "\n");
 
 	return 0;
 }
 
-static inline void pkg_add_uid(atomic_t *rec, int max, uid_t uid)
+static void pkg_add_uid(uid_t uid, atomic_t *rec, int max)
 {
 	int i, j;
 	uid_t inner_uid;
@@ -112,106 +113,75 @@ static inline void pkg_del_uid(atomic_t *rec, int max, uid_t uid)
 	return;
 }
 
-static void pkg_clear_all(void)
-{
-	int i;
-
-	for (i = 0; i < MAX_REC_UID; i++)
-		atomic_set(&uid_rec[i], 0);
-
-	freezebinder_enable = 0;
-	for (i = 0; i < MAX_CORE_UID; i++)
-		atomic_set(&core_uid_rec[i], 0);
-	for (i = 0; i < MAX_CORE_PID; i++)
-		atomic_set(&core_black_pid_rec[i], 0);
-	for (i = 0; i < MAX_CORE_PID; i++)
-		atomic_set(&core_black_uid_rec[i], 0);
-
-	return;
-}
-
 int find_and_clear_piduid(uid_t srcuid, struct task_struct *src, uid_t dstuid)
 {
 	int i;
 	int pid;
+	int ret = 1;
 	uid_t appid;
 
 	if (srcuid == 0 || !freezebinder_enable)
-		return 1;
+		goto out;
 
-	for (i = 0; i < MAX_CORE_UID; i++) {
-		if (unlikely(atomic_read(&core_uid_rec[i]) == dstuid)) {
-			if (millet_debug)
-				pr_err("find_and_clear_piduid dstuid srcuid=%d srcpid=%d, dstuid=%d\n",
-					srcuid, src->pid, dstuid);
-			return 1;
-		}
+	ret = core_uid_hash_find(dstuid);
+	if (ret) {
+		if (millet_debug)
+			pr_err("find_and_clear_piduid dstuid srcuid=%d srcpid=%d, dstuid=%d\n",
+				srcuid, src->pid, dstuid);
+		goto out;
 	}
 
 	pid = src->pid;
 	for (i = 0; i < MAX_CORE_PID; i++) {
-		if (unlikely(atomic_read(&core_black_pid_rec[i]) == pid))
-			return 0;
+		if (atomic_read(&core_black_pid_rec[i]) == pid) {
+			ret = 0;
+			goto out;
+		}
 	}
 
 	appid = srcuid % 100000;
 	if (appid >= frozen_uid_min) {
-		for (i = 0; i < MAX_CORE_UID; i++) {
-			if (unlikely(atomic_read(&core_uid_rec[i]) == srcuid)) {
-				if (millet_debug)
-					pr_err("find_and_clear_piduid srcuid srcuid=%d srcpid=%d, dstuid=%d\n",
-						srcuid, src->pid, dstuid);
-				return 1;
-			}
+		ret = core_uid_hash_find(srcuid);
+		if (ret) {
+			if (millet_debug)
+				pr_err("find_and_clear_piduid srcuid srcuid=%d srcpid=%d, dstuid=%d\n",
+					srcuid, src->pid, dstuid);
 		}
-		return 0;
+		goto out;
 	}
 
 	for (i = 0; i < MAX_CORE_PID; i++) {
-		if (unlikely(atomic_read(&core_black_uid_rec[i]) == appid))
-			return 0;
+		if (atomic_read(&core_black_uid_rec[i]) == appid) {
+			ret = 0;
+			goto out;
+		}
 	}
 
 	if (millet_debug)
 		pr_err("find_and_clear_piduid realuid srcuid=%d srcpid=%d, dstuid=%d\n",
 			srcuid, src->pid, dstuid);
-	return 1;
+	ret = 1;
+out:
+	return ret;
 }
 EXPORT_SYMBOL_GPL(find_and_clear_piduid);
-
-static int find_and_clear_uid(uid_t uid)
-{
-	int found = 0;
-	int i = 0;
-	uid_t inner_uid;
-
-	for (i = 0; i < MAX_REC_UID; i++) {
-		inner_uid = atomic_read(&uid_rec[i]);
-		if (unlikely(inner_uid == uid)) {
-			if (atomic_cmpxchg(&uid_rec[i], uid, 0) == uid)
-				found = 1;
-			break;
-		}
-	}
-
-	return found;
-}
 
 static void pkg_recv_hook(void *data, unsigned int len)
 {
 	struct millet_userconf *payload = (struct millet_userconf *) data;
 	struct millet_data mdata;
 	uid_t uid;
+	int ret;
 
 	switch (payload->mod.u_priv.pkg.cmd) {
 	case ADD_UID:
-		pkg_add_uid(uid_rec, MAX_REC_UID, payload->mod.u_priv.pkg.uid);
+		uid_rec_hash_add(payload->mod.u_priv.pkg.uid);
 		break;
 	case DEL_UID:
-		pkg_del_uid(uid_rec, MAX_REC_UID, payload->mod.u_priv.pkg.uid);
+		uid_rec_hash_del(payload->mod.u_priv.pkg.uid);
 		break;
 	case CLEAR_ALL_UID:
-		pkg_clear_all();
+		uid_rec_hash_clear();
 		break;
 	case ADD_CORE_UID:
 		uid = payload->mod.u_priv.pkg.uid;
@@ -222,7 +192,10 @@ static void pkg_recv_hook(void *data, unsigned int len)
 				pr_err("%s : up report failed!\n", __func__);
 			pr_err("freezebinder_enable=%d : set!\n", freezebinder_enable);
 		} else {
-			pkg_add_uid(core_uid_rec, MAX_CORE_UID, uid);
+			ret = core_uid_hash_add(uid);
+			if (ret < 0)
+				pr_err("%s: core_uid_hash_add failed for uid %d, ret=%d\n",
+					__func__, payload->mod.u_priv.pkg.uid, ret);
 		}
 		break;
 	case DEL_CORE_UID:
@@ -231,17 +204,17 @@ static void pkg_recv_hook(void *data, unsigned int len)
 			freezebinder_enable = 0;
 			pr_err("freezebinder_enable=%d : set!\n", freezebinder_enable);
 		} else {
-			pkg_del_uid(core_uid_rec, MAX_CORE_UID, uid);
+			core_uid_hash_del(uid);
 		}
 		break;
 	case ADD_CORE_BLACK_PID:
-		pkg_add_uid(core_black_pid_rec, MAX_CORE_PID, payload->mod.u_priv.pkg.uid);
+		pkg_add_uid(payload->mod.u_priv.pkg.uid, core_black_pid_rec, MAX_CORE_PID);
 		break;
 	case DEL_CORE_BLACK_PID:
 		pkg_del_uid(core_black_pid_rec, MAX_CORE_PID, payload->mod.u_priv.pkg.uid);
 		break;
 	case ADD_CORE_BLACK_UID:
-		pkg_add_uid(core_black_uid_rec, MAX_CORE_PID, payload->mod.u_priv.pkg.uid);
+		pkg_add_uid(payload->mod.u_priv.pkg.uid, core_black_uid_rec, MAX_CORE_PID);
 		break;
 	case DEL_CORE_BLACK_UID:
 		pkg_del_uid(core_black_uid_rec, MAX_CORE_PID, payload->mod.u_priv.pkg.uid);
@@ -295,7 +268,7 @@ static unsigned int pkg_ip4_in(void *priv, struct sk_buff *skb,
 	if (uid < UID_MIN_VALUE)
 		return NF_ACCEPT;
 
-	found = find_and_clear_uid(uid);
+	found = uid_rec_hash_find_and_clear(uid);
 	if (!found)
 		return NF_ACCEPT;
 	data.mod.k_priv.pkg.owner_pid = 0;
@@ -329,7 +302,7 @@ static unsigned int pkg_ip6_in(void *priv, struct sk_buff *skb,
 	if (uid < UID_MIN_VALUE)
 		return NF_ACCEPT;
 
-	found = find_and_clear_uid(uid);
+	found = uid_rec_hash_find_and_clear(uid);
 	if (!found)
 		return NF_ACCEPT;
 
@@ -386,14 +359,10 @@ static struct nf_hook_ops pkg_nf_ops[] = {
 static int __init millet_pkg_init(void)
 {
 	int ret;
-	int i;
 	struct net *net = &init_net;
 
 	freezebinder_enable = 0;
 	pr_err("enter millet_pkg_init func!\n");
-
-	for (i = 0; i < MAX_REC_UID; i++)
-		atomic_set(&uid_rec[i], 0);
 
 	ret = nf_register_net_hooks(net, pkg_nf_ops, ARRAY_SIZE(pkg_nf_ops));
 	if (ret < 0) {

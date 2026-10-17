@@ -1,0 +1,24 @@
+load("/<build-dir>", "ddk_module")
+
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_module(
+    name = "nuvolta_1652",
+    srcs = ["nuvolta_1652.c"] + glob(["inc/*.h", "mca/**/*.h"]),
+    out = "nuvolta_1652.ko",
+    defconfig = "nuvolta_1652_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_DEBUG_FS=1"],
+    includes = ["."],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17B:mca_headers",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_parse_dts",
+        "//re/stubs_a17B/os4:os4_mca_strategy_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_wireless_class",
+        "//re/stubs_mcaA:mca_adsp_glink_stub",
+        "//common:all_headers_aarch64",
+    ],
+)

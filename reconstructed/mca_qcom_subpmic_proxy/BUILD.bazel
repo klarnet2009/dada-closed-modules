@@ -10,7 +10,7 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_g5:mca_headers",
         "//re/stubs_mcaA:mca_log_stub",
         "//re/stubs_mcaA:mca_event_stub",
         "//re/stubs_mcaA:mca_hwid_stub",
@@ -18,7 +18,7 @@ ddk_module(
         "//re/stubs_mcaA:mca_adsp_glink_stub",
         "//re/stubs_mcaA:mca_platform_bc12_class_stub",
         "//re/stubs_mcaA:mca_protocol_qc_class_stub",
-        "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
+        "//re/stubs_g5:st_buckchg_register",
         "//re/stubs_mcaA:mca_platform_cp_class_stub",
         "//re/stubs_mcaA:mca_protocol_pd_class_stub",
         "//re/stubs_mcaA:mca_strategy_class_stub",

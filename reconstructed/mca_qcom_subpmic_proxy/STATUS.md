@@ -1,3 +1,15 @@
+# mca_qcom_subpmic_proxy - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `mca_qcom_subpmic_proxy.ko` (md5 0b26a0a8..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/mca_qcom_subpmic_proxy`) + compare_ko.py (EQUIVALENT).
+
+CHANGED in OS4 and fixed: (1) `struct platform_class_buckchg_ops` grew by one op `int (*set_cp_vendor_id)(void *, int *)` (+656, size 664; kCFI 0x72d0a315 = int(void*,int*)); the import CRC of platform_class_buckchg_ops_register with the reconstructed struct equals the stock OS4 CRC 0x129fc036 (real prototype stub `stubs_g5/stub_buckchg_register.c`, no forging); (2) new function `qcom_subpmic_set_cp_vendor_id()` (log 'set_cp_vendor_id = %d', glink write prop 0x202c, 8 bytes); (3) `struct qcom_subpmic` +8 bytes (new `int sbu_lpd` at +0x314, cid_status at +0x318, kzalloc 0x320); (4) notify ids: new id 11 = sbu_lpd (event 4/0x53), cid_sts is now 12; (5) `qcom_subpmic_notify_change_work` now kfree()s every node (OS3 leaked it); (6) ship mode skips the ovpgate disable also for cp vendor 4 (`chip_vendor != 0 && chip_vendor != 4`); (7) all __LINE__ pins re-derived from the OS4 stock by g5_tools/pin.sh. compare_ko vs OS4: function set (82), bytes, relocations, objects, exports+CRC (3), imports+CRC (51), modinfo all OK. Headers: `work/re/src/stubs_g5/include` (copy of stubs_mcaA platform_buckchg_class.h + the new op).
+
+SAFETY: charging module, community-only source: never flash it and never put it into a ROM build.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # mca_qcom_subpmic_proxy - EQUIVALENT
 
 `compare_ko.py`: function set (81), function bytes, resolved relocations, global objects, exports + CRC (3: `register_hboost_event_notifier`,

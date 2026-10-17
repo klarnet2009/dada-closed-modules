@@ -1,4 +1,9 @@
-# hardwareinfo - EQUIVALENT
+# hardwareinfo - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 4 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_dlkm/hardwareinfo.ko`: compare_ko.py EQUIVALENT (4 functions, 0 exports, 22 imports).
+
+Earlier headline (HyperOS 3 round): hardwareinfo - EQUIVALENT
+
 
 Template: XRING `xiaomi-modules/vendor_stability/hardwareinfo/hardwareinfo.c` (sysfs `/sys/kernel/hardware_info_to_dump/hardw_info`). Compiles unchanged on 6.6.144.
 compare_ko: 4 functions identical, relocations, objects, 0 exports, 22 imports + CRCs, modinfo (`depends=minidump`): all OK -> EQUIVALENT.

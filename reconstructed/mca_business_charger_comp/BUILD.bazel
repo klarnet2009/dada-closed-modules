@@ -1,5 +1,6 @@
 load("/<build-dir>", "ddk_module")
 
+# OS4 build: headers = //re/stubs_g5 (copy of the a17B OS4 mca headers), providers = stubs_mcaB stub_all (HyperOS 3 CRCs; OS4 CRC diffs of the imports are not forged)
 ddk_module(
     name = "mca_business_charger_comp",
     srcs = ["mca_business_charger_comp.c"],
@@ -9,8 +10,9 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_mcaB:mca_headers",
+        "//re/stubs_g5:mca_headers",
         "//re/stubs_mcaB:stub_all",
+        "//re/stubs_g5:st_pps100w",  # OS3-CRC stubs incl. connector_antiburn/lpd_detect; the OS4 import CRC differences are listed in STATUS.md
         "//common:all_headers_aarch64",
     ],
 )

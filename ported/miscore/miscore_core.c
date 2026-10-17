@@ -546,18 +546,18 @@ static unsigned int miscore_input_hook4(void *priv, struct sk_buff *skb,
 		return NF_ACCEPT;
 	if (iph->protocol == IPPROTO_UDP) {
 		if (sk) {
-				MISCORE_DBG("udp_sk:raddr=%pI4,laddr=%pI4,proto=%u,id=%d,len=%d,state=%d\n",
-					    &iph->daddr, &iph->saddr, iph->protocol, ntohs(iph->id),
-					    skb->len, sk->sk_state);
-			} else {
-				MISCORE_DBG("udp_no_sk:raddr=%pI4,laddr=%pI4,proto=%u,id=%d,len=%d\n",
-					    &iph->daddr, &iph->saddr, iph->protocol, ntohs(iph->id),
-					    skb->len);
-				sk = udp_get_sock(skb);
-				ref = sk != NULL;
-				if (!sk)
-					return NF_ACCEPT;
-			}
+			MISCORE_DBG("udp_sk:raddr=%pI4,laddr=%pI4,proto=%u,id=%d,len=%d,state=%d\n",
+				    &iph->daddr, &iph->saddr, iph->protocol, ntohs(iph->id),
+				    skb->len, sk->sk_state);
+		} else {
+			MISCORE_DBG("udp_no_sk:raddr=%pI4,laddr=%pI4,proto=%u,id=%d,len=%d\n",
+				    &iph->daddr, &iph->saddr, iph->protocol, ntohs(iph->id),
+				    skb->len);
+			sk = udp_get_sock(skb);
+			ref = sk != NULL;
+			if (!sk)
+				return NF_ACCEPT;
+		}
 	} else if (iph->protocol != IPPROTO_TCP || !sk) {
 		return NF_ACCEPT;
 	}
@@ -622,17 +622,17 @@ static unsigned int miscore_input_hook6(void *priv, struct sk_buff *skb,
 		return NF_ACCEPT;
 	if (ip6h->nexthdr == IPPROTO_UDP) {
 		if (sk) {
-				MISCORE_DBG("udp6_sk:raddr=%pI6c,laddr=%pI6c,proto=%u,len=%d,state=%d\n",
-					    &ip6h->daddr, &ip6h->saddr, ip6h->nexthdr, skb->len,
-					    sk->sk_state);
-			} else {
-				MISCORE_DBG("udp6_no_sk:raddr=%pI6c,laddr=%pI6c,proto=%u,len=%d\n",
-					    &ip6h->daddr, &ip6h->saddr, ip6h->nexthdr, skb->len);
-				sk = udp6_get_sock(skb);
-				ref = sk != NULL;
-				if (!sk)
-					return NF_ACCEPT;
-			}
+			MISCORE_DBG("udp6_sk:raddr=%pI6c,laddr=%pI6c,proto=%u,len=%d,state=%d\n",
+				    &ip6h->daddr, &ip6h->saddr, ip6h->nexthdr, skb->len,
+				    sk->sk_state);
+		} else {
+			MISCORE_DBG("udp6_no_sk:raddr=%pI6c,laddr=%pI6c,proto=%u,len=%d\n",
+				    &ip6h->daddr, &ip6h->saddr, ip6h->nexthdr, skb->len);
+			sk = udp6_get_sock(skb);
+			ref = sk != NULL;
+			if (!sk)
+				return NF_ACCEPT;
+		}
 	} else if (ip6h->nexthdr != IPPROTO_TCP || !sk) {
 		return NF_ACCEPT;
 	}

@@ -104,7 +104,7 @@
 #define POWER_ERR(fmt, args...)			pr_err("%s %s:  "fmt"", TAGS, __func__,  ##args)
 
 #define MAX_DRV			28
-
+#define MAX_CX_DRV		29	/* OS4: one more CX vote entry (keeps line numbers: replaces a blank line) */
 static LIST_HEAD(wakeup_devices);
 static LIST_HEAD(system_event_recorders);
 static LIST_HEAD(system_dbg_info_list);
@@ -541,7 +541,7 @@ EXPORT_SYMBOL(register_mi_cx_stats_get_ss_vote_info);
 int cxvt_stats_sysfs_print(char *buf)
 {
 
-	struct qcom_stats_cx_vote_info vote_info[MAX_DRV];
+	struct qcom_stats_cx_vote_info vote_info[MAX_CX_DRV];
 	int i;
 	int cnt= 0;
 
@@ -551,11 +551,11 @@ int cxvt_stats_sysfs_print(char *buf)
 		return 0;
 	}
 
-	memset(vote_info, 0, (int)sizeof(struct qcom_stats_cx_vote_info)*MAX_DRV);
+	memset(vote_info, 0, (int)sizeof(struct qcom_stats_cx_vote_info)*MAX_CX_DRV);
 
-	mi_cx_stats_get_ss_vote_info(MAX_DRV, vote_info);
+	mi_cx_stats_get_ss_vote_info(MAX_CX_DRV, vote_info);
 
-	for(i = 0; i < MAX_DRV; i++){
+	for(i = 0; i < MAX_CX_DRV; i++){
 		cnt += sprintf(buf+cnt, "owen DRV: %d, vote: %d \n", i, vote_info[i].level);
 	}
 

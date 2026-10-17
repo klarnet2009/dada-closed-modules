@@ -1,5 +1,8 @@
 # cameramsger - PARTIAL (14 of 22 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4d (17.10.2026): real Kleaf build re-run: function set (22), relocations, objects, imports (53) + CRCs, modinfo OK; 14 of 22 functions identical, 8 differ (read, write, release, ioctl, snd_message, xmi_rvh_select_task_rq_fair, init_module, cam_sched_w_pids). No change made.
+
+
 Re-checked against `<work-dir>` (real Kleaf ThinLTO build). The only OS4 change that mattered for the "everything else" checks: the ThinLTO-promoted object is now named
 `c_msger_dev.llvm.400187243914933332` (was `...12840717646342289955` in HyperOS 3): updated in `cameramsger.c`; after that function set (22), all relocations (resolved targets), global objects, imports (53) + CRCs and modinfo are OK.
 The 8 functions that still differ are the same as before (read/write/release/ioctl/snd_message/xmi_rvh_select_task_rq_fair/init_module/cam_sched_w_pids: register allocation / block layout only).

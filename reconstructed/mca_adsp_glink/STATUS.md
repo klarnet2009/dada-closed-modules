@@ -1,3 +1,15 @@
+# mca_adsp_glink - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `mca_adsp_glink.ko` (md5 450e83ff..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/mca_adsp_glink`) + compare_ko.py (EQUIVALENT).
+
+unchanged since HyperOS 3: no source change; real Kleaf build + compare_ko.py vs the OS4 stock: function set (13), bytes, relocations, global objects, exports+CRC (6), imports+CRC (21), modinfo all OK.
+
+SAFETY: charging module, community-only source: never flash it and never put it into a ROM build.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # mca_adsp_glink - EQUIVALENT
 
 `compare_ko.py`: function set (13), bytes, resolved relocations, global objects, exports+CRC (6), imports+CRC (21), modinfo: all OK.

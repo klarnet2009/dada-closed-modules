@@ -1,4 +1,6 @@
-# tfa98xx_dlkm - BLOCKED (not built): no usable template in the available trees
+# tfa98xx_dlkm - BLOCKED (not built): new template found by g3g (Samsung SM-T545 kernel source, Qualcomm flavour), port not started
+
+g3g 17.10.2026: the Samsung SM-T545 GPL kernel on the build server (`<build-dir>`, `tfa_dsp.c`, `tfa_init.c`, `tfa_container.c`, `tfa98xx.h`, ... 30 `tfa*` files, copied read-only to `work/re/src/tpl_a17C/tfa98xx_t545/`) is the plain regmap/i2c Qualcomm-flavour NXP driver (no MTK glue): 310 of the 389 stock function names exist there (OnePlus MTK tree 300). Missing (79): `tfa9865_*`/`tfa986x_*`/`tfa9873_*`/`tfa9875_*` chip ops, `tfa98xx_{get,set}_{miid,pcm_id}`, `tfa98xx_spksw_gpio_{get,put}`, `tfa98xx_nmode_update_work`, the `dbgfs_*` open handlers, `mievent_report`. The stock driver version string is `v6.13._xiaomi`. Next step: copy that tree into this package, add the Xiaomi parts (machine_dlkm `check/set_smartpa_type`, `miev`), then iterate with `work/re/src/g3g_tools` (copy of the g3e tools, scratch `<work-dir>`; `stock/tfa98xx_dlkm.ko` is there).
 
 Reference: OS4 `<work-dir>` (NXP/Goodix TFA98xx smart PA, 389 functions, imports `miev` + `machine_dlkm`; looked at it, did not iterate).
 

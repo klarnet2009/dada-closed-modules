@@ -154,6 +154,8 @@ static inline void prep_compound_head(struct page *page, unsigned int order)
 	atomic_set(&folio->_entire_mapcount, -1);
 	atomic_set(&folio->_nr_pages_mapped, 0);
 	atomic_set(&folio->_pincount, 0);
+	if (order > 1)
+		INIT_LIST_HEAD(&folio->_deferred_list);
 }
 
 /* Based on prep_compound_tail from mm/internal.h since it is not exported. */
@@ -163,7 +165,7 @@ static inline void prep_compound_tail(struct page *head, int tail_idx)
 
 	p->mapping = TAIL_MAPPING;
 	set_compound_head(p, head);
-	set_page_private(p, 0);
+	p->private = 0;
 }
 
 /* Based on prep_compound_page from mm/page_alloc.c since it is not exported. */
@@ -227,32 +229,51 @@ static inline struct mi_dynamic_page_pool *order_to_pool(int order)
 static int check_whitelist(void)
 {
 	struct proc_node *node = NULL;
+	struct mi_dynamic_page_pool *pool;
 	unsigned long flags;
+	int i, comm_usage;
 
 	if (pg_mi_mempool->config & DEBUG_WHITELIST_CHECK)
 		atomic_inc(&pg_mi_mempool->whitelist_check_num);
+	pool = order_to_pool(0);
+	comm_usage = pool->high_mark * MI_DYNAMIC_POOL_COLD_START_PERCENT / 100;
+	if (pg_mi_mempool->config & DEBUG_WHITELIST_CHECK)
+		pr_info("mi_mempool: cold_start_secne %d comm_usage %d", 0, comm_usage);
+	if (atomic_read(&pool->count) > comm_usage)
+		return 8;
 	spin_lock_irqsave(&proc_tree_lock, flags);
 	node = get_proc_node_by_pid_locked(current->group_leader->pid);
-	spin_unlock_irqrestore(&proc_tree_lock, flags);
-	if (!node) {
-		int i;
+	if (node) {
+		int process_id = node->process_id;
 
-		for (i = 0; comm_whitelist[i]; i++) {
-			if (adj_whitelist[i] == INVALID_ADJ ||
-				adj_whitelist[i] == current->signal->oom_score_adj)
-				if (current->group_leader != NULL
-					&& strncmp(current->group_leader->comm,
-						comm_whitelist[i],
-						comm_whitelist_sizes[i]) == 0) {
-					insert_new_proc_node(current->group_leader->pid,
-						i + 1);
-					return i + 1;
-				}
-		}
-		insert_new_proc_node(current->group_leader->pid, 0);
-		return 0;
+		spin_unlock_irqrestore(&proc_tree_lock, flags);
+		return process_id;
 	}
-	return node->process_id;
+	spin_unlock_irqrestore(&proc_tree_lock, flags);
+	for (i = 0; comm_whitelist[i]; i++) {
+		if (i == 8 || adj_whitelist[i] == -3000)
+			continue;
+		if (adj_whitelist[i] == INVALID_ADJ ||
+			adj_whitelist[i] == current->signal->oom_score_adj)
+			if (current->group_leader != NULL
+				&& strncmp(current->group_leader->comm,
+					comm_whitelist[i],
+					comm_whitelist_sizes[i]) == 0) {
+				insert_new_proc_node(current->group_leader->pid,
+					i + 1);
+				return i + 1;
+			}
+	}
+	for (i = 0; i < PID_WHITELIST_LEN; i++) {
+		if (!invalid_pid_whitelist[i] &&
+			current->group_leader != NULL &&
+			current->group_leader->pid == pid_whitelist[i]) {
+			insert_new_proc_node(current->group_leader->pid, 10 + i);
+			return 10 + i;
+		}
+	}
+	insert_new_proc_node(current->group_leader->pid, 0);
+	return 0;
 }
 
 static struct mi_dynamic_page_pool *check_whitelist_and_order(int order, int *process_id)
@@ -279,6 +300,11 @@ static bool check_watermark_interval(struct mi_dynamic_page_pool *pool)
 
 	delta = ktime_ms_delta(ktime_get(), pool->last_check_watermark_time);
 	return delta < MI_DYNAMIC_POOL_REFILL_MIN_CHECK_INTERVAL_MS;
+}
+
+static void tracing_mark_write(char *buf)
+{
+	trace_puts(buf);
 }
 
 /*
@@ -370,6 +396,7 @@ static enum zone_type mi_dynamic_pool_gfp_zone(gfp_t flags)
 	return z;
 }
 
+/* Return true if it is allowed to refill the pool now. */
 static bool check_watermark(struct mi_dynamic_page_pool *pool)
 {
 	unsigned long mark, free_pages;
@@ -388,11 +415,12 @@ static bool check_watermark(struct mi_dynamic_page_pool *pool)
 		mark += 1 << pool->order;
 		free_pages = zone_page_state(zone, NR_FREE_PAGES);
 
-		if (!mi_dynamic_pool_zone_watermark_ok_safe(zone, pool->order, mark,
+		if (mi_dynamic_pool_zone_watermark_ok_safe(zone, pool->order, mark,
 						classzone_idx)) {
 			if (pg_mi_mempool->config & DEBUG_LOG)
-				pr_info("mi_mempool check_watermark name=%s pool->order=%d "
-					"mark=%lu free_pages=%lu highatomic=%lu cma=%lu", zone->name,
+				pr_info("mi_mempool %s name=%s pool->order=%d "
+					"mark=%lu free_pages=%lu highatomic=%lu cma=%lu",
+					__func__, zone->name,
 					pool->order, mark, free_pages, zone->nr_reserved_highatomic,
 					zone_page_state(zone, NR_FREE_CMA_PAGES));
 			pool->last_check_watermark_time = ktime_get();
@@ -418,7 +446,7 @@ static int mi_dynamic_page_pool_refill(struct mi_dynamic_page_pool *pool)
 	gfp_t gfp_mask = pool->gfp_mask;
 	int count = 0;
 
-	while (mi_dynamic_page_pool_below_highmark(pool) && !check_watermark(pool)) {
+	while (mi_dynamic_page_pool_below_highmark(pool) && check_watermark(pool)) {
 		page = alloc_pages(gfp_mask, pool->order);
 		if (!page)
 			break;
@@ -484,60 +512,6 @@ static unsigned long zone_can_reclaimable_pages(struct zone *zone)
 	return nr;
 }
 
-static bool allow_direct_reclaim(pg_data_t *pgdat)
-{
-	unsigned long free_pages = 0;
-	int i;
-	bool wmark_ok;
-
-	for (i = 0; i <= ZONE_NORMAL; i++) {
-		struct zone *zone = &pgdat->node_zones[i];
-
-		if (!managed_zone(zone))
-			continue;
-		if (!zone_can_reclaimable_pages(zone))
-			continue;
-		free_pages += zone_page_state(zone, NR_FREE_PAGES);
-	}
-	wmark_ok = free_pages > pg_mi_mempool->direct_relcaim_pages_threshold;
-
-	if (pg_mi_mempool->config & DEBUG_LOG)
-		pr_info("mi_mempool allow_direct_reclaim comm=%s pid=%d free_pages=%lu"
-			" threshold=%lu",
-			current->comm, current->pid, free_pages,
-			pg_mi_mempool->direct_relcaim_pages_threshold);
-
-	return wmark_ok;
-}
-
-/*
- * Check if the process may get stuck in try_to_free_pages.
- * It's a approximation of throttle_direct_reclaim in
- * mm/vmscan.c.
- */
-static bool throttle_check(gfp_t gfp_mask)
-{
-	pg_data_t *pgdat = NULL;
-
-	if (current->flags & PF_KTHREAD)
-		goto out;
-	/*
-	 * If a fatal signal is pending, this process should not throttle.
-	 * It should return quickly so it can exit and free its memory
-	 */
-	if (fatal_signal_pending(current))
-		goto out;
-
-	pgdat = NODE_DATA(numa_node_id());
-
-	if (allow_direct_reclaim(pgdat))
-		goto out;
-
-	return true;
-out:
-	return false;
-}
-
 static inline bool check_oom_low_mark(struct mi_dynamic_page_pool *pool, int process_id)
 {
 	return atomic_read(&pool->count) > pool->oom_low_mark[process_id];
@@ -548,20 +522,93 @@ void mi_mempool_alloc_reclaim(void *unused, gfp_t gfp_mask, int order, int alloc
 	int migratetype, struct page **page)
 {
 	int process_id = 0;
-	struct mi_dynamic_page_pool *pool = check_whitelist_and_order(order, &process_id);
+	struct mi_dynamic_page_pool *pool;
+	int wmark_check_result = 0;
+	bool dr_mark_ok, sskey_thread = false, low_mark_suited, skip, not_ss;
+	int i, free_pages = 0, cma_free = 0, highatomic = 0, sfree_pages = 0, min_free = 0;
+	int threshold1, threshold2;
 
-	if (pool && throttle_check(gfp_mask)) {
-		if (check_oom_low_mark(pool, process_id - 1))
-			*page = mi_dynamic_page_pool_alloc(order, pool, gfp_mask, alloc_flags,
-				migratetype, false, false);
-		if (pg_mi_mempool->config & NEED_PROCESS_USE_COUNT) {
-			if (*page)
-				atomic_inc(&pool->process_use_counts
-					[process_id - 1][PROCESS_RECLAIM_SUCCESS]);
-			else
-				atomic_inc(&pool->process_use_counts
-					[process_id - 1][PROCESS_RECLAIM_FAILED]);
+	if (*page)
+		return;
+	pool = check_whitelist_and_order(order, &process_id);
+	if (!pool)
+		return;
+
+	if (!(current->flags & PF_KTHREAD) && !fatal_signal_pending(current)) {
+		pg_data_t *pgdat = NODE_DATA(numa_node_id());
+
+		for (i = 0; i <= ZONE_NORMAL; i++) {
+			struct zone *zone = &pgdat->node_zones[i];
+
+			if (!managed_zone(zone))
+				continue;
+			if (!zone_can_reclaimable_pages(zone))
+				continue;
+			free_pages += zone_page_state(zone, NR_FREE_PAGES);
+			min_free += min_wmark_pages(zone);
+			if (!(gfp_mask & __GFP_CMA))
+				cma_free += zone_page_state(zone, NR_FREE_CMA_PAGES);
+			if (!(alloc_flags & 0x238))
+				highatomic += zone->nr_reserved_highatomic;
+			if (pg_mi_mempool->config & DEBUG_LOG)
+				sfree_pages += zone_page_state_snapshot(zone, NR_FREE_PAGES);
 		}
+		threshold1 = pg_mi_mempool->try_to_free_pages_threshold;
+		threshold2 = pg_mi_mempool->direct_reclaim_threshold;
+		if (threshold2 == -1)
+			threshold2 = max_t(int, min_free + 944, threshold1);
+		wmark_check_result = free_pages - (cma_free + highatomic) <= threshold2;
+		if (free_pages <= threshold1)
+			wmark_check_result = 2;
+		if (pg_mi_mempool->config & DEBUG_LOG) {
+			char buf[256];
+
+			snprintf(buf, sizeof(buf),
+				"I|%d|mi_pool: check_wmark_result:%d o:%d free:%d sfree:%d cma_free:%d high_free:%d threshold1:%d threshold2:%d",
+				task_tgid_vnr(current), wmark_check_result,
+				order, free_pages, sfree_pages, cma_free, highatomic,
+				threshold1, threshold2);
+			tracing_mark_write(buf);
+		}
+	}
+	dr_mark_ok = wmark_check_result == 2 ||
+		atomic_read(&pool->count) > pool->direct_reclaim_mark;
+
+	low_mark_suited = check_oom_low_mark(pool, (process_id - 1));
+	not_ss = (order != 0) || ((process_id - 1) != system_server_id);
+	skip = not_ss || low_mark_suited;
+	sskey_thread = !skip;
+	if (!skip) {
+		if (!strncmp(current->comm, "MiuiIntegratedM", 15) ||
+			!strncmp(current->comm, "SystemPressureC", 15))
+			low_mark_suited = atomic_read(&pool->count) >
+				system_server_key_thread_low_mark;
+		else
+			sskey_thread = false;
+	}
+	if (dr_mark_ok && low_mark_suited)
+		*page = mi_dynamic_page_pool_alloc(order, pool, gfp_mask, 0, 0, false, false);
+	if (pg_mi_mempool->config & DEBUG_LOG) {
+		char buf[256];
+
+		pr_info("mi_pool: o:%d wmark_check_result:%d dr_mark_ok:%d count:%d dr_mark:%d low_mark_suited:%d sskey_thread:%d sskey_thread_mark:%d scucess:%d process_id:%d",
+			order, wmark_check_result, dr_mark_ok, atomic_read(&pool->count),
+			pool->direct_reclaim_mark, low_mark_suited, sskey_thread,
+			system_server_key_thread_low_mark, *page != NULL, process_id);
+		snprintf(buf, sizeof(buf),
+			"I|%d|mi_pool: o:%d wmark_check_result:%d dr_mark_ok:%d count:%d dr_mark:%d low_mark_suited:%d sskey_thread:%d sskey_thread_mark:%d scucess:%d process_id %d",
+			task_tgid_vnr(current), order, wmark_check_result, dr_mark_ok,
+			atomic_read(&pool->count), pool->direct_reclaim_mark, low_mark_suited,
+			sskey_thread, system_server_key_thread_low_mark, *page != NULL, process_id);
+		tracing_mark_write(buf);
+	}
+	if (pg_mi_mempool->config & NEED_PROCESS_USE_COUNT) {
+		if (*page)
+			atomic_inc(&pool->process_use_counts
+				[(process_id - 1)][PROCESS_RECLAIM_SUCCESS]);
+		else
+			atomic_inc(&pool->process_use_counts
+				[(process_id - 1)][PROCESS_RECLAIM_FAILED]);
 	}
 }
 
@@ -596,12 +643,10 @@ void mi_mempool_alloc_oom(void *unused, gfp_t gfp_mask, int order, int alloc_fla
 		atomic_inc(&pg_mi_mempool->oom_use_failure_count[order]);
 }
 
-/* Check if it is necessary to wake up the refill_ worker and free the whitelist cache. */
-void  mi_mempool_refill_check(void *unused1, void *unused2)
+/* Check if it is necessary to wake up the refill_ worker. */
+void mi_mempool_refill_check(void *unused, struct page *page, int order, int migratetype,
+	bool *bypass)
 {
-	unsigned long flags;
-	struct proc_node *node;
-
 	if (!check_last_refill_time_interval() && pg_mi_mempool->has_lowmark_pool &&
 		!READ_ONCE(pg_mi_mempool->refill_worker_running)) {
 		unsigned long flags;
@@ -614,11 +659,31 @@ void  mi_mempool_refill_check(void *unused1, void *unused2)
 		}
 		spin_unlock_irqrestore(&pg_mi_mempool->refill_wakeup_lock, flags);
 	}
+}
+
+/* Free the whitelist cache of an exiting process. */
+void mi_mempool_free_task(void *unused, struct task_struct *p)
+{
+	unsigned long flags;
+	struct proc_node *node;
+	int i;
+
+	if (p->pid != p->tgid)
+		return;
 	spin_lock_irqsave(&proc_tree_lock, flags);
-	node = del_proc_node_by_pid_locked(current->group_leader->pid);
+	node = del_proc_node_by_pid_locked(p->pid);
 	spin_unlock_irqrestore(&proc_tree_lock, flags);
-	if (node)
+	if (node) {
 		proc_node_free(node);
+		if (pg_mi_mempool->config & DEBUG_LOG)
+			pr_info("mi_mempool free_task comm=%s pid=%d", p->comm, p->pid);
+	}
+	for (i = 0; i < PID_WHITELIST_LEN; i++) {
+		if (pid_whitelist[i] == p->pid) {
+			invalid_pid_whitelist[i] = true;
+			break;
+		}
+	}
 }
 
 /* Main loop for refill_worker. */
@@ -631,11 +696,16 @@ static int mi_mempool_refill_work(void *unused)
 
 	for (;;) {
 		int pos = 0;
+		int config = pg_mi_mempool->config;
+		char __maybe_unused dummy = refill_logs[pos];
 
 		atomic_long_set(&pg_mi_mempool->last_refill_time, ktime_to_ms(ktime_get()));
 		pg_mi_mempool->last_refill_count = 0;
 		pg_mi_mempool->history_refill_count++;
 		pg_mi_mempool->has_lowmark_pool = false;
+		if (config & DEBUG_LOG)
+			pos = scnprintf(refill_logs, 300, "I|%d|mi_pool: refill ",
+				task_tgid_vnr(current));
 		for (i = 0; i < NUM_ORDERS; i++) {
 			refill_count = 0;
 			if (!pools[i]->first_filled ||
@@ -665,11 +735,12 @@ static int mi_mempool_refill_work(void *unused)
 						pools[i]->order, refill_count);
 		}
 		if ((pg_mi_mempool->config & DEBUG_LOG)) {
-			refill_logs[pos < 300 ? pos : pos - 1] = '\0';
-			pr_info("mi_mempool refill cost %lld ms, refill_check_wakeup = %d, details: %s",
+			pos += scnprintf(refill_logs + pos, 300 - pos, " cost_ms=%lld wakeup=%d",
 				ktime_to_ms(ktime_get()) -
-                                atomic_long_read(&pg_mi_mempool->last_refill_time),
-				pg_mi_mempool->refill_check_wakeup, refill_logs);
+				atomic_long_read(&pg_mi_mempool->last_refill_time),
+				pg_mi_mempool->refill_check_wakeup);
+			refill_logs[pos < 300 ? pos : pos - 1] = '\0';
+			tracing_mark_write(refill_logs);
 		}
 		pg_mi_mempool->refill_check_wakeup = false;
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -689,7 +760,7 @@ static int mi_mempool_refill_work(void *unused)
 }
 
 static struct mi_dynamic_page_pool *mi_dynamic_page_pool_create(gfp_t gfp_mask,
-	int order, int high_mark_mb)
+	int order, int high_mark_mb, int direct_reclaim_mark_mb)
 {
 	int i = 0, j = 0;
 	struct mi_dynamic_page_pool *pool = (struct mi_dynamic_page_pool *)kmalloc(
@@ -710,6 +781,7 @@ static struct mi_dynamic_page_pool *mi_dynamic_page_pool_create(gfp_t gfp_mask,
 			atomic_set(&pool->process_use_counts[i][j], 0);
 	pool->high_mark = (high_mark_mb * BYTES_PER_MB / PAGE_SIZE) >> order;
 	pool->low_mark = pool->high_mark * MI_DYNAMIC_POOL_LOW_MARK_PERCENT / 100;
+	pool->direct_reclaim_mark = (direct_reclaim_mark_mb * BYTES_PER_MB / PAGE_SIZE) >> order;
 	pool->first_filled = false;
 	pool->first_fill_retries = 0;
 	return pool;
@@ -731,6 +803,9 @@ static void init_mi_dynamic_page_pools_oom_low_mark_policy(struct mi_dynamic_pag
 
 	for (i = 0; i < NUM_ORDERS; i++) {
 		pool = pools[i];
+		if (pool->order == 0)
+			system_server_key_thread_low_mark = pool->high_mark *
+				MI_DYNAMIC_POOL_SYSTEM_SERVER_KEY_THREAD_LOW_PERCENT / 100;
 		for (j = 0; j < WHITELIST_LEN; j++)
 			pool->oom_low_mark[j] = pool->high_mark *
 				MI_DYNAMIC_POOL_OOM_DEFAULT_LOW_PERCENT / 100;
@@ -762,7 +837,7 @@ static int mi_dynamic_page_pools_create(void)
 		order_map[i] = -1;
 	for (i = 0; i < NUM_ORDERS; i++) {
 		pg_mi_mempool->pools[i] = mi_dynamic_page_pool_create(order_flags[i],
-			orders[i], high_mark_mb[i]);
+			orders[i], high_mark_mb[i], direct_reclaim_mark_mb[i]);
 		order_map[orders[i]] = i;
 		if (pg_mi_mempool->pools[i] == NULL)
 			goto  out_free;
@@ -806,8 +881,17 @@ ssize_t process_use_count_show(struct kobject *kobj, struct kobj_attribute *attr
 	struct mi_dynamic_page_pool *pool;
 
 	for (; process_id < WHITELIST_LEN; process_id++) {
-		ret += snprintf(buf + ret, PAGE_SIZE - ret, "comm:%s\n",
-			comm_whitelist[process_id]);
+		if (process_id >= COMM_WHITELIST_LEN) {
+			u32 pid_id = process_id - COMM_WHITELIST_LEN;
+
+			if (invalid_pid_whitelist[pid_id])
+				continue;
+			ret += snprintf(buf + ret, PAGE_SIZE - ret, "comm:pid-%d\n",
+				pid_whitelist[pid_id]);
+		} else {
+			ret += snprintf(buf + ret, PAGE_SIZE - ret, "comm:%s\n",
+				comm_whitelist[process_id]);
+		}
 		for (pool_id = 0; pool_id < NUM_ORDERS; pool_id++) {
 			pool = pg_mi_mempool->pools[pool_id];
 			reclaim_use_success_count = atomic_read(&pool->process_use_counts
@@ -827,24 +911,115 @@ ssize_t process_use_count_show(struct kobject *kobj, struct kobj_attribute *attr
 	return ret;
 }
 
-ssize_t direct_relcaim_threshold_mb_show(struct kobject *kobj, struct kobj_attribute *attr,
-					char *buf)
+ssize_t pids_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
-	unsigned long direct_relcaim_threshold_mb = pg_mi_mempool->direct_relcaim_pages_threshold *
-		PAGE_SIZE / BYTES_PER_MB;
-	return sprintf(buf, "%lumb\n", direct_relcaim_threshold_mb);
+	int i, ret = 0;
+
+	for (i = 0; i < PID_WHITELIST_LEN; i++)
+		ret += snprintf(buf + ret, PAGE_SIZE - ret, "%d-%d ", pid_whitelist[i],
+			invalid_pid_whitelist[i]);
+	ret += snprintf(buf + ret, PAGE_SIZE - ret, "\n");
+	return ret;
 }
 
-ssize_t direct_relcaim_threshold_mb_store(struct kobject *kobj, struct kobj_attribute *attr,
+ssize_t pids_store(struct kobject *kobj, struct kobj_attribute *attr,
+				const char *buf, size_t count)
+{
+	int pid = 0, i;
+	bool remove = buf[0] == '-';
+
+	if (kstrtoint(remove ? buf + 1 : buf, 0, &pid) < 0)
+		return -EINVAL;
+	if (pid > 0) {
+		if (remove) {
+			for (i = 0; i < PID_WHITELIST_LEN; i++) {
+				if (pid_whitelist[i] == pid) {
+					invalid_pid_whitelist[i] = true;
+					break;
+				}
+			}
+		} else {
+			for (i = 0; i < PID_WHITELIST_LEN; i++) {
+				if (invalid_pid_whitelist[i])
+					break;
+			}
+			if (i == PID_WHITELIST_LEN) {
+				pr_err("mi_mempool pid_whitelist full! add pid:%d to whitelist failed!", pid);
+			} else {
+				pid_whitelist[i] = pid;
+				invalid_pid_whitelist[i] = false;
+				pr_info("pid:%d\n", pid);
+			}
+		}
+	} else {
+		pr_info("mi_mempool pid OVF! pid:%d\n", pid);
+	}
+	return count;
+}
+
+ssize_t direct_reclaim_threshold_mb_show(struct kobject *kobj, struct kobj_attribute *attr,
+					char *buf)
+{
+	unsigned long try_to_free = pg_mi_mempool->try_to_free_pages_threshold;
+	unsigned int direct_reclaim = pg_mi_mempool->direct_reclaim_threshold;
+	int min = 0, low = 0, high = 0, ret = 0, i;
+	pg_data_t *pgdat = NODE_DATA(numa_node_id());
+	int min_plus_10mb;
+
+	for (i = 0; i <= ZONE_NORMAL; i++) {
+		struct zone *zone = &pgdat->node_zones[i];
+
+		if (!managed_zone(zone))
+			continue;
+		if (!zone_can_reclaimable_pages(zone))
+			continue;
+		min += min_wmark_pages(zone);
+		low += low_wmark_pages(zone);
+		high += high_wmark_pages(zone);
+	}
+	ret += sprintf(buf + ret, "# echo format: echo 'id threshold_mb' > direct_reclaim_threshold_mb\n");
+	ret += sprintf(buf + ret, "# id = 0, modify try_to_free_pages_threshold, id = 1, modify direct_reclaim_threshold\n");
+	ret += sprintf(buf + ret, "# if try_to_free_pages_threshold == -1, then use max(try_to_free_pages_threshold, min_plus_10mb)\n");
+	ret += snprintf(buf + ret, PAGE_SIZE - ret, "try_to_free_pages_threshold:%dmb\n",
+		(int)(try_to_free >> 8));
+	min_plus_10mb = min + 2560;
+	{
+		int thr;
+		size_t sz;
+
+		if ((int)direct_reclaim < 0)
+			thr = (int)direct_reclaim;
+		else
+			thr = direct_reclaim >> 8;
+		sz = PAGE_SIZE - ret;
+		ret += snprintf(buf + ret, sz, "direct_reclaim_threshold:%dmb\n", thr);
+	}
+	ret += snprintf(buf + ret, PAGE_SIZE - ret,
+		"min:%dmb, low:%dmb, high:%dmb, min_plus_10mb:%dmb\n",
+		min >> 8, low >> 8, high >> 8, min_plus_10mb >> 8);
+	return ret;
+}
+
+ssize_t direct_reclaim_threshold_mb_store(struct kobject *kobj, struct kobj_attribute *attr,
 					const char *buf, size_t count)
 {
-	int val, ret;
+	int id = 0, mb = 0;
 
-	ret = kstrtoint(buf, 0, &val);
-	if (ret < 0)
+	if (sscanf(buf, "%d %d", &id, &mb) != 2)
 		return -EINVAL;
-	pg_mi_mempool->direct_relcaim_pages_threshold = (val * BYTES_PER_MB) / PAGE_SIZE;
-
+	if (id == 0) {
+		if (mb < 0)
+			return -EINVAL;
+		pg_mi_mempool->try_to_free_pages_threshold = (mb * BYTES_PER_MB) / PAGE_SIZE;
+	} else if (id == 1) {
+		if (mb < -1)
+			return -EINVAL;
+		if (mb >= 0 && (pg_mi_mempool->try_to_free_pages_threshold * PAGE_SIZE /
+				BYTES_PER_MB) > mb)
+			return -EINVAL;
+		pg_mi_mempool->direct_reclaim_threshold = mb == -1 ? -1UL :
+			(mb * BYTES_PER_MB) / PAGE_SIZE;
+	}
 	return count;
 }
 
@@ -882,9 +1057,9 @@ ssize_t general_stat_info_show(struct kobject *kobj, struct kobj_attribute *attr
 		int reclaim_use_count = atomic_read(&pool->reclaim_use_count);
 		int oom_use_count = atomic_read(&pool->oom_use_count);
 
-		ret += snprintf(buf + ret, PAGE_SIZE - ret, "order-%d: %d %d %d %d %d\n",
+		ret += snprintf(buf + ret, PAGE_SIZE - ret, "order-%d: %d %d %d %d %d %d\n",
 			pool->order, page_num, reclaim_use_count, oom_use_count, pool->low_mark,
-			pool->high_mark);
+			pool->direct_reclaim_mark, pool->high_mark);
 	}
 	ret += snprintf(buf + ret, PAGE_SIZE - ret, "rb_tree: %d %d %d\n",
 		atomic_read(&pg_mi_mempool->whitelist_check_num), pg_mi_mempool->proc_tree_size,
@@ -900,16 +1075,20 @@ ssize_t general_stat_info_show(struct kobject *kobj, struct kobj_attribute *attr
 			ret += snprintf(buf + ret, PAGE_SIZE - ret, " %d:%d", order, tmp);
 	}
 	ret += snprintf(buf + ret, PAGE_SIZE - ret, " %d\n", total_oom_count);
+	ret += snprintf(buf + ret, PAGE_SIZE - ret, "system_server: %d %d\n",
+		system_server_id, system_server_key_thread_low_mark);
 	return ret;
 }
 
 static MI_MEMPOOL_ATTR_RO(process_use_count);
 static MI_MEMPOOL_ATTR_RO(general_stat_info);
-static MI_MEMPOOL_ATTR_RW(direct_relcaim_threshold_mb);
+static MI_MEMPOOL_ATTR_RW(direct_reclaim_threshold_mb);
 static MI_MEMPOOL_ATTR_RW(config);
+static MI_MEMPOOL_ATTR_RW(pids);
 static struct attribute *attrs[] = {&kobj_attr_process_use_count.attr,
 				&kobj_attr_general_stat_info.attr, &kobj_attr_config.attr,
-				&kobj_attr_direct_relcaim_threshold_mb.attr, NULL};
+				&kobj_attr_direct_reclaim_threshold_mb.attr,
+				&kobj_attr_pids.attr, NULL};
 
 static struct kobject *mi_mempool_sysfs_create(void)
 {
@@ -941,8 +1120,11 @@ static inline void whitelist_init(void)
 {
 	int i;
 
-	for (i = 0; comm_whitelist[i]; i++)
+	for (i = 0; comm_whitelist[i]; i++) {
 		comm_whitelist_sizes[i] = strlen(comm_whitelist[i]);
+		if (strncmp(comm_whitelist[i], "system_server", comm_whitelist_sizes[i]) == 0)
+			system_server_id = i;
+	}
 }
 
 static int vendor_hook_register(void)
@@ -959,24 +1141,35 @@ static int vendor_hook_register(void)
 	ret = register_trace_android_vh_alloc_pages_failure_bypass(mi_mempool_alloc_oom,
 								NULL);
 	if (ret) {
-		unregister_trace_android_vh_alloc_pages_reclaim_bypass(mi_mempool_alloc_reclaim,
-								NULL);
 		pr_err("Failed to register alloc_pages_failure_bypass hook.\n");
-		return ret;
+		goto unregister_reclaim;
 	}
 
-	ret = register_trace_android_vh_mmput(mi_mempool_refill_check,
+	ret = register_trace_android_vh_free_unref_page_bypass(mi_mempool_refill_check,
 							NULL);
 	if (ret) {
-		unregister_trace_android_vh_alloc_pages_reclaim_bypass(mi_mempool_alloc_reclaim,
-								NULL);
-		unregister_trace_android_vh_alloc_pages_failure_bypass(mi_mempool_alloc_oom,
-								NULL);
 		pr_err("Failed to register mmput hook.\n");
-		return ret;
+		goto unregister_failure;
+	}
+
+	ret = register_trace_android_vh_free_task(mi_mempool_free_task, NULL);
+	if (ret) {
+		pr_err("Failed to register free_task hook.\n");
+		goto unregister_refill;
 	}
 
 	return 0;
+
+unregister_refill:
+	unregister_trace_android_vh_free_unref_page_bypass(mi_mempool_refill_check,
+						NULL);
+unregister_failure:
+	unregister_trace_android_vh_alloc_pages_failure_bypass(mi_mempool_alloc_oom,
+								NULL);
+unregister_reclaim:
+	unregister_trace_android_vh_alloc_pages_reclaim_bypass(mi_mempool_alloc_reclaim,
+							NULL);
+	return ret;
 }
 
 static int vendor_hook_unregister(void)
@@ -985,19 +1178,25 @@ static int vendor_hook_unregister(void)
 									NULL);
 	unregister_trace_android_vh_alloc_pages_failure_bypass(mi_mempool_alloc_oom,
 									NULL);
-	unregister_trace_android_vh_mmput(mi_mempool_refill_check,
+	unregister_trace_android_vh_free_unref_page_bypass(mi_mempool_refill_check,
 						NULL);
+	unregister_trace_android_vh_free_task(mi_mempool_free_task, NULL);
 	return 0;
 }
 
 int __init mi_mempool_init(void)
 {
 	int i = 0;
+	struct sysinfo si;
 
+	memset(&si, 0, sizeof(si));
 	pg_mi_mempool = &g_mi_mempool;
 	pg_mi_mempool->kobj = mi_mempool_sysfs_create();
 	if (!pg_mi_mempool->kobj)
 		return -1;
+	si_meminfo(&si);
+	if (si.totalram > 0x200000)
+		high_mark_mb[0] = 90;
 	atomic_set(&pg_mi_mempool->total_page_num, 0);
 	pg_mi_mempool->history_refill_count = 0;
 	pg_mi_mempool->has_lowmark_pool = false;
@@ -1012,8 +1211,11 @@ int __init mi_mempool_init(void)
 	atomic_set(&pg_mi_mempool->proc_node_alloc_failure, 0);
 	pg_mi_mempool->proc_tree_size = 0;
 	whitelist_init();
-	pg_mi_mempool->direct_relcaim_pages_threshold = BYTES_PER_MB *
+	for (i = 0; i < PID_WHITELIST_LEN; i++)
+		invalid_pid_whitelist[i] = true;
+	pg_mi_mempool->try_to_free_pages_threshold = BYTES_PER_MB *
 		MI_DYNAMIC_POOL_DEFAULT_DIRECT_RELCAIM_THRESHOLD_MB / PAGE_SIZE;
+	pg_mi_mempool->direct_reclaim_threshold = -1;
 	if (mi_dynamic_page_pools_create())
 		return -1;
 

@@ -1,4 +1,9 @@
-# mca_sysfs - STATUS: EQUIVALENT
+# mca_sysfs - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 14 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/mca_sysfs.ko`: compare_ko.py EQUIVALENT (14 functions, 8 exports, 35 imports). Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): mca_sysfs - STATUS: EQUIVALENT
+
 
 Template: XRING `mca/mca_common/mca_sysfs.c`, source logic unchanged (14 functions incl. init/exit identical to the stock).
 Changes vs the template:

@@ -130,10 +130,10 @@ struct handle_ctx {
 };
 
 /* ThinLTO-promoted statics of the stock build (global hidden name.llvm.<hash>) */
-const char pa_str14[] PA_SYM(".str.14.llvm.9866079119346183571") = KERN_INFO"%s";
-const char pa_fn_rx[] PA_SYM("__func__.rsmc_update_soc_rx_jiffies.llvm.9866079119346183571") = "rsmc_update_soc_rx_jiffies";
-const char pa_fn_tx[] PA_SYM("__func__.rsmc_update_soc_tx_jiffies.llvm.9866079119346183571") = "rsmc_update_soc_tx_jiffies";
-struct handle_ctx g_nl_ctx PA_PROMOTED(g_nl_ctx, 9866079119346183571) = {0};
+const char pa_str14[] PA_SYM(".str.14.llvm.11642536977338215848") = KERN_INFO"%s";
+const char pa_fn_rx[] PA_SYM("__func__.rsmc_update_soc_rx_jiffies.llvm.11642536977338215848") = "rsmc_update_soc_rx_jiffies";
+const char pa_fn_tx[] PA_SYM("__func__.rsmc_update_soc_tx_jiffies.llvm.11642536977338215848") = "rsmc_update_soc_tx_jiffies";
+struct handle_ctx g_nl_ctx PA_PROMOTED(g_nl_ctx, 11642536977338215848) = {0};
 
 /* mesage map entry index */
 enum map_index {

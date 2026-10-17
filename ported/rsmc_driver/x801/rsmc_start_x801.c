@@ -28,8 +28,8 @@
 #define CETCLOG_TAG RSMC_START_X801
 
 
-const char pa_str[] PA_SYM(".str.llvm.17679622206879079910") = KERN_INFO"%s: enter";
-const char pa_fn_stop[] PA_SYM("__func__.rsmc_stop_x801.llvm.17679622206879079910") = "rsmc_stop_x801";
+const char pa_str[] PA_SYM(".str.llvm.7422245887564069901") = KERN_INFO"%s: enter";
+const char pa_fn_stop[] PA_SYM("__func__.rsmc_stop_x801.llvm.7422245887564069901") = "rsmc_stop_x801";
 
 int rsmc_start_x801(void)
 {

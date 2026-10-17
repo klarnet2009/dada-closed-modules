@@ -10,7 +10,7 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_mcaA:mca_headers",
+        "//re/stubs_g5:mca_headers",
         "//common:all_headers_aarch64",
     ],
 )

@@ -1,4 +1,9 @@
-# mist (perfC) -- status: PARTIAL (59/70 functions byte-identical)
+# perfC_mst - SUPERSEDED by work/re/src/mist (OS4 stock vendor_ramdisk/mist.ko exists; status there: PARTIAL, 67 of 70 functions vs OS4)
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): this directory is the stale first copy of the `mist` module (the Bazel package and the current sources are `work/re/src/mist/`, re-checked against OS4 by g4d: 67 of 70 functions identical). OS3 vs OS4 stock `mist.ko` are function-for-function identical (70 functions, relocations, data, 44 exports+CRC, 51 imports+CRC, same modinfo; only the ThinLTO hash of `gflt_enable`/`gpubw_gflt_load`/`adreno_gflt_load` changed from 11378079736542486605 to 5988974010709438231, which `mist/mist_gflt.c` already carries).
+
+Earlier headline (HyperOS 3 round): mist (perfC) -- status: PARTIAL (59/70 functions byte-identical)
+
 
 Build: Kleaf ddk_module, `mist_defconfig` = ThinLTO (`# CONFIG_LTO_NONE is not set` + `CONFIG_LTO_CLANG_THIN=y`),
 `-ffunction-sections -fdata-sections`, `local_defines CONFIG_QCOM_DCVS/CONFIG_QCOM_PMU_LIB/CONFIG_QTI_SCMI_VENDOR_PROTOCOL`

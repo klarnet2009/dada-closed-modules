@@ -1,3 +1,9 @@
+# sia91xx_tuning - HyperOS 3 name; in OS4 the module is `sia91xx_tuning_dlkm.ko`: EQUIVALENT vs OS4 is recorded in `work/re/src/sia91xx_tuning_dlkm/STATUS.md` (g5 confirmed 17.10.2026)
+
+OS3 history of this directory: sia91xx_tuning - EQUIVALENT
+
+---
+
 # sia91xx_tuning - EQUIVALENT
 
 `compare_ko.py`: function set (10), function bytes, relocations, globals, imports+CRCs, modinfo all OK.
@@ -21,3 +27,6 @@ Build specifics needed for equivalence (see BUILD.bazel / source comments):
 - Lock keys: `mutex_init()` / `init_waitqueue_head()` each have a static zero-size `lock_class_key`; the stock LTO link merged them to one
   `.bss` address (all relocs resolve to `sipa_tuning_if_init.__key`). Our non-LTO link keeps `.bss.<sym>` sections separate, so the macros are
   redefined in the source to put every key in one explicit section (`.bss.sipa_lockkeys`). Codegen is unchanged.
+
+## OS4 (17.10.2026)
+Re-verified against the OS4 stock `sia91xx_tuning_dlkm.ko`: see `work/re/src/sia91xx_tuning_dlkm/STATUS.md` (same source, renamed to the OS4 module name; only the ThinLTO hash names needed updating for tas25xx).

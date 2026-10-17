@@ -286,13 +286,13 @@ static int batt_psy_get_prop(struct power_supply *psy,
 		pval->intval = POWER_SUPPLY_TECHNOLOGY_LIPO;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_COUNTER:
-		rc = strategy_class_fg_get_rm(&pval->intval);
+		rc = strategy_class_fg_get_comp_rm(&pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_CYCLE_COUNT:
 		rc = strategy_class_fg_ops_get_cyclecount(&pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		rc = strategy_class_fg_get_fcc(&pval->intval);
+		rc = strategy_class_fg_get_comp_fcc(&pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
 		rc = strategy_class_fg_get_dc(&pval->intval);

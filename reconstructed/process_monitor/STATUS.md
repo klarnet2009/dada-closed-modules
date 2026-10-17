@@ -1,5 +1,8 @@
 # process_monitor - PARTIAL (38 of 42 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4d (17.10.2026): real Kleaf build re-run: function set (42), relocations, objects, imports (70) + CRCs, modinfo OK; 38 of 42 identical. Tried 7 more orderings of the `h->cur_pos++ / h->total++` updates in `signal_record_hook_handle` (real builds): all worse (diff 132 lines vs 19), so the original order stays.
+
+
 Re-checked against `<work-dir>` (real Kleaf ThinLTO build of the unchanged source): the OS4 binary matches in function set (42), relocations, objects, imports (70) + CRCs, modinfo;
 the same 4 functions differ as in HyperOS 3 (`signal_record_hook_handle`, `detect_list_write`, `init_D_task`, `init_signal_record`). No OS4 specific change.
 

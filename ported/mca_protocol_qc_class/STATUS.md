@@ -1,4 +1,9 @@
-# mca_protocol_qc_class - STATUS: EQUIVALENT
+# mca_protocol_qc_class - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 12 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/mca_protocol_qc_class.ko`: compare_ko.py EQUIVALENT (12 functions, 5 exports, 4 imports). Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): mca_protocol_qc_class - STATUS: EQUIVALENT
+
 
 Template: XRING `mca/mca_protocol/protocol_qc/mca_protocol_qc_class.c`; the logic is identical to the stock (12 functions incl. init/exit identical), only
 includes added (`platform_device.h`, `of.h`, `of_device.h`: the XRING headers pulled them in, ours do not).

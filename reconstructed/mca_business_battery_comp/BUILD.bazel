@@ -15,7 +15,7 @@ ddk_module(
         "//re/stubs_mcaA:mca_event_stub",
         "//re/stubs_mcaA:mca_parse_dts_stub",
         "//re/stubs_mcaA:mca_common_stub",
-        "//re/stubs_mcaA:mca_strategy_fg_class_stub",
+        "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",  # OS4 stock export CRCs (forged tags), has get_comp_fcc/get_comp_rm
         "//re/stubs_mcaA:mca_platform_buckchg_class_stub",
         "//common:all_headers_aarch64",
     ],

@@ -1,3 +1,11 @@
+# mi_perf_memory - EQUIVALENT vs OS3 only; no OS4 counterpart (module vanished, g5 check 17.10.2026)
+
+HyperOS 4.0 has no `mi_perf_memory.ko`. Checked by function symbols (21 OS3 functions: only `init_module/cleanup_module/event_show/event_store` also exist in OS4 `mi_reclaim`) and by strings (`/proc/lowmemorykiller`, `low_free_parm`, `greclaim_parm`, `madvise_interrupt` occur in no OS4 module). The `/sys/kernel/mi_reclaim` part (same author `cang from MI Performance Team`) was rewritten as the new OS4 module `mi_reclaim` (66 functions, own sysfs info/event/pid/usage/proc_stats, page pool + `greclaim_s` workers); the low-free/lowmemorykiller part is gone or lives in `mi_low_lat_mem` (234 functions, no common code). So there is nothing to verify against OS4 for this source; the OS4 successors belong to the G1 group (`mi_reclaim`, `mi_low_lat_mem`). The source here stays the byte-identical reconstruction of the HyperOS 3 binary.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept)
+
 # mi_perf_memory - EQUIVALENT
 
 `compare_ko.py`: 21 functions bytes + relocations identical, global objects, imports + CRCs (33), modinfo identical; no exports.

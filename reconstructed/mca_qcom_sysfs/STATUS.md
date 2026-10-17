@@ -1,3 +1,15 @@
+# mca_qcom_sysfs - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `mca_qcom_sysfs.ko` (md5 1bce517e..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/mca_qcom_sysfs`) + compare_ko.py (EQUIVALENT).
+
+unchanged since HyperOS 3: no source change; real Kleaf build + compare_ko.py vs the OS4 stock: function set (43), bytes, relocations, global objects, exports (0), imports+CRC (47), modinfo all OK.
+
+SAFETY: charging module, community-only source: never flash it and never put it into a ROM build.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # mca_qcom_sysfs - EQUIVALENT
 
 `compare_ko.py`: function set (43), bytes, resolved relocations, global objects, exports (0), imports+CRC (47), modinfo (incl. `depends` of the 11 providers): all OK.

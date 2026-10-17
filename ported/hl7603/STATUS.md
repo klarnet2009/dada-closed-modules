@@ -1,4 +1,9 @@
-# hl7603 - EQUIVALENT (all 8 functions byte-identical, relocations, objects, imports+CRC, modinfo)
+# hl7603 - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 and OS4 stock binaries compared function by function (g6/os3_vs_os4.csv): all 8 function bodies, relocations, kCFI words, data/rodata sections, exports+CRC, imports+CRC, strings and modinfo are identical (only vermagic/scmversion differ), so the existing source stays valid for OS4. Real Kleaf build of the source compared with the OS4 stock `vendor_ramdisk/hl7603.ko`: compare_ko.py EQUIVALENT (8 functions, 0 exports, 20 imports). Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): hl7603 - EQUIVALENT (all 8 functions byte-identical, relocations, objects, imports+CRC, modinfo)
+
 
 Template: XRING `work/re/xiaomi-modules/mca/mca_hardware_ic/boost_ic/hl7603/{hl7603.c,inc/hl7603.h}`.
 Changes needed (reconstructed from the stock disassembly; the dada build is newer than the XRING copy):

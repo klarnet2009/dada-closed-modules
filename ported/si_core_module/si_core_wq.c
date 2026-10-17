@@ -7,7 +7,7 @@
 
 #include "si_core.h"
 
-struct workqueue_struct *si_core_wq PA_PROMOTED(si_core_wq, 11952267189415990395);
+struct workqueue_struct *si_core_wq PA_PROMOTED(si_core_wq, 4468286372555553306);
 
 /* Number of all release requests submitted. */
 static atomic_t pending_releases = ATOMIC_INIT(0);

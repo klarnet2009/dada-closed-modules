@@ -1,3 +1,11 @@
+# mi_schedule - PARTIAL (90 of 100 functions) vs OS3 only; no OS4 counterpart (module vanished, g5 check 17.10.2026)
+
+HyperOS 4.0 has no `mi_schedule.ko`. Strings `/dev/mi_group`, `pkg runtime info calc`, `mi_group` occur in no OS4 module. Only the task-accounting part survived, rewritten inside the new OS4 module `mi_game` (source paths `kernel/sched/xiaomi_sched/qcom/mi_game/{flt.c,mi_game_ca.c,mi_game_load.c}`): 13 of the 100 OS3 function names also exist in `mi_game` (`free_mi_task_struct, mi_task_world_init, mi_task_exiting, task_add_to_userlist, task_add_work, update_pkg_load, get_cluster_type, is_32B_user, mi_cpu_coregroup_mask, task_user, _copy_from_user, init/cleanup_module`), the group/runtime-proc parts (`mi_group.c`, `mi_runtime.c`) are gone. Nothing to compare against OS4 here; the successor `mi_game` belongs to the G1 group. The 10 functions that still differ from the HyperOS 3 binary are described below (unchanged).
+
+---
+
+## Earlier notes (HyperOS 3 round, kept)
+
 # mi_schedule - PARTIAL: 90 of 100 functions byte-identical
 
 `compare_ko.py` (ThinLTO build, `mi_schedule_defconfig`, bazel truth via `work/scripts/re_push.sh mi_schedule`):

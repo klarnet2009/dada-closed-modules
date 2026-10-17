@@ -767,28 +767,31 @@ static void qos_reset_callback(struct qievent_struct *data)
 static int qievent_callback(struct notifier_block *nb, unsigned long action, void *data)
 {
 	struct qievent_struct *e = data;
+	int ret = 0;
 
 	if (!e)
 		return -EINVAL;
-	if (in_interrupt())
-		return 0;
+	if (unlikely(in_interrupt()))
+		goto out;
 
 	if (action == QIEVENT_TASK_EXIT) {
 		struct task_struct *p;
 
 		if (!g_qs_enable)
-			return 0;
+			goto out;
 		p = e->to;
 		if (!p)
-			return 0;
+			goto out;
 		spin_lock(&g_qs_lock);
 		clear_draw_rtg(p);
 		spin_unlock(&g_qs_lock);
-		return 0;
+		goto out;
 	}
 
-	if (e->to->flags & PF_EXITING)
-		return -1;
+	if (e->to->flags & PF_EXITING) {
+		ret = -1;
+		goto out;
+	}
 
 	switch (action) {
 	case QIEVENT_QOS_SET:
@@ -800,10 +803,10 @@ static int qievent_callback(struct notifier_block *nb, unsigned long action, voi
 	case QIEVENT_QOS_UNSET:
 		if (!g_qs_enable)
 			break;
-		if ((e->from_qos.qos & 0xe) > 5)
-			qos_reset_callback(e);
-		else
+		if ((e->from_qos.qos & 0xe) <= 5)
 			restore_qos_sched(e, QIEVENT_QOS_UNSET);
+		else
+			qos_reset_callback(e);
 		break;
 	case QIEVENT_QOS_RESTORE:
 	case QIEVENT_QOS_UNINHERIT:
@@ -820,7 +823,8 @@ static int qievent_callback(struct notifier_block *nb, unsigned long action, voi
 		correct_qos_sched(e);
 		break;
 	}
-	return 0;
+out:
+	return ret;
 }
 
 static struct notifier_block g_qs_nb = {

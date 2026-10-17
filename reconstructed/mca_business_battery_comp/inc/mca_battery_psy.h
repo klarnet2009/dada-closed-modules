@@ -42,5 +42,9 @@ struct batt_psy_info *business_battery_psy_init(struct device *dev);
 void business_battery_psy_deinit(struct batt_psy_info *info);
 /*void business_battery_psy_event_process(struct batt_psy_info *info);*/
 
+/* OS4 mca_strategy_fg_class exports (compensated fcc / rm); not in the older header */
+int strategy_class_fg_get_comp_rm(int *rm);
+int strategy_class_fg_get_comp_fcc(int *fcc);
+
 #endif /* __BATTERY_PSY_H__ */
 

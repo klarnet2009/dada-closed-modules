@@ -61,6 +61,7 @@ struct qievent_struct {
 	int vip_prio;
 	union qos_union from_qos;
 	union qos_union to_qos;
+	u64 reserved;
 };
 
 struct inherit_list {
@@ -89,19 +90,34 @@ struct qi_struct {
 /* part of the xiaomi vendor area of task_struct (android_task_vendor_data()) used by xr_qi */
 struct qi_vendor {
 	u8 f0;
-	u8 f1 : 5;
-	u8 iter_active : 1;
-	u8 iter_x : 1;
+	u8 f1_lo : 4;
+	u8 f1_b4 : 1;
+	u8 iter_depth : 2;	/* number of visited requests of the current inherit chain */
 	u8 f1_top : 1;
 	u16 f2;
 	int f4;
-	u8 pad8[0x10];
-	void *iter_ptr;
-	void *iter_a;
-	void *iter_b;
-	u8 pad30[4];
-	int f34;
+	u32 futex_owner;	/* +8 */
+	u8 pad_c[4];
+	void *req;		/* +0x10 */
+	union {
+		void *iter[3];	/* +0x18: requests already visited in this chain */
+		struct {
+			void *iter_ptr;
+			void *iter_a;
+			void *iter_b;
+		};
+	};
+	int f30;
+	spinlock_t lock;	/* +0x34 */
 	struct qi_struct *qi;
+};
+
+/* one entry of qi_struct.inherit[type] */
+struct inherit_node {
+	struct list_head list;
+	void *owner;
+	int prio;
+	u32 qos;
 };
 
 struct gpu_blocked_info {
@@ -125,19 +141,28 @@ extern int get_vip_prio(struct task_struct *p);
 extern void plat_free_mi_task_struct(struct task_struct *p);
 
 bool is_qi_feat_enabled(u8 feat);
+void iter_qos_inherit(struct task_struct *p, void *ptr);
+int do_qos_inherit(struct task_struct *from, struct task_struct *to, unsigned long ptr, u8 type);
+int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, unsigned long ptr, u8 type);
+u32 get_task_qos(struct task_struct *task);
+u32 get_dyn_qos_lvl(struct task_struct *task);
+extern unsigned int sysctl_mutex_qos_opt_spin_time_ns;
+extern unsigned int sysctl_mutex_normal_opt_spin_time_ns;
 struct qi_struct *get_task_qi(struct task_struct *p);
+struct qi_struct *get_alloc_task_qi(struct task_struct *p);
 int register_qievent_notifier(struct notifier_block *nb);
 int unregister_qievent_notifier(struct notifier_block *nb);
-void update_static_prio(struct task_struct *task, int prio, int vip_prio GKPAD(fcrc0sDJLyNXnI));
-u32 get_static_qos_lvl(struct task_struct *task GKPAD(fcrc9MB0_bGrcl));
-int get_task_prio(struct task_struct *task GKPAD(fcrc5mMF35Dihv));
-u32 get_qos_lvl(struct task_struct *task GKPAD(fcrcqPOppdmcYd));
-u32 get_task_qos_lvl(struct task_struct *task GKPAD(fcrcY_7sUMcsGm));
-bool is_qos_task(struct task_struct *task GKPAD(fcrcUZoL8g8VvT));
-int get_proc_static_qos_lvl(struct task_struct *task GKPAD(fcrch5GlIPlGdv));
-bool qi_is_gpu_blocked_task(struct task_struct *task GKPAD(fcrckHqAV4SjCz));
+void update_static_prio(struct task_struct *task, int prio, int vip_prio GKPAD(fcrc5KDk031J1g));
+u32 get_static_qos_lvl(struct task_struct *task GKPAD(fcrc63JozGiuwN));
+int get_task_prio(struct task_struct *task GKPAD(fcrcr2lXe04u7v));
+u32 get_qos_lvl(struct task_struct *task GKPAD(fcrcG4u98hqq6J));
+u32 get_task_qos_lvl(struct task_struct *task GKPAD(fcrcaIh0tGelF4));
+bool is_qos_task(struct task_struct *task GKPAD(fcrcnTDbsZh2d8));
+bool is_qos_rt_task(struct task_struct *task);
+int get_proc_static_qos_lvl(struct task_struct *task GKPAD(fcrcowoRoWNTBR));
+bool qi_is_gpu_blocked_task(struct task_struct *task GKPAD(fcrcXgucAeK9kc));
 pid_t qi_gpu_blocked_longest(void);
-int kern_qi_set_qos(struct task_struct *task, u32 qos GKPAD(fcrcM8qDHkAXHp));
+int kern_qi_set_qos(struct task_struct *task, u32 qos GKPAD(fcrcaNQafAojQ5));
 struct mutex;
 struct mutex_waiter;
 void os_cpu_android_vh_alter_mutex_list_add(void *unused, struct mutex *lock, struct mutex_waiter *waiter,

@@ -273,8 +273,10 @@ int minet_dump_tc_list(void *data, int len, struct genl_info *info)
 	struct tc_cfg_reply cfg;
 	struct tc_app *app, *tmp;
 	u32 status;
-	u8 *buf, *p;
-	size_t size, room;
+	u8 *buf;
+	u8 *p;
+	size_t room;
+	size_t size;
 
 	if (dumping) {
 		minet_info("%s already dumping", __func__);
@@ -303,7 +305,7 @@ int minet_dump_tc_list(void *data, int len, struct genl_info *info)
 	room = (size_t)m_tc_list.cnt * 5;
 	size = room + 8;
 	buf = kzalloc(size, GFP_ATOMIC);
-	if (!buf) {
+	if ((unsigned long)buf == 0) {
 		minet_err("%s alloc app_list failed", __func__);
 		size = 0;
 		room = 0;

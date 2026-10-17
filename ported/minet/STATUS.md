@@ -1,4 +1,4 @@
-# minet - PARTIAL (42 of 44 functions byte+relocation identical to the OS4 stock; imports/exports/objects/modinfo OK; was 41 of 44)
+# minet - EQUIVALENT (44 of 44 functions identical to the OS4 stock, compare_ko.py EQUIVALENT; ; hacks: ThinLTO-promoted names as hidden globals, `(unsigned long)buf == 0` codegen hint, local declaration order)
 
 ## Update (17.10.2026)
 - `minet_set_tc_enable` now identical: the stores to `m_tc_enable` are `WRITE_ONCE` (volatile store keeps the `adrp` of `m_idletimer_info.timer` after the store).
@@ -46,3 +46,13 @@ Read the stock disassembly of the idletimer copy (`<work-dir>`, compact view: `p
 - The `mi_idletimer_tg_info` argument of `mi_idletimer_tg_checkentry_v1` has {u32 timeout@0, char label[28]@4, u8 send_nl_msg@0x20 (<2), u8 timer_type@0x21, ...}; `print_idletimer_info_safe` dumps it as `"%u %s %u %u %s {0x%02x x16}"` (`minet-i: dump info{%s} size:%d len:%d`, level 6) and
   shows two more members (char[16] @0x22, u8[16] @0x32), so there is no public template for the Xiaomi struct; `reset_timer.llvm.8540474682487888066` is the ThinLTO-promoted static `reset_timer`.
 - TC limiter (12 functions, ~3.7 KB) not looked at beyond the symbol sizes. Estimated cost for both parts: 100k+ tokens; not done.
+
+
+## Update (17.10.2026) - SOLVED, EQUIVALENT
+Real Kleaf/ThinLTO build + compare_ko.py (functions 44, bytes, relocs, objects, imports 60, exports 0, modinfo all OK).
+- `mi_idletimer_tg_checkentry_v1` (was 22 words, x22/x23 swapped): the real cause was a SOURCE difference, not the allocator: the stock arms the timer with `mod_timer(&info->timer->timer, msecs_to_jiffies(info->timer->timeout * 1000) + jiffies)`
+  (reload of `timer->timeout` after the calls, as in the ACK xt_IDLETIMER), we used `info->timeout`; the stock therefore keeps `&info->timer` live to the end of the function (longer live range -> allocated first -> x22).
+- `minet_dump_tc_list` (was 21 words): (a) the null test is written `if ((unsigned long)buf == 0)` (codegen hint: an integer compare is not treated as an unlikely pointer-null branch by BranchProbabilityInfo, so the failure block stays inline like the stock;
+  `!buf`, `unlikely`, `__builtin_expect_with_probability`, `__builtin_unpredictable` did not give the layout); (b) the local declaration order `u32 status; u8 *buf; u8 *p; size_t room; size_t size;` (phi order in the join block = alloca order decides the order of the `mov w21,wzr`/`mov x24,xzr` copies).
+Documented hacks: hidden `.llvm.<hash>` globals (see below), the integer-compare null test and the declaration order (codegen hints, behaviour unchanged). The reply/dump payload layouts remain inferred from code.
+Tools: `work/re/src/g3f_tools` (`mn.sh` quick loop, `varsearch.py` with env STOCK=minet).

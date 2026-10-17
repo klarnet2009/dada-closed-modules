@@ -1,5 +1,7 @@
 # aw882xx_dlkm - COMPILES-only: builds (Bazel/ThinLTO, GKI 6.6.144); 71 of 267 functions byte-identical, 167 differ, 29 missing (OS4 stock)
 
+g3g 17.10.2026: not touched (no better template found; the T545 kernel only has the old `aw8896`). Still COMPILES-only; the stock needs the newer vendor SDKs described below.
+
 Reference: OS4 `<work-dir>` (AWINIC AW882XX smart PA; ~6 iterations). Not EQUIVALENT.
 
 Template: OnePlus13 `op13_modules: vendor/oplus/kernel/audio/codecs/aw882xx/` (QCOM techpack flavour). NOTE: the inventory entry `aw882xx_v1.13.0` (MTK flavour, `aw882xx_device_*` names, needs `mtk-sp-spk-amp.h`) is the wrong tree; the un-versioned `aw882xx/` has 239 of the 267 stock function names.

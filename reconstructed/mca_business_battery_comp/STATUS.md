@@ -1,3 +1,15 @@
+# mca_business_battery_comp - EQUIVALENT vs OS4 (g5)
+
+Stock reference: HyperOS 4.0 `mca_business_battery_comp.ko` (md5 a992237e..., <work-dir>), checked 17.10.2026 by with the real Kleaf build (`//re/mca_business_battery_comp`) + compare_ko.py (EQUIVALENT).
+
+CHANGED in OS4 and fixed: `batt_psy_get_prop()` calls `strategy_class_fg_get_comp_rm()` (CHARGE_COUNTER) and `strategy_class_fg_get_comp_fcc()` (CHARGE_FULL) instead of get_rm/get_fcc (prototypes `int f(int *)`: genksyms gives exactly the stock CRCs 0xf2defd0b / 0xc206fe61 - verified, not forged). Declared in inc/mca_battery_psy.h. BUILD.bazel: the fg_class provider is now `//re/stubs_a17B/os4:os4_mca_strategy_fg_class` (OS4 stub with forged tags for ALL fg_class exports; the two new ones are additionally verified with the real prototype). compare_ko vs OS4: function set (15), bytes, relocations, objects, imports+CRC (35), modinfo all OK.
+
+SAFETY: charging module, community-only source: never flash it and never put it into a ROM build.
+
+---
+
+## Earlier notes (HyperOS 3 round, kept for the history)
+
 # mca_business_battery_comp - EQUIVALENT
 
 `compare_ko.py`: function set (15), bytes, resolved relocations, global objects, exports (0), imports+CRC (35), modinfo: all OK.

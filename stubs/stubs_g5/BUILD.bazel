@@ -1,5 +1,11 @@
-load("/<build-dir>", "ddk_headers")
+load("/<build-dir>", "ddk_headers", "ddk_module")
 package(default_visibility = ["//re:__subpackages__"])
 
 # g5: OS4 mca headers (copy of stubs_a17B/include + g5 changes); providers come from //re/stubs_a17B/os4:os4_* (forged stock CRCs)
 ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])
+
+ddk_module(name = "st_buckchg_register", srcs = ["stub_buckchg_register.c"], out = "mca_platform_buckchg_class.ko",
+           kernel_build = "//common:kernel_aarch64", deps = [":mca_headers", "//common:all_headers_aarch64"])
+
+ddk_module(name = "st_pps100w", srcs = ["stub_pps100w.c"], out = "mca_strategy_class_pps.ko",
+           kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

@@ -13,6 +13,7 @@ ddk_module(
         "//re/stubs_mcaA:mca_headers",
         "//re/stubs_mcaA:mca_log_stub",
         "//re/stubs_mcaA:hwid_stub",
+        "//re/stubs_g6:mca_qcom_smem_stub",
         "//common:all_headers_aarch64",
     ],
 )

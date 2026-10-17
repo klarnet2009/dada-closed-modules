@@ -21,16 +21,24 @@ unsigned long (*xm_kallsyms_lookup_name)(const char *name);
 
 /* ---- netfilter hooks: switch the sockets of white-listed apps to mibbr ---- */
 
-static void check_and_set_mibbr(struct sock *sk)
+static void check_and_set_mibbr(struct sock *sk, struct sk_buff *skb)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct tcphdr *th;
 	int ret;
 
 	if (sk->sk_state != TCP_ESTABLISHED && sk->sk_state != TCP_SYN_SENT)
 		return;
+	th = skb ? tcp_hdr(skb) : NULL;
+	if (is_trace_id(sk->sk_uid.val) && th)
+		printk("bbr_tx:sk=%p,appl=%u,ca_state=%u,sp=%u,dp=%u,seq=%u,aseq=%u,len=%u,una=%u,nxt=%u,wseq=%u,cwnd=%u,inflight=%u,srtt=%u,pacing=%lu,wmalloc=%u",
+		       sk, tp->rate_app_limited, icsk->icsk_ca_state, ntohs(th->source), ntohs(th->dest), ntohl(th->seq),
+		       ntohl(th->ack_seq), skb->len, tp->snd_una, tp->snd_nxt, tp->write_seq, tcp_snd_cwnd(tp),
+		       tcp_packets_in_flight(tp), tp->srtt_us >> 3, sk->sk_pacing_rate, refcount_read(&sk->sk_wmem_alloc));
 	if (!is_mibbr_white_app(sk->sk_uid.val))
 		return;
-	if (!icsk->icsk_ca_ops || !memcmp(icsk->icsk_ca_ops->name, "mibbr", 5))
+	if (icsk->icsk_ca_ops && !strncmp(icsk->icsk_ca_ops->name, "mibbr", 6))
 		return;
 
 	printk("mibbr:to first set mibbr,uid=%d,sk=%p\n", sk->sk_uid.val, sk);
@@ -47,7 +55,7 @@ static unsigned int minet_ext_output_hook4(void *priv, struct sk_buff *skb, cons
 	struct sock *sk = skb->sk;
 
 	if (iph && iph->protocol == IPPROTO_TCP && sk)
-		check_and_set_mibbr(sk);
+		check_and_set_mibbr(sk, skb);
 	return NF_ACCEPT;
 }
 
@@ -57,7 +65,7 @@ static unsigned int minet_ext_output_hook6(void *priv, struct sk_buff *skb, cons
 	struct sock *sk = skb->sk;
 
 	if (ip6h && ip6h->nexthdr == IPPROTO_TCP && sk)
-		check_and_set_mibbr(sk);
+		check_and_set_mibbr(sk, NULL);
 	return NF_ACCEPT;
 }
 

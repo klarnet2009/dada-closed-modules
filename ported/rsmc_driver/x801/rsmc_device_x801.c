@@ -106,7 +106,7 @@ struct rsmc_spi_ctx {
 	bool rsmc_spi_exit;
 	atomic_t spi_irq;
 };
-struct rsmc_spi_ctx g_rsmc_spi_ctx PA_PROMOTED(g_rsmc_spi_ctx, 2046493130197020927) = {0};
+struct rsmc_spi_ctx g_rsmc_spi_ctx PA_PROMOTED(g_rsmc_spi_ctx, 12781679984733999977) = {0};
 
 struct rsmc_fw_ctx {
 	u8 *fw_buffer;
@@ -936,10 +936,15 @@ static void get_ant_gpio_value(const struct smc_core_data *cd)
 
 static void enable_default_ant(void)
 {
-	struct smc_core_data *cd = smc_get_core_data_x801();
+	struct smc_core_data *cd;
+	if (is_pic_mode) {
+		printk(KERN_INFO"@law not default");
+		return;
+	}
+	cd = smc_get_core_data_x801();
 	if (cd == NULL)
 		return;
-	printk(KERN_INFO"%s", __func__);
+	printk(KERN_INFO"@ant %s", __func__);
 	g_device_ctx.ant_status = RSMC_RNSS_RX;
 	get_ant_gpio_value(cd);
 	if (gpio_is_valid(cd->gpios.rx_ant_gpio))
@@ -957,10 +962,15 @@ static void enable_default_ant(void)
 
 static void enable_tx_ant(void)
 {
-	struct smc_core_data *cd = smc_get_core_data_x801();
+	struct smc_core_data *cd;
+	if (is_pic_mode == 2 && is_sent_last == 1) {
+		printk(KERN_INFO"@law not tx");
+		return;
+	}
+	cd = smc_get_core_data_x801();
 	if (cd == NULL)
 		return;
-	printk(KERN_INFO"%s", __func__);
+	printk(KERN_INFO"@ant %s", __func__);
 	g_device_ctx.ant_status = RSMC_RDSS_TX;
 	get_ant_gpio_value(cd);
 	if (gpio_is_valid(cd->gpios.vc1_ant_gpio))
@@ -981,7 +991,7 @@ static void enable_rx_ant(void)
 	struct smc_core_data *cd = smc_get_core_data_x801();
 	if (cd == NULL)
 		return;
-	printk(KERN_INFO"%s", __func__);
+	printk(KERN_INFO"@ant %s", __func__);
 	g_device_ctx.ant_status = RSMC_RDSS_RX;
 	get_ant_gpio_value(cd);
 	if (gpio_is_valid(cd->gpios.vc1_ant_gpio))
@@ -1012,8 +1022,10 @@ static void dtx_rsp_ant_ctrl(const char *data)
 		printk(KERN_ERR"%s: DTX param fail", __func__);
 		return;
 	}
-	if (res == CMD_TX_CMD_ACK)
+	if (res == CMD_TX_CMD_ACK) {
+		printk(KERN_INFO"%s @law do not change ant", __func__);
 		return;
+	}
 	if (g_device_ctx.dtx_status == RSMC_RNSS_RX_AFTER_DTX)
 		enable_default_ant();
 	else if (g_device_ctx.dtx_status == RSMC_RDSS_RX_AFTER_DTX)
@@ -1108,6 +1120,107 @@ static void rsmc_stop_spi_recv_timer(void)
 		up_spi_sema();
 	}
 	printk(KERN_INFO"%s: end", __func__);
+}
+
+/* codegen hint: the stock reloads the OS4 pic-mode flags after every strstr() (no load merging); a volatile access reproduces that (volatile globals break enable_tx_ant) */
+#define PIC_RD(v) (*(volatile int *)&(v))
+
+/* OS4 pic mode helpers (reconstructed from the OS4 stock disassembly) */
+static int hex_val(char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	return -1;
+}
+
+static __always_inline char hex_chr(int v)
+{
+	return v < 10 ? '0' + v : 'A' + v - 10;
+}
+
+/* NMEA checksum: XOR of the bytes between '$' and '*', rewritten as two upper-case hex digits after the '*' */
+static void nmea_fix_checksum(char *buf)
+{
+	char *star = strchr(buf, '*');
+	int idx = star - buf;
+	unsigned char cs = 0;
+	char hi, lo;
+	int i;
+
+	for (i = 1; i < idx; i++)
+		cs ^= buf[i];
+	hi = hex_chr(cs >> 4);
+	lo = hex_chr(cs & 0xf);
+	buf[idx + 1] = hi;
+	buf[idx + 2] = lo;
+}
+
+/* digit helpers with a byte argument: the stock folds (c >> 4) < 10 into c < 0xa0 (callee simplified before inlining, so NOT always_inline) */
+static char hex_hi(unsigned char c)
+{
+	int v = c >> 4;
+
+	return v < 10 ? '0' + v : 'A' + v - 10;
+}
+
+static char hex_lo(int c)
+{
+	int v = c & 0xf;
+
+	return v < 10 ? '0' + v : 'A' + v - 10;
+}
+
+/* index of the 4th ',' of the sentence, -1 when it has fewer */
+static int fourth_comma(const char *s)
+{
+	int i = 0, n = 0;
+
+	for (;;) {
+		if (s[i] == ',') {
+			if (++n == 4)
+				return i;
+		} else if (s[i] == '\0') {
+			return -1;
+		}
+		i++;
+	}
+}
+
+/* replaces bits 1..5 of the hex byte at buf[22..23] by value (not called in the OS4 stock) */
+static void convertchartobytes(int value, char *buf)
+{
+	int hi = hex_val(buf[22]);
+	int lo = hex_val(buf[23]);
+	int b = (hi != -1 && lo != -1) ? (((hi << 4) | lo) & ~0x3e) : 0;
+
+	b |= value << 1;
+	buf[22] = hex_hi(b);
+	buf[23] = hex_lo(b);
+	nmea_fix_checksum(buf);
+}
+
+/* writes the 6 packed bytes of the card number as 12 hex digits at buf[12..23] (not called in the OS4 stock) */
+static void convertlonglongtobytes(unsigned long long num, char *buf)
+{
+	unsigned char bytes[6];
+	int i;
+
+	bytes[1] = num >> 26;
+	bytes[2] = num >> 18;
+	bytes[3] = num >> 10;
+	bytes[4] = num >> 2;
+	bytes[5] = num << 6;
+	bytes[0] = (num >> 34) | 0x10;
+	for (i = 0; i < 12; i++) {
+		unsigned char b = bytes[i >> 1];
+
+		buf[12 + i] = (i & 1) ? hex_lo(b) : hex_hi(b);
+	}
+	nmea_fix_checksum(buf);
 }
 
 static void rsmc_spi_recv_callback(struct timer_list *t)
@@ -1216,8 +1329,44 @@ static void rsmc_spi_recv(void)
 	atomic_dec(&g_rsmc_spi_ctx.spi_irq);
 	printk(KERN_INFO"%s: spi_irq:%d", __func__, (u32)atomic_read(&g_rsmc_spi_ctx.spi_irq));
 	rsmc_stop_spi_recv_timer();
-	if (sta(data) != STA_FAIL)
+	if (sta(data) != STA_FAIL) {
+		char *drx = strstr(data, "$DRX,0");
+
+		if (PIC_RD(is_pic_mode) == 2 && drx) {
+			int hi = hex_val(rx_buf[0x1a]);
+			int lo = hex_val(rx_buf[0x1b]);
+
+			if ((hi & 1) && !(lo & 0xe)) {
+				rsmc_update_soc_rx_jiffies();
+				printk(KERN_INFO"@law intercept $drx");
+				kfree(rx_buf);
+				return;
+			}
+		}
 		spi_recv_data_proc(data, len);
+		if (strstr(data, "$DTX,0") && PIC_RD(is_pic_mode) == 1) {
+			is_sending = 1;
+			is_sent_last = 0;
+			char temp_data[] = "$DRX,0,16,0,11184cc1b1c00000000000000000000000000000000000000000*45";
+
+			convertlonglongtobytes(current_Num, temp_data);
+			convertchartobytes(current_ServerID, temp_data);
+			printk(KERN_INFO"temp_data = %s", temp_data);
+			spi_recv_data_proc(temp_data, 0x48);
+		}
+		if (strstr(data, "$TST") && PIC_RD(is_pic_mode) == 2) {
+			rsmc_update_soc_rx_jiffies();
+			char trk[] = "$TRK,2*53\r\n";
+
+			printk(KERN_INFO"@law $TRK,2");
+			rsmc_spi_write_x801(trk, strlen(trk));
+		}
+		if (PIC_RD(is_pic_mode) == 2 && strstr(data, "$DTX,3")) {
+			is_sent_last = 1;
+			is_sending = 0;
+			printk(KERN_INFO"@law set is_sent_last as 1");
+		}
+	}
 	rsmc_update_soc_rx_jiffies();
 	kfree(rx_buf);
 	printk(KERN_INFO"%s: exit", __func__);
@@ -1519,6 +1668,32 @@ static void req_cmd_ant_ctrl(const char *data)
 
 static void rsmc_any_msg_proc(struct any_msg *msg)
 {
+	if (strstr(msg->data, "$TRK,1")) {
+		if (PIC_RD(is_pic_mode) == 1 && PIC_RD(is_sending) == 1) {
+			printk(KERN_INFO"@law intercept trk 1");
+			return;
+		}
+	}
+	if (strstr(msg->data, "$TRK,0")) {
+		if (PIC_RD(is_pic_mode) == 2 && PIC_RD(is_sent_last) == 1) {
+			printk(KERN_INFO"@law intercept trk 0");
+			return;
+		}
+	}
+	if (strstr(msg->data, "$RDA,0")) {
+		if (PIC_RD(is_pic_mode) == 2) {
+			rsmc_update_soc_tx_jiffies();
+			printk(KERN_INFO"@law intercept $RDA,0");
+			return;
+		}
+	}
+	if (strstr(msg->data, "$RNA")) {
+		if (PIC_RD(is_pic_mode) == 2) {
+			rsmc_update_soc_tx_jiffies();
+			printk(KERN_INFO"@law intercept $RNA");
+			return;
+		}
+	}
 	req_cmd_ant_ctrl(msg->data);
 	printk(KERN_INFO"X801_DATA >> %s", msg->data);
 	rsmc_spi_write_x801(msg->data, strlen(msg->data));
@@ -1527,9 +1702,63 @@ static void rsmc_any_msg_proc(struct any_msg *msg)
 
 static void rsmc_dtx_msg_proc(struct dtx_msg *msg)
 {
+	static int last_ndi = 8;
+	const char *s = msg->data;
+	const char *p __maybe_unused;
+	int idx, i __maybe_unused, k, hi, lo;
+	unsigned int pos;
+	int c, ndi;
+
+	if (strstr(msg->data, "$DTX") && PIC_RD(is_pic_mode) == 2 && is_sent_last == 1) {
+		is_sent_last = 0;
+		printk(KERN_INFO"@law intercept $DTX");
+		return;
+	}
 	g_device_ctx.dtx_status = msg->status;
+	if (PIC_RD(is_pic_mode) == 1)
+		g_device_ctx.dtx_status = 3;
 	req_cmd_ant_ctrl(msg->data);
 	printk(KERN_INFO"X801_DATA >> %s", msg->data);
+
+	unsigned char tmp[6] = {0};	/* init AFTER the printk: the stock stores the u16 tail first */
+
+	idx = fourth_comma(s);
+	i = idx + 1;
+	p = (const char *)msg + i + 13;	/* codegen hint: the stock addresses the digits from msg (+0xd), not from s */
+	for (k = 0; k < 6; k++) {
+		hi = hex_val(p[-1]);
+		lo = hex_val(p[0]);
+		p += 2;
+		if (hi == -1 || lo == -1)
+			break;
+		tmp[k] = (hi << 4) | lo;
+	}
+	current_Num = (((unsigned long long)get_unaligned_be32(tmp + 2) | (unsigned long long)tmp[1] << 32 | (unsigned long long)tmp[0] << 40) >> 5) & 0x1fffffffffLL;
+	i = fourth_comma(s) + 17;
+	p = s + i;
+	hi = hex_val(p[0]);
+	lo = hex_val(p[1]);
+	current_ServerID = (hi != -1 && lo != -1) ? ((((hi << 4) | lo) >> 2) & 0x1f) : 0;
+	printk(KERN_INFO"current_Num = %lld", current_Num);
+	printk(KERN_INFO"current_ServerID = %d", current_ServerID);
+
+	pos = fourth_comma(s) + 17;
+	if (PIC_RD(is_pic_mode) != 0) {
+		c = hex_val(msg->data[pos]);
+		ndi = c & 8;
+		if (ndi == last_ndi)
+			ndi ^= 8;
+		last_ndi = ndi;
+		c |= ndi;
+		if (c >= 0 && c <= 9)
+			msg->data[pos] = '0' + c;
+		else if (c >= 10 && c <= 15)
+			msg->data[pos] = 'A' + c - 10;
+		else
+			msg->data[pos] = 0;
+	}
+	nmea_fix_checksum(msg->data);
+	printk(KERN_INFO"new X801_DATA >> %s", msg->data);
 	rsmc_spi_write_x801(msg->data, strlen(msg->data));
 	rsmc_update_soc_tx_jiffies();
 }

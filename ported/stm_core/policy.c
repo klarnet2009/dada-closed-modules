@@ -46,7 +46,7 @@ void *stp_policy_node_priv(struct stp_policy_node *pn)
 }
 
 /* ThinLTO-promoted statics of the stock build: global hidden `name.llvm.<hash>` (hash cannot be reproduced) */
-#define PA_PROMOTED(name) __asm__(#name ".llvm.17355142646671600349") __attribute__((visibility("hidden")))
+#define PA_PROMOTED(name) __asm__(#name ".llvm.13755429568686194964") __attribute__((visibility("hidden")))
 struct configfs_subsystem stp_policy_subsys PA_PROMOTED(stp_policy_subsys);
 
 void stp_policy_node_get_ranges(struct stp_policy_node *policy_node,
@@ -560,8 +560,8 @@ void stp_policy_node_put(struct stp_policy_node *policy_node)
 }
 
 /* lockdep name string and key of mutex_init(), promoted by ThinLTO in the stock module */
-const char stp_su_mutex_name[] __asm__(".str.llvm.17355142646671600349") __attribute__((visibility("hidden"))) = "&stp_policy_subsys.su_mutex";
-struct lock_class_key stp_su_mutex_key __asm__("stp_configfs_init.__key.llvm.17355142646671600349") __attribute__((visibility("hidden"), section(".bss.pa_keyB")));
+const char stp_su_mutex_name[] __asm__(".str.llvm.13755429568686194964") __attribute__((visibility("hidden"))) = "&stp_policy_subsys.su_mutex";
+struct lock_class_key stp_su_mutex_key __asm__("stp_configfs_init.__key.llvm.13755429568686194964") __attribute__((visibility("hidden"), section(".bss.pa_keyB")));
 
 int __init stp_configfs_init(void)
 {

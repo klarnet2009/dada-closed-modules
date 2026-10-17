@@ -8,6 +8,8 @@
 #include <linux/uaccess.h>
 #include <linux/string.h>
 #include <linux/swap.h>
+#include <linux/vmstat.h>
+#include <linux/sched/signal.h>
 #include <trace/hooks/vendor_hooks.h>
 #include <trace/hooks/vmscan.h>
 
@@ -104,10 +106,19 @@ static void to_set_swappiness(void *data, int *swappiness)
 		*swappiness = 0;
 		return;
 	}
-	if (current_is_kswapd())
+	if (current_is_kswapd()) {
 		*swappiness = h_anon_swappiness;
-	else
-		*swappiness = s_anon_swappiness;
+		return;
+	}
+	/* HyperOS 4.0 (OS4) addition: foreground tasks / the launcher with plenty of inactive file pages (> 200 MB) do not swap */
+	if (strcmp(current->comm, "swapon01") &&
+	    (current->group_leader->signal->oom_score_adj == 0 ||
+	     !strcmp(current->group_leader->comm, "com.miui.home")) &&
+	    global_node_page_state(NR_INACTIVE_FILE) > 51200) {
+		*swappiness = 0;
+		return;
+	}
+	*swappiness = s_anon_swappiness;
 }
 
 static int __init create_swappiness_proc(void)

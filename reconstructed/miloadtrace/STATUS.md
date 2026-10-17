@@ -1,3 +1,11 @@
+# miloadtrace - PARTIAL (74 of 83 functions) vs OS3 only; no OS4 counterpart (module vanished, g5 check 17.10.2026)
+
+HyperOS 4.0 has no `miloadtrace.ko`. Strings `frame-load by David`, `migov` occur in no OS4 module; the frame-load tracking ('flt') lives on in the new OS4 module `mi_game` (`kernel/sched/xiaomi_sched/qcom/mi_game/flt.c`, 'by David' author strings in `mi_game` and `mist`) and parts of the governor hooks in `sched-walt`/`perf_actuator`-style modules (17 of 82 function names overlap with `sched-walt`, mostly generic names). Nothing to compare against OS4 here; the successors belong to the G1 group. The 9 functions that still differ from the HyperOS 3 binary are described below (unchanged).
+
+---
+
+## Earlier notes (HyperOS 3 round, kept)
+
 # miloadtrace (perfC) -- status: PARTIAL, 74/83 functions byte-identical
 
 Module: "frame-load by David" (group/frame load tracker + `migov` cpufreq governor, hooks into mi_schedule / sched-walt / metis).

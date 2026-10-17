@@ -1,5 +1,8 @@
 # cameralog - PARTIAL (10 of 11 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4d (17.10.2026): real Kleaf build re-run against the OS4 stock: function set (11), relocations, objects, export CRC, imports (27) + CRCs, modinfo OK; only `cameralog_ioctl` differs. No change made (the block-layout problem is unchanged).
+
+
 Re-checked against `<work-dir>` with a real Kleaf ThinLTO build of the unchanged source: the OS4 binary has the same function set, relocations, objects, export CRC, imports (27) and modinfo;
 only `cameralog_ioctl` differs (block layout, see below). No source change was needed for OS4.
 

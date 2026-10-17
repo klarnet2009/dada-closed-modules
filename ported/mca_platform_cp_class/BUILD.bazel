@@ -4,7 +4,7 @@ package(default_visibility = ["//re:__subpackages__"])  # other real modules dep
 
 ddk_module(
     name = "mca_platform_cp_class",
-    srcs = ["mca_platform_cp_class.c"],
+    srcs = ["mca_platform_cp_class.c", "platform_cp_class_os4.h"],
     out = "mca_platform_cp_class.ko",
     defconfig = "mca_platform_cp_class_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
     local_defines = ["CONFIG_DEBUG_FS=1"],

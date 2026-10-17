@@ -1,4 +1,9 @@
-# mca_platform_cp_class - STATUS: EQUIVALENT
+# mca_platform_cp_class - EQUIVALENT vs OS4
+
+G6 re-check against the HyperOS 4.0 stock (17.10.2026): OS3 -> OS4 stock changed 10 of 61 functions: the ops table lost cp_set/get_pmid2out_uvp_dis (and their exported wrappers) and gained cp_enable_vbus_errorhi/lo at ops+376/+384 (struct size still 392; layout from the OS4 BTF, START_ID 141904); two new exports platform_class_cp_enable_vbus_errorhi/lo(unsigned int role, bool en) sit right after platform_class_cp_set_mode in stock address order; the __LINE__ pins moved by +24/+2/+2. The OS4 header is a local copy in the module dir (platform_cp_class_os4.h, same include guard; the shared stubs_mcaB header keeps the OS3 layout for the other modules). Real Kleaf build vs OS4 stock vendor_ramdisk/mca_platform_cp_class.ko: compare_ko.py EQUIVALENT (61 functions, 52 exports incl. the changed register_ops CRC with no forging, 17 imports); data objects checked with g6/datacmp.py: content+relocations identical. Community-only source (charging stack): never flash it, never put it into a ROM build.
+
+Earlier headline (HyperOS 3 round): mca_platform_cp_class - STATUS: EQUIVALENT
+
 
 Template: XRING `mca/mca_platform/mca_platform_cp_class.c` (984 lines).  The stock module is newer, so the 52 export wrappers are generated from one table in
 stock address order (`scripts_mcaB/gen_cpclass.py`) with the template's wrapper pattern; the register function, `ibus_delta/total`, `set_fsw` (force_fsw logic), the dt parser,
