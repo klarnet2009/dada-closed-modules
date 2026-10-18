@@ -220,3 +220,6 @@ Charging/fuel-gauge module: community-only source, never flash, never put into a
 ## G2c (17.10.2026): not worked on
 
 Not attempted in round G2c (token budget went to `mca_charger_thermal` and `sc8581_sy6541`). State unchanged. Tools that exist for the next agent: `work/re/g2c_tools/` (`fgq.sh` multi-TU ThinLTO emulation loop against the OS4 stock with scratch `<work-dir>`, `pb_pin2.py` auto-pinner that also works for duplicated symbol names, `prune.py` deletes unused statics, `splice.py`, `fvar.py` source-variant tester, `pad_g2c.py` GENKSYMS-only CRC pad forger) and the "separate tiny static helper per register update" layout trick documented in `src/sc8581_sy6541/STATUS.md` (explains `tbz` vs `tbnz` shape differences of inlined `cp_update_bits`/`update_bits`).
+
+## G13d (18.10.2026): enum names corrected to the stock BTF
+CHARGE_DFX_* / MCA_EVENT_* names and literals (0x30-0x32, 0x35, 0x36, local defines 0x3d/0x43) replaced by the stock BTF names; BUILD uses //re/stubs_g13d_g2k. Result: disassembly + relocations + sections identical to the previous Kleaf build (build-id only); compare_ko_v2 unchanged (79/97 identical). Details: work/a17/review/charging_enum_audit.md. Still community-only, never flash.

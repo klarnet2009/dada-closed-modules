@@ -1,0 +1,11 @@
+--- orig/core/hdd/src/wlan_hdd_cfg80211.c	2026-10-18 20:10:08.354699500 +0300
++++ pkg/core/hdd/src/wlan_hdd_cfg80211.c	2026-10-18 20:24:16.360915300 +0300
+@@ -27168,7 +27168,7 @@
+ 		if (qdf_is_macaddr_zero(&mlo_link_info->ap_link_addr) ||
+ 		    mlo_link_info->link_id == 0xFF)
+ 			continue;
+-			hdd_debug(" Add pairwise key link id  %d ",
++			hdd_debug("Add key link id %d",
+ 				  mlo_link_info->link_id);
+ 			wlan_cfg80211_store_link_key(
+ 				hdd_ctx->psoc, key_index,

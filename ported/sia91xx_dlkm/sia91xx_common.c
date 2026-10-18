@@ -66,7 +66,7 @@ static irqreturn_t sia91xx_irq(
 {
 	sipa_dev_t *si_pa = (sipa_dev_t *)data;
 	if (NULL == si_pa) {
-		pr_err("[  err][%s] %s: si_pa is NULL !!! \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: si_pa is NULL !!! \n", LOG_FLAG, __func__);
 		return IRQ_HANDLED;
 	}
 	queue_delayed_work(si_pa->sia91xx_wq, &si_pa->interrupt_work, 0);
@@ -91,7 +91,7 @@ void sia91xx_register_interrupt(sipa_dev_t *si_pa)
 				irq_flags, "sia91xx_R", si_pa);
 		}
 	} else {
-		pr_err("[  err][%s] %s: irq pin error !!! \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: irq pin error !!! \n", LOG_FLAG, __func__);
 	}
 }
 
@@ -103,7 +103,7 @@ void sia91xx_monitor(struct work_struct *work)
 
 	sia91xx_read_reg16(si_pa, SIA91XX_REG_INT_STAT, &IntVal);
 	if (IntVal & 0x3ff) {
-		pr_err("[  err]%s: interrupt event occurred !!! \r\n", __func__);
+		pr_err("[  err]%s: interrupt event occurred !!! \n", __func__);
 	}
 
 	/* reschedule */
@@ -122,7 +122,7 @@ void sia91xx_interrupt(struct work_struct *work)
 	sipa_read_reg(si_pa->regmap, SIA91XX_REG_INT_EN, &IntEn);
 
 	if (0 == (IntEn & IntReg)) {
-		pr_err("[  err][%s] %s: interrupt source error !!! \r\n",LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: interrupt source error !!! \n",LOG_FLAG, __func__);
 		return;
 	}
 	IntVal = IntReg & 0xff;
@@ -159,16 +159,11 @@ void sia91xx_interrupt(struct work_struct *work)
 	sipa_write_reg(si_pa->regmap, SIA91XX_REG_INT_WC_REG, IntVal);
 }
 
-static __always_inline int sia91xx_ext_reset(sipa_dev_t *si_pa)
+/* g3p: stock sia91xx_get_rst_value (inlined into sia91xx_detect_chip) */
+static __always_inline void sia91xx_get_rst_value(sipa_dev_t *si_pa)
 {
-	if (si_pa && gpio_is_valid(si_pa->rst_pin)) {
-		gpio_set_value_cansleep(si_pa->rst_pin, 1);
-		mdelay(5);
-		gpio_set_value_cansleep(si_pa->rst_pin, 0);
-		mdelay(5);
-	}
-
-	return 0;
+	pr_debug("[debug][%s] %s: reset pin num:%u, value:%u \r\n", "sipa_91xx", __func__,
+		si_pa->rst_pin, gpiod_get_raw_value(gpio_to_desc(si_pa->rst_pin)));
 }
 
 void *sia91xx_devm_kstrdup(struct device *dev, char *buf)
@@ -228,21 +223,38 @@ int sia91xx_append_i2c_address(
 	return 0;
 }
 
+/* g3p: rewritten from the stock disassembly (reset sequence depends on the chip type mask 0x1b00000) */
 int sia91xx_detect_chip(
 	sipa_dev_t *si_pa)
 {
 	int ret;
 
 	/* Power up! */
-	sia91xx_ext_reset(si_pa);
+	if (si_pa && gpio_is_valid(si_pa->rst_pin)) {
+		if (si_pa->chip_type <= 0x18 && ((1u << si_pa->chip_type) & 0x1b00000)) {
+			gpiod_set_raw_value_cansleep(gpio_to_desc(si_pa->rst_pin), 1);
+			usleep_range(10000, 12000);
+		} else {
+			gpiod_set_raw_value_cansleep(gpio_to_desc(si_pa->rst_pin), 1);
+			usleep_range(5000, 6000);
+			gpiod_set_raw_value_cansleep(gpio_to_desc(si_pa->rst_pin), 0);
+			usleep_range(5000, 6000);
+		}
+	}
 
-	ret = sipa_regmap_check_chip_id(si_pa->regmap, 
+	if (0 == si_pa->disable_pin)
+		sia91xx_get_rst_value(si_pa);
+
+	ret = sipa_regmap_check_chip_id(si_pa->regmap,
 		si_pa->channel_num, si_pa->chip_type);
 	if (ret < 0) {
-		pr_err("[  err][%s] %s: Failed to read Revision register: %d \r\n", 
+		pr_err("[  err][%s] %s: Failed to read Revision register: %d \r\n",
 			LOG_FLAG, __func__, ret);
 		return -EIO;
 	}
+
+	if (si_pa->chip_type <= 0x18 && ((1u << si_pa->chip_type) & 0x1b00000))
+		gpiod_set_raw_value(gpio_to_desc(si_pa->rst_pin), 0);
 
 	return 0;
 }
@@ -262,20 +274,20 @@ int sia91xx_hw_params(
 	}
 
 	rate = params_rate(params);
-	pr_info("[ info][%s] %s: i2s rate: %u !!! \r\n", 
+	pr_info("[ info][%s] %s: i2s rate: %u !!! \n", 
 		LOG_FLAG, __func__, rate);
 
 	channels = params_channels(params);
-	pr_info("[ info][%s] %s: i2s channel: %u !!! \r\n", 
+	pr_info("[ info][%s] %s: i2s channel: %u !!! \n", 
 		LOG_FLAG, __func__, channels);
 	if (channels < CHANNEL_NUM_MIN || channels > CHANNEL_NUM_MAX) {
-		pr_err("[  err][%s] %s: i2s channel not match !!! \r\n", 
+		pr_err("[  err][%s] %s: i2s channel not match !!! \n", 
 			LOG_FLAG, __func__);
 		return -SIPA_ERROR_I2S_UNMATCH;
 	}
 
 	width = snd_pcm_format_physical_width(params_format(params));
-	pr_info("[ info][%s] %s: i2s width: %u !!! \r\n", 
+	pr_info("[ info][%s] %s: i2s width: %u !!! \n", 
 		LOG_FLAG, __func__, width);
 
 	pr_debug("[debug][%s] %s: stream = %d, requested rate = %d, sample size = %d,"
@@ -323,7 +335,7 @@ int sia91xx_startup(
 	}
 
 	if (si_pa->chip_type == 0x14)
-		gpio_set_value(si_pa->id_pin, 1);
+		gpio_set_value(si_pa->boost_pin, 1);
 
 	sipa_reg_init(si_pa);
 	sipa_regmap_write_sram(si_pa);
@@ -331,7 +343,7 @@ int sia91xx_startup(
 	if (sia91xx_smartpa_start(si_pa, substream->stream)) {
 		pr_err("[  err][%s] %s: sia91xx_smartpa_start failed \n", "sipa_91xx", __func__);
 		if (si_pa->chip_type == 0x14)
-			gpio_set_value(si_pa->id_pin, 0);
+			gpio_set_value(si_pa->boost_pin, 0);
 		return -SIPA_ERROR_SOFT_MUTE;
 	}
 
@@ -382,7 +394,7 @@ int sia91xx_smartpa_start(sipa_dev_t *si_pa, int stream)
 
 		if (dsp_count >= SIA91XX_MAX_DSP_START_TRY_COUNT) {
 			pr_err("[  err][%s] %s: Failed starting device \n", "sipa_91xx", __func__);
-			mievent_report(0x36007bca, "PA data exception", &si_pa->client->dev);
+			[[clang::always_inline]] mievent_report(0x36007bca, "PA data exception", &si_pa->client->dev);
 			return -SIPA_ERROR_DEV_START;
 		}
 	}
@@ -418,7 +430,7 @@ int sia91xx_mute(
 	if (!mute) {
 		if (si_pa->chip_type == 0x14)
 			pr_debug("[debug][%s] channel = %d, boost_pin_val = %d \n",
-				"sipa_91xx", si_pa->channel_num, gpio_get_value(si_pa->id_pin));
+				"sipa_91xx", si_pa->channel_num, gpio_get_value(si_pa->boost_pin));
 		return 0;
 	}
 

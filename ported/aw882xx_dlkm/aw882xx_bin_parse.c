@@ -1375,8 +1375,6 @@ struct aw_sec_data_desc *aw882xx_dev_get_prof_data(struct aw_device *aw_dev, int
 int aw882xx_dev_set_profile_index(struct aw_device *aw_dev, int index)
 {
 	struct aw_prof_info *prof_info = &aw_dev->prof_info;
-	struct mutex *ext_dsp_prof_wr_lock = NULL;
-	char *ext_dsp_prof_write = NULL;
 
 	if (index >= prof_info->count || index < 0)
 		return -EINVAL;
@@ -1385,13 +1383,6 @@ int aw882xx_dev_set_profile_index(struct aw_device *aw_dev, int index)
 	aw_dev_info(aw_dev->dev, "set prof[%s]",
 		prof_info->prof_name_list[prof_info->prof_desc[index].id]);
 
-
-	ext_dsp_prof_wr_lock = &g_ext_dsp_prof_wr_lock;
-	ext_dsp_prof_write = &ext_dsp_prof_write;
-
-	mutex_lock(ext_dsp_prof_wr_lock);
-	*ext_dsp_prof_write = AW_EXT_DSP_WRITE_NONE;
-	mutex_unlock(ext_dsp_prof_wr_lock);
 
 	return 0;
 }

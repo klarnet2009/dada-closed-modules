@@ -35,69 +35,158 @@ struct reg_map_info {
 	const uint32_t chip_id_range_num;
 };
 
+/* g3p: rebuilt from the stock rodata table (26 entries of 52 bytes at .rodata+0x589c; the types 9, 10, 13-16, 24 are empty there) */
 static const struct reg_map_info reg_map_info_table[] = {
-	[CHIP_TYPE_SIA8101] = {
-		.chip_type = CHIP_TYPE_SIA8101,
+	[0] = {
+		.chip_type = 0,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x00,
 		.chip_id_ranges = {{0x80, 0x8f}},
 		.chip_id_range_num = 1
 	},
-	[CHIP_TYPE_SIA8109] = {
-		.chip_type = CHIP_TYPE_SIA8109,
+	[1] = {
+		.chip_type = 1,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x41,
-		.chip_id_ranges = {{0x09, 0x09}, {0x9B, 0x9B}},
+		.chip_id_ranges = {{0x9, 0x9}, {0x9b, 0x9b}},
 		.chip_id_range_num = 2
 	},
-	[CHIP_TYPE_SIA8152] = {
-		.chip_type = CHIP_TYPE_SIA8152,
+	[2] = {
+		.chip_type = 2,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x00,
 		.chip_id_ranges = {{0x52, 0x57}},
 		.chip_id_range_num = 1
 	},
-	[CHIP_TYPE_SIA8152S] = {
-		.chip_type = CHIP_TYPE_SIA8152S,
+	[3] = {
+		.chip_type = 3,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x00,
-		.chip_id_ranges = {{0x5C, 0x5F}},
+		.chip_id_ranges = {{0x5c, 0x5f}},
 		.chip_id_range_num = 1
 	},
-	[CHIP_TYPE_SIA8159] = {
-		.chip_type = CHIP_TYPE_SIA8159,
+	[4] = {
+		.chip_type = 4,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x00,
-		.chip_id_ranges = {{0x60, 0x68}, {0x6A, 0x6F}},
-		.chip_id_range_num = 2
+		.chip_id_ranges = {{0x60, 0x68}},
+		.chip_id_range_num = 1
 	},
-	[CHIP_TYPE_SIA8159A] = {
-		.chip_type = CHIP_TYPE_SIA8159A,
+	[5] = {
+		.chip_type = 5,
 		.reg_addr_width = 8,
 		.reg_val_width = 8,
 		.chip_id_addr = 0x00,
 		.chip_id_ranges = {{0x58, 0x58}},
 		.chip_id_range_num = 1
 	},
-	[CHIP_TYPE_SIA9175] = {
-		.chip_type = CHIP_TYPE_SIA9175,
-		.reg_addr_width = 8,
-		.reg_val_width = 16,
-		.chip_id_addr = 0x07,
-		.chip_id_ranges = {{9175, 9175}},
-		.chip_id_range_num = 1
-	},
-	[CHIP_TYPE_SIA9195] = {
-		.chip_type = CHIP_TYPE_SIA9195,
+	[6] = {
+		.chip_type = 6,
 		.reg_addr_width = 8,
 		.reg_val_width = 16,
 		.chip_id_addr = 0x06,
-		.chip_id_ranges = {{195<<7, (195<<7) | 0x7f}},
+		.chip_id_ranges = {{0x6180, 0x61ff}},
+		.chip_id_range_num = 1
+	},
+	[7] = {
+		.chip_type = 7,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x06,
+		.chip_id_ranges = {{0x6190, 0x6191}, {0x6200, 0x6200}},
+		.chip_id_range_num = 2
+	},
+	[8] = {
+		.chip_type = 8,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x07,
+		.chip_id_ranges = {{0x23d7, 0x23d7}},
+		.chip_id_range_num = 1
+	},
+	[11] = {
+		.chip_type = 11,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x06,
+		.chip_id_ranges = {{0x5880, 0x5880}, {0x5890, 0x5891}, {0x58a0, 0x58a1}},
+		.chip_id_range_num = 3
+	},
+	[12] = {
+		.chip_type = 12,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x06,
+		.chip_id_ranges = {{0x4d80, 0x4d80}},
+		.chip_id_range_num = 1
+	},
+	[17] = {
+		.chip_type = 17,
+		.reg_addr_width = 8,
+		.reg_val_width = 8,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x50, 0x50}},
+		.chip_id_range_num = 1
+	},
+	[18] = {
+		.chip_type = 18,
+		.reg_addr_width = 8,
+		.reg_val_width = 8,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x6a, 0x6f}},
+		.chip_id_range_num = 1
+	},
+	[19] = {
+		.chip_type = 19,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x06,
+		.chip_id_ranges = {{0x5d80, 0x5d90}},
+		.chip_id_range_num = 1
+	},
+	[20] = {
+		.chip_type = 20,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x3b00, 0x3b01}},
+		.chip_id_range_num = 1
+	},
+	[21] = {
+		.chip_type = 21,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x6281, 0x6281}, {0x6290, 0x6290}, {0x6310, 0x6310}},
+		.chip_id_range_num = 3
+	},
+	[22] = {
+		.chip_type = 22,
+		.reg_addr_width = 8,
+		.reg_val_width = 8,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x32, 0x32}},
+		.chip_id_range_num = 1
+	},
+	[23] = {
+		.chip_type = 23,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x3b80, 0x3b82}},
+		.chip_id_range_num = 1
+	},
+	[25] = {
+		.chip_type = 25,
+		.reg_addr_width = 8,
+		.reg_val_width = 16,
+		.chip_id_addr = 0x00,
+		.chip_id_ranges = {{0x5300, 0x5300}},
 		.chip_id_range_num = 1
 	},
 };
@@ -111,13 +200,13 @@ int sipa_regmap_read(
 	void *buf)
 {
 	if (NULL == regmap) {
-		pr_warn("[ warn][%s] %s: NULL == regmap \r\n",
+		pr_warn("[ warn][%s] %s: NULL == regmap \n",
 			LOG_FLAG, __func__);
 		return -EINVAL;
 	}
 
 	if (NULL == buf) {
-		pr_err("[  err][%s] %s: NULL == buf \r\n",
+		pr_err("[  err][%s] %s: NULL == buf \n",
 			LOG_FLAG, __func__);
 		return -EINVAL;
 	}
@@ -136,7 +225,7 @@ int sipa_regmap_read(
 			*(unsigned short *)buf = (unsigned short)val;
 			break;
 		default:
-			pr_err("[  err][%s] %s: reg_val_width error \r\n", 
+			pr_err("[  err][%s] %s: reg_val_width error \n", 
 				LOG_FLAG, __func__);
 			return -EINVAL;
 		}
@@ -155,13 +244,13 @@ int sipa_regmap_write(
 	const void *buf)
 {
 	if (NULL == regmap) {
-		pr_warn("[ warn][%s] %s: NULL == regmap \r\n",
+		pr_warn("[ warn][%s] %s: NULL == regmap \n",
 			LOG_FLAG, __func__);
 		return -EINVAL;
 	}
 
 	if (NULL == buf) {
-		pr_err("[  err][%s] %s: NULL == buf \r\n",
+		pr_err("[  err][%s] %s: NULL == buf \n",
 			LOG_FLAG, __func__);
 		return -EINVAL;
 	}
@@ -177,7 +266,7 @@ int sipa_regmap_write(
 			val = (unsigned int)(*(unsigned short *)buf);
 			break;
 		default:
-			pr_err("[  err][%s] %s: reg_val_width error \r\n", 
+			pr_err("[  err][%s] %s: reg_val_width error \n", 
 				LOG_FLAG, __func__);
 			return -EINVAL;
 		}
@@ -209,40 +298,15 @@ static bool sipa_volatile_register(
 	return true;
 }
 
-static int verify_chip_type(
+/* g3o: the stock only range-checks the chip type here (inlined, message with the caller's name); the template also
+ * compared the register widths with the loaded firmware [removed: the stock functions have no such check] */
+static __always_inline int verify_chip_type(
 	unsigned int ch,
 	unsigned int type)
 {
-	SIPA_CHIP_CFG chip_cfg;
-
 	if (type >= ARRAY_SIZE(reg_map_info_table)) {
-		//pr_warn("[ warn][%s] %s: chip_type = %u, "
-		//	"ARRAY_SIZE(reg_map_info) = %lu \r\n",
-		//	LOG_FLAG, __func__, type, ARRAY_SIZE(reg_map_info_table));
+		pr_err("[  err][%s] %s: chip_type(%u) is err \n", LOG_FLAG, __func__, type);
 		return -ENODEV;
-	}
-
-	if (sipa_param_is_loaded()) {
-		if (NULL == sipa_param_read_chip_cfg(ch, type, &chip_cfg)) {
-			return -ENODEV;
-		}
-
-		if (reg_map_info_table[type].reg_addr_width 
-				!= chip_cfg.reg_addr_width ||
-			reg_map_info_table[type].reg_val_width
-				!= chip_cfg.reg_val_width) {
-			pr_err("[  err][%s] %s: "
-				"reg_addr_width = %u "
-				"chip_cfg.reg_addr_width = %u "
-				"reg_val_width = %u "
-				"chip_cfg.reg_val_width = %u \r\n",
-				LOG_FLAG, __func__,
-				reg_map_info_table[type].reg_addr_width,
-				chip_cfg.reg_addr_width,
-				reg_map_info_table[type].reg_val_width,
-				chip_cfg.reg_val_width);
-			return -ENODEV;
-		}
 	}
 
 	return 0;
@@ -308,7 +372,7 @@ int sipa_regmap_check_chip_id(
 			return 0;
 	}
 
-	pr_err("[  err][%s] %s: chip_id_addr(0x%04x), val(0x%04x) \r\n",
+	pr_err("[  err][%s] %s: chip_id_addr(0x%04x), val(0x%04x) \n",
 		LOG_FLAG, __func__, reg_map_info_table[chip_type].chip_id_addr, val);
 	return -1;
 }
@@ -329,23 +393,23 @@ void sipa_regmap_defaults(
 	const SIPA_PARAM_LIST *init_list = NULL;
 	const SIPA_REG_COMMON *init_regs = NULL;
 
-	pr_debug("[debug][%s] %s: running, chip_type = %u, channel_num = %u \r\n",
+	pr_debug("[debug][%s] %s: running, chip_type = %u, channel_num = %u \n",
 		LOG_FLAG, __func__, chip_type, channel_num);
 
 	if (NULL == regmap) {
-		pr_warn("[ warn][%s] %s: NULL == regmap \r\n",
+		pr_warn("[ warn][%s] %s: NULL == regmap \n",
 			LOG_FLAG, __func__);
 		return;
 	}
 
 	if (AUDIO_SCENE_NUM <= scene) {
-		pr_err("[  err][%s] %s: scene = %u, AUDIO_SCENE_NUM = %u \r\n",
+		pr_err("[  err][%s] %s: scene = %u, AUDIO_SCENE_NUM = %u \n",
 			LOG_FLAG, __func__, scene, AUDIO_SCENE_NUM);
 		return;
 	}
 
 	if (SIPA_CHANNEL_NUM <= channel_num) {
-		pr_err("[  err][%s] %s: channel_num = %u, SIPA_CHANNEL_NUM = %u \r\n",
+		pr_err("[  err][%s] %s: channel_num = %u, SIPA_CHANNEL_NUM = %u \n",
 			LOG_FLAG, __func__, channel_num, SIPA_CHANNEL_NUM);
 		return;
 	}
@@ -355,7 +419,7 @@ void sipa_regmap_defaults(
 
 	data = sipa_param_read_chip_cfg(channel_num, chip_type, &chip_cfg);
 	if (NULL == data) {
-		pr_err("[  err][%s] %s: fw unloaded \r\n", 
+		pr_err("[  err][%s] %s: fw unloaded \n", 
 			LOG_FLAG, __func__);
 		return;
 	}
@@ -371,66 +435,81 @@ void sipa_regmap_defaults(
 	for (i = 0; i < init_list->num; i++) {
 		ret = regmap_write(regmap, init_regs[i].addr, init_regs[i].val[scene]);
 		if (0 != ret) {
-			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\r\n",
+			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
 				LOG_FLAG, __func__, ret, chip_type, regmap, init_regs[i].addr);
 			break;
 		}
 	}
 }
 
-static int sipa_regmap_proc_1_reg(sipa_dev_t *si_pa, 
+/* g3r: rewritten from the stock disassembly (123 insns): sipa_read_reg/sipa_write_reg helpers, usleep_range(delay, delay)
+ * instead of udelay, the three stock error prints, a partial-mask write reads first, CHECK prints addr/val/expected/mask */
+static int sipa_regmap_proc_1_reg(sipa_dev_t *si_pa,
 	SIPA_REG_PROC *reg, unsigned int val_width)
 {
 	unsigned int val = 0;
-	unsigned int full_mask = 0;
 
-	if (NULL == si_pa || NULL == reg)
+	if (NULL == si_pa || NULL == reg) {
+		pr_err("[  err][%s] %s: si_pa or reg is null \n", LOG_FLAG, __func__);
 		return -EINVAL;
+	}
 
-	if (SIPA_MAX_REG_ADDR <= reg->addr)
+	if (NULL == si_pa->regmap) {
+		pr_err("[  err][%s] %s: regmap is null \n", LOG_FLAG, __func__);
 		return -EINVAL;
+	}
 
-	full_mask = (1 << val_width) - 1;
+	if (SIPA_MAX_REG_ADDR <= reg->addr) {
+		pr_err("[  err][%s] %s: addr(%u) is err \n", LOG_FLAG, __func__, reg->addr);
+		return -EINVAL;
+	}
 
 	switch (reg->action) {
 	case SIPA_REG_READ:
-		if (0 != regmap_read(si_pa->regmap, reg->addr, &val))
+		if (0 != sipa_read_reg(si_pa->regmap, reg->addr, &val))
 			return -EFAULT;
 
 		reg->val[si_pa->scene] = (reg->val[si_pa->scene] & (~reg->mask))
 				| (val & reg->mask);
 
 		if (0 != reg->delay)
-			udelay(reg->delay);
+			usleep_range(reg->delay, reg->delay);
+
+		if (reg->addr <= 0x14)
+			pr_info("[ info][%s] %s: addr:0x%x, val:0x%04x\n",
+				LOG_FLAG, __func__, reg->addr, val);
 		break;
 	case SIPA_REG_WRITE:
-		if (full_mask != (reg->mask & full_mask)) {
-			if (0 != regmap_read(si_pa->regmap, reg->addr, &val))
+		if ((~reg->mask) & ~(~0U << val_width)) {
+			if (0 != sipa_read_reg(si_pa->regmap, reg->addr, &val))
 				return -EFAULT;
 
-			val = (val  & (~reg->mask)) | (reg->val[si_pa->scene] & reg->mask);
+			val = (val & (~reg->mask)) | (reg->val[si_pa->scene] & reg->mask);
 		} else
 			val = reg->val[si_pa->scene];
 
-		if (0 != regmap_write(si_pa->regmap, reg->addr, val))
+		if (0 != sipa_write_reg(si_pa->regmap, reg->addr, val))
 			return -EFAULT;
 
 		if (0 != reg->delay)
-			udelay(reg->delay);
+			usleep_range(reg->delay, reg->delay);
 		break;
 	case SIPA_REG_CHECK:
-		if (0 != regmap_read(si_pa->regmap, reg->addr, &val))
+		if (0 != sipa_read_reg(si_pa->regmap, reg->addr, &val))
 			return -EFAULT;
 
-		if ((val & reg->mask) != (reg->val[si_pa->scene] & reg->mask))
+		if ((val ^ reg->val[si_pa->scene]) & reg->mask) {
+			pr_err("[  err][%s] %s: addr:0x%x, val:0x%x, expected:%x, mask:0x%x\n",
+				LOG_FLAG, __func__, reg->addr, val, reg->val[si_pa->scene], reg->mask);
 			return -1;
+		}
 
 		if (0 != reg->delay)
-			udelay(reg->delay);
+			usleep_range(reg->delay, reg->delay);
 		break;
 	case SIPA_REG_PAD:
 		if (0 != reg->delay)
-			udelay(reg->delay);
+			usleep_range(reg->delay, reg->delay);
 		break;
 	default:
 		return -EINVAL;
@@ -439,7 +518,7 @@ static int sipa_regmap_proc_1_reg(sipa_dev_t *si_pa,
 	return 0;
 }
 
-static int sipa_regmap_proc_1_reg_list(sipa_dev_t *si_pa, 
+static __always_inline int g3o_proc_1_reg_list_body(sipa_dev_t *si_pa, 
 	const SIPA_PARAM_LIST *list, SIPA_REG_PROC *regs, uint32_t val_width)
 {
 	int i = 0;
@@ -457,13 +536,19 @@ static int sipa_regmap_proc_1_reg_list(sipa_dev_t *si_pa,
 	for (i = 0; i < list->num; i++) {
 		ret = sipa_regmap_proc_1_reg(si_pa, &regs[i], val_width);
 		if (0 != ret) {
-			pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\r\n",
+			pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
 				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, regs[i].addr);
 			return ret;
 		}
 	}
 
 	return 0;
+}
+
+static noinline int sipa_regmap_proc_1_reg_list(sipa_dev_t *si_pa,
+	const SIPA_PARAM_LIST *list, SIPA_REG_PROC *regs, uint32_t val_width)
+{
+	return g3o_proc_1_reg_list_body(si_pa, list, regs, val_width);
 }
 
 bool sipa_regmap_set_chip_on(
@@ -482,16 +567,20 @@ bool sipa_regmap_set_chip_on(
 
 	data = sipa_param_read_chip_cfg(si_pa->channel_num, si_pa->chip_type, &chip_cfg);
 	if (NULL == data) {
-		pr_err("[  err][%s] %s: fw unloaded \r\n", 
+		pr_err("[  err][%s] %s: fw unloaded \n", 
 			LOG_FLAG, __func__);
 		return false;
 	}
 
 	startup_list = &chip_cfg.startup;
 	startup_regs = (SIPA_REG_PROC *)(data + startup_list->offset);
-	if (0 != sipa_regmap_proc_1_reg_list(si_pa, 
-			startup_list, startup_regs, chip_cfg.reg_val_width))
-		return false;
+	{
+		int g3o_r;
+
+		g3o_r = g3o_proc_1_reg_list_body(si_pa, startup_list, startup_regs, chip_cfg.reg_val_width);
+		if (0 != g3o_r)
+			return false;
+	}
 
 	return true;
 }
@@ -512,16 +601,20 @@ bool sipa_regmap_set_chip_off(
 
 	data = sipa_param_read_chip_cfg(si_pa->channel_num, si_pa->chip_type, &chip_cfg);
 	if (NULL == data) {
-		pr_err("[  err][%s] %s: fw unloaded \r\n", 
+		pr_err("[  err][%s] %s: fw unloaded \n", 
 			LOG_FLAG, __func__);
 		return false;
 	}
 
 	shutdown_list = &chip_cfg.shutdown;
 	shutdown_regs = (SIPA_REG_PROC *)(data + shutdown_list->offset);
-	if (0 != sipa_regmap_proc_1_reg_list(si_pa, 
-			shutdown_list, shutdown_regs, chip_cfg.reg_val_width))
-		return false;
+	{
+		int g3o_r;
+
+		g3o_r = g3o_proc_1_reg_list_body(si_pa, shutdown_list, shutdown_regs, chip_cfg.reg_val_width);
+		if (0 != g3o_r)
+			return false;
+	}
 
 	return true;
 }
@@ -570,7 +663,7 @@ void sipa_regmap_set_pvdd_limit(
 		return;
 
 	if (3200000 > vol || 5000000 < vol) {
-		pr_err("[  err][%s] %s: voltage = %u out of range !!! \r\n",
+		pr_err("[  err][%s] %s: voltage = %u out of range !!! \n",
 			LOG_FLAG, __func__, vol);
 		return;
 	}
@@ -580,7 +673,7 @@ void sipa_regmap_set_pvdd_limit(
 
 	data = sipa_param_read_chip_cfg(ch, chip_type, &chip_cfg);
 	if (NULL == data) {
-		pr_err("[  err][%s] %s: fw unloaded \r\n", 
+		pr_err("[  err][%s] %s: fw unloaded \n", 
 			LOG_FLAG, __func__);
 		return;
 	}
@@ -624,7 +717,7 @@ static uint32_t sipa_regmap_bits_pack(sipa_dev_t *si_pa,
 	for (j = 0; j < list->num; j++) {
 		ret = sipa_regmap_proc_1_reg(si_pa, &regs[j], val_width);
 		if (0 != ret) {
-			pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\r\n",
+			pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
 				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, regs[j].addr);
 			return 0;
 		}
@@ -636,7 +729,7 @@ static uint32_t sipa_regmap_bits_pack(sipa_dev_t *si_pa,
 				bits_total++;
 
 				if (bits_total > buff_len * 8) {
-					pr_err("[  err][%s] %s: bits_total(%u bits) > buff_len (%u bytes) \r\n",
+					pr_err("[  err][%s] %s: bits_total(%u bits) > buff_len (%u bytes) \n",
 						LOG_FLAG, __func__, bits_total, buff_len);
 					return 0;
 				}
@@ -669,18 +762,18 @@ void sipa_regmap_check_trimming(
 
 	data = sipa_param_read_chip_cfg(si_pa->channel_num, si_pa->chip_type, &chip_cfg);
 	if (NULL == data) {
-		pr_err("[  err][%s] %s: fw unloaded \r\n",
+		pr_err("[  err][%s] %s: fw unloaded \n",
 			LOG_FLAG, __func__);
 		return;
 	}
 
 	/* wait reading trimming data to reg */
-	mdelay(1);
+	usleep_range(1000, 2000);
 
 	val_width = chip_cfg.reg_val_width;
 	reg_list = &chip_cfg.trim_regs.efuse;
 	if (!reg_list->num) {
-		pr_debug("[debug][%s] no efuse return\r\n", __func__);
+		printk(KERN_DEBUG "[debug][%s] no efuse return\n", LOG_FLAG);
 		return;
 	}
 		
@@ -688,7 +781,7 @@ void sipa_regmap_check_trimming(
 	trim_bytes = sipa_regmap_bits_pack(
 		si_pa, reg_list, regs, val_width, trim, sizeof(trim));
 	if (0 >= trim_bytes) {
-		pr_err("[  err][%s] %s: read trim regs failed! \r\n",
+		pr_err("[  err][%s] %s: read trim regs failed! \n",
 			LOG_FLAG, __func__);
 		return;
 	} else
@@ -706,7 +799,7 @@ void sipa_regmap_check_trimming(
 
 	ret = sipa_regmap_bits_pack(si_pa, reg_list, regs, val_width, crc_buff, sizeof(crc_buff));
 	if (crc_width != ret) {
-		pr_err("[  err][%s] %s: read trim crc regs failed! crc_width = %u ret = %u\r\n",
+		pr_err("[  err][%s] %s: read trim crc regs failed! crc_width = %u ret = %u\n",
 			LOG_FLAG, __func__, crc_width, ret);
 		return;
 	}
@@ -725,19 +818,53 @@ void sipa_regmap_check_trimming(
 		crc_cal = crc16_maxim(trim, trim_bytes);
 		break;
 	default:
-		pr_err("[  err][%s] %s: crc_width(%u) unsupported! \r\n",
+		pr_err("[  err][%s] %s: crc_width(%u) unsupported! \n",
 			LOG_FLAG, __func__, crc_width);
 		return;
 	}
 
+	si_pa->status &= 0xfe;
 	if (crc_cal != crc) {
-		pr_err("[  err][%s] %s: ch%d check trim crc failed! \r\n", 
-			LOG_FLAG, __func__, si_pa->channel_num);
+		pr_err("[  err][%s] %s: ch%d check trim crc failed! crc_cal = 0x%x, crc = 0x%x\n",
+			LOG_FLAG, __func__, si_pa->channel_num, crc_cal, crc);
+		si_pa->status = 1;
 
 		reg_list = &chip_cfg.trim_regs.default_set;
 		regs = (SIPA_REG_PROC *)(data + reg_list->offset);
 		sipa_regmap_proc_1_reg_list(si_pa, reg_list, regs, val_width);
+		return;
+	}
 
+	/* g3r: chip type 4: the trim bytes patch the default register set (stock only; the template lacks it) */
+	if (si_pa->chip_type == 4) {
+		uint32_t n;
+
+		reg_list = &chip_cfg.trim_regs.default_set;
+		regs = (SIPA_REG_PROC *)(data + reg_list->offset);
+		for (n = 0; n < reg_list->num; n++) {
+			switch (regs[n].addr) {
+			case 0x22:
+				regs[n].val[si_pa->scene] = trim[0];
+				if (trim[0] >= 0x20)
+					regs[n].val[si_pa->scene] -= 0x20;
+				else
+					regs[n].val[si_pa->scene] &= 0xf;
+				break;
+			case 0x21:
+				regs[n].val[si_pa->scene] = trim[1];
+				break;
+			case 0x20:
+				regs[n].val[si_pa->scene] = trim[2];
+				break;
+			}
+
+			ret = sipa_regmap_proc_1_reg(si_pa, &regs[n], val_width);
+			if (0 != ret) {
+				pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
+					LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, regs[n].addr);
+				return;
+			}
+		}
 	}
 }
 /* g3m: written from the stock disassembly (215 insns); entry layout {addr, ?, val[6]} is 32 bytes */

@@ -217,12 +217,49 @@ extern void cdev_tevent_destroy(struct cdev_tevent *ev);
 #include <linux/delay.h>
 #include <linux/ktime.h>
 #define DFX_ATOMIC(off)		((atomic_t *)(dfx.raw + (off)))
+/* time bucket array of 6 counters: the stock has the array-bounds trap on the index */
+#define DFX_ABKT(off, i)	((*(atomic_t (*)[6])(dfx.raw + (off)))[i])
 #define MCI_POOL_COUNT(off)	smp_load_acquire((u32 *)((u8 *)MCI_PTR(off) + 0x18))
 /* claim the fault record (cmpxchg on mem_fault_reporting), fill it; sending is done by the misight callback (not enabled here) */
 /* open-coded for_each_zone() of the single node (next_zone() is not exported); MAX_NR_ZONES is 5 here */
 #define llm_for_each_zone(zone)									for (zone = contig_page_data.node_zones; zone;						     zone = zone < zone->zone_pgdat->node_zones + MAX_NR_ZONES - 1 ? zone + 1 : NULL)
-struct llm_dfx_t { u8 raw[2464]; };
-struct llm_mci_t { u8 raw[2288]; };
+/* typed view of the per-(scene, process type, handler type) latency statistics (offsets of the stock; the stock indexes them with
+   array-bounds traps): count[scene 5][proc 3][type 4 = cma/dma/order4/order9][bucket 5] at +0x12c, total ns at +0x5e0, max ns at +0x7c0 */
+struct llm_dfx_t {
+	union {
+		u8 raw[2464];
+		struct {
+			u8 pad0[0x12c];
+			u32 cnt[5][3][4][5];
+			u8 pad1[4];
+			u64 tot[5][3][4];
+			u32 max[5][3][4];
+		};
+	};
+};
+/* one record of the pre-compact history ring (0x48 bytes, 30 slots at mci+0x78, counter at mci+0x8e8) */
+struct pc_rec {
+	u64 pages;			/* +0x00 free pages before the round */
+	u32 f4, f9, f4a, f9a;		/* +0x08 fragmentation before / after (order 4, 9) */
+	u32 t4, t9;			/* +0x18 targets */
+	u32 c4, c9;			/* +0x20 pool counts before */
+	u32 n4, n9;			/* +0x28 pool counts after */
+	u8 success;			/* +0x30 */
+	u8 pad[7];
+	u64 time;			/* +0x38 ktime_get_real */
+	u64 dur;			/* +0x40 compact time ns */
+};
+_Static_assert(sizeof(struct pc_rec) == 0x48, "pc_rec");
+struct llm_mci_t {
+	union {
+		u8 raw[2288];
+		struct {
+			u8 pad0[0x78];
+			struct pc_rec hist[30];
+			u32 hist_cnt;
+		};
+	};
+};
 extern struct llm_dfx_t dfx;
 extern struct llm_mci_t mci;
 extern int llm_enable;

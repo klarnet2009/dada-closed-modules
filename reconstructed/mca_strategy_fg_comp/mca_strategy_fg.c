@@ -147,7 +147,7 @@ void strategy_fg_record_volt_mean(struct strategy_fg *fg)
 				data[0] = fg->batt_voltage_mean;
 				data[1] = fg->batt_current;
 				data[2] = fg->batt_temperature;
-				mca_charge_mievent_report(0x35, data, 3);
+				mca_charge_mievent_report(CHARGE_DFX_VBAT_MEAN_SHUTDOWN, data, 3);
 			}
 		} else if (fg->batt_voltage_mean > (fg->vcutoff_sw + VABTT_EMPTY_HY)) {
 			empty_count = 0;
@@ -1347,13 +1347,13 @@ static int fg_check_batt_auth(struct strategy_fg *fg)
 			if (fg->cfg.fg_type == MCA_FG_TYPE_PARALLEL) {
 				if (!fg->batt_auth) {
 					param = 0;
-					mca_charge_mievent_report(CHARGE_DFX_BATTERY_AUTH_FAIL_PARALLEL, &param, 1);
+					mca_charge_mievent_report(CHARGE_DFX_DUAL_BATTERY_AUTH_FAIL, &param, 1);
 				}
 #line 2518
 				mca_log_err("check slave batt auth: %d, time_now: %lld\n", fg->batt_slave_auth, time_now);
 				if (!fg->batt_slave_auth) {
 					param = 1;
-					mca_charge_mievent_report(CHARGE_DFX_BATTERY_AUTH_FAIL_PARALLEL, &param, 1);
+					mca_charge_mievent_report(CHARGE_DFX_DUAL_BATTERY_AUTH_FAIL, &param, 1);
 				}
 			} else if (!fg->batt_auth) {
 				mca_charge_mievent_report(CHARGE_DFX_BATTERY_AUTH_FAIL, NULL, 0);
@@ -1465,13 +1465,13 @@ static void strategy_fg_dtpt_monitor_work(struct work_struct *work)
 			mca_charge_mievent_set_state(MIEVENT_STATE_END, 0x32);
 			break;
 		case 1:
-			mca_charge_mievent_report(0x30, &master_isc_alert, 1);
+			mca_charge_mievent_report(CHARGE_DFX_ISP_LEVEL_1, &master_isc_alert, 1);
 			break;
 		case 2:
-			mca_charge_mievent_report(0x31, &master_isc_alert, 1);
+			mca_charge_mievent_report(CHARGE_DFX_ISP_LEVEL_2, &master_isc_alert, 1);
 			break;
 		case 3:
-			mca_charge_mievent_report(0x32, &master_isc_alert, 1);
+			mca_charge_mievent_report(CHARGE_DFX_ISP_LEVEL_3, &master_isc_alert, 1);
 			break;
 		}
 		last_isc_alert = master_isc_alert;
@@ -1645,7 +1645,7 @@ static void strategy_batt_abnormal_dfx_work(struct work_struct *work)
 		param[4] = fg->batt_ui_soc;
 		param[5] = fg->batt_voltage;
 		param[6] = fg->batt_temperature;
-		mca_charge_mievent_report(CHARGE_DFX_BATTERY_OCD_COUNT, param, 7);
+		mca_charge_mievent_report(CHARGE_DFX_BATTERY_OCD, param, 7);
 		charger_partition_write_ocd_count(info.ocd_count, info.hocd_count);
 	}
 
@@ -1657,20 +1657,20 @@ static void strategy_batt_abnormal_dfx_work(struct work_struct *work)
 		param[4] = fg->batt_ui_soc;
 		param[5] = fg->batt_voltage;
 		param[6] = fg->batt_temperature;
-		mca_charge_mievent_report(CHARGE_DFX_BATTERY_CUV_COUNT, param, 7);
+		mca_charge_mievent_report(CHARGE_DFX_BATTERY_CUV, param, 7);
 		charger_partition_write_cuv_count(info.cuv_count, info.hcuv_count);
 	}
 
 	if (last_hscd_count != info.hscd_count) {
 		param[0] = info.hscd_count;
 		param[1] = info.hscd_info;
-		mca_charge_mievent_report(CHARGE_DFX_BATTERY_HSCD_COUNT, param, 2);
+		mca_charge_mievent_report(CHARGE_DFX_BATTERY_SCD, param, 2);
 		charger_partition_write_hcsd_count(info.hscd_count);
 	}
 }
 
-#define MCA_EVENT_PANEL_SCREEN_STATE_CHANGE 0x40
-#define MCA_EVENT_THERMAL_BOARD_TEMP_CHANGE 0x3e
+/* G13d: MCA_EVENT_PANEL_SCREEN_STATE_CHANGE (0x40) is a stock BTF enumerator (stubs_g13d_g2k) */
+/* G13d: MCA_EVENT_THERMAL_BOARD_TEMP_CHANGE (0x3e) is a stock BTF enumerator */
 #define NTC_SCALE_BOARDTEMP 100
 
 static int strategy_fg_panel_notifier_cb(struct notifier_block *nb, unsigned long event, void *val)
@@ -2484,7 +2484,7 @@ static int mca_strategy_check_sigle_termination(struct strategy_fg *fg)
 	return 0;
 }
 
-#define MCA_EVENT_QUICK_CHARGE_PMIC_TERM 0x3d
+/* G13d: 0x3d = MCA_EVENT_MASTER_BATT_CLOSE (stock BTF; G2 called it QUICK_CHARGE_PMIC_TERM) */
 
 static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, int fg_index)
 {
@@ -2559,7 +2559,7 @@ static void mca_strategy_parallel_force_fw_report_full(struct strategy_fg *fg, i
 					STRATEGY_STATUS_TYPE_CHARGING, &quick_charge_status);
 				if (quick_charge_status == MCA_QUICK_CHG_STS_CHARGING) {
 					mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE,
-						MCA_EVENT_QUICK_CHARGE_PMIC_TERM, fg->dual_iterm[1]);
+						MCA_EVENT_MASTER_BATT_CLOSE, fg->dual_iterm[1]);
 					force_full_count[0] = 0;
 					fg->base_batt_close = true;
 #line 1774
@@ -2960,7 +2960,7 @@ static void strategy_fg_set_fake_temp(struct strategy_fg *fg, int val)
 	}
 }
 
-#define MCA_EVENT_FG_ERROR 0x43
+/* G13d: 0x43 = MCA_EVENT_BQ_FG_ERROR (stock BTF; G2 called it FG_ERROR) */
 #define STRATEGY_EVENT_DUAL_TERM_CURR 0x14
 #define STRATEGY_STATUS_TYPE_FFC_FCC 5
 #define STRATEGY_STATUS_TYPE_JEITA_FFC_ITERM 0xe
@@ -3539,7 +3539,7 @@ static int mca_strategy_check_lossless_recharge(struct strategy_fg *fg)
 	return 0;
 }
 
-#define MCA_EVENT_ONEWIRE_AUTH_PASS MCA_EVENT_BATT_AUTH_PASS
+/* G13d: (G2 alias MCA_EVENT_ONEWIRE_AUTH_PASS removed, stock name MCA_EVENT_BATT_AUTH_PASS) */
 
 static int mca_strategy_check_onewire_batt_auth(struct strategy_fg *fg)
 {
@@ -3611,7 +3611,7 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 						param[2] = now_rm;
 						param[3] = fg->initial_soc;
 						param[4] = now_soc;
-						mca_charge_mievent_report(CHARGE_DFX_XMPPS_CHARGE_SLOW, param, 5);
+						mca_charge_mievent_report(CHARGE_DFX_XMPPS_CHARGER_SLOWLY, param, 5);
 					}
 					fg->initial_rm = now_rm;
 					fg->initial_soc = now_soc;
@@ -3623,7 +3623,7 @@ static void charge_slowly_monitor_func(struct strategy_fg *fg)
 	} else if (fg->real_type >= 1 && fg->real_type <= 11 && !fg->nonxmpps_flag &&
 		   nowplugintime - fg->online_time >= 61) {
 		param[0] = fg->real_type;
-		mca_charge_mievent_report(CHARGE_DFX_NONXMPPS_CHARGE, param, 1);
+		mca_charge_mievent_report(CHARGE_DFX_NON_STANDARD_CHARGER, param, 1);
 		fg->nonxmpps_flag = true;
 #line 4678
 		mca_log_err("report dfx\n");
@@ -3964,8 +3964,8 @@ static int strategy_fg_process_event(int event, int value, void *data)
 #line 4363
 	mca_log_info("receive event %d, value %d", event, value);
 	switch (event) {
-	case MCA_EVENT_DEBUG_DOUBLE85:
-	case MCA_EVENT_DEBUG_REMOVE_TEMP_LIMIT:
+	case MCA_EVENT_DEBUG_CTRL_DOUBLE85:
+	case MCA_EVENT_DEBUG_CTRL_REMOVE_TEMP_LIMIT:
 		if (value) {
 			strategy_fg_set_fake_soc(info, 55);
 			strategy_fg_set_fake_temp(info, 500);
@@ -4113,11 +4113,11 @@ static int strategy_fg_process_event(int event, int value, void *data)
 			mca_log_info("is_eu_model[%d] update soc\n", info->is_eu_model);
 		}
 		break;
-	case MCA_EVENT_FG_ERROR:
+	case MCA_EVENT_BQ_FG_ERROR:
 		info->fg_error = 1;
 		fg_update_status(info, true);
 		break;
-	case MCA_EVENT_DEBUG_MEMORY_TEST:
+	case MCA_EVENT_DEBUG_CTRL_MEMORY_TEST:
 		if (value)
 			strategy_fg_set_fake_temp(info, 250);
 		else
@@ -4693,7 +4693,7 @@ void strategy_batt_overvoltage_dfx_work(struct work_struct *work)
 		mievent_data[1] = fg->batt_voltage;
 		mievent_data[2] = fg->batt_cyclecount;
 		mievent_data[3] = fg->fast_charge;
-		mca_charge_mievent_report(0x36, mievent_data, 4);
+		mca_charge_mievent_report(CHARGE_DFX_BATTERY_OVERVOLTAGE, mievent_data, 4);
 		memcpy(buf, "CHARGE_DFX_BATTERY_OVERVOLTAGE=1", 33);
 		event_data.event = buf;
 		event_data.event_len = 32;

@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
+/* G13d WARNING: several enumerator NAMES in this header do not match the OS4 stock BTF (the VALUES used by the built modules are the stock immediates, so the code is right, but e.g. MCA_EVENT_CP_VBUS_OVP here = stock MCA_EVENT_CP_VUSB_OVP). Authoritative: stubs_g13d_g5/include/mca/common/mca_event.h + mca_charge_mievent.h. See work/a17/review/charging_enum_audit.md */
 /*
  * mca_charge_mievent.h - reconstructed from the stock mca_charge_mievent (event table decoded from its .data) and the XRING source.
  * CHARGE_DFX_* values are the table positions of the stock (50 entries).

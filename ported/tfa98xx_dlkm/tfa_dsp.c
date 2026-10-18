@@ -561,7 +561,7 @@ enum Tfa98xx_Error tfa98xx_compare_features(struct tfa_device *tfa,
 	unsigned char bytes[3 * 2];
 	int status;
 
-	tfa98xx_dsp_system_stable(tfa, &status);
+	[[clang::always_inline]] tfa98xx_dsp_system_stable(tfa, &status);
 	if (!status)
 		return Tfa98xx_Error_NoClock; // Only test when we have a clock.
 
@@ -605,10 +605,14 @@ enum Tfa98xx_Error tfa98xx_dsp_reset(struct tfa_device *tfa, int state)
 }
 
 /* the ops wrapper for tfa98xx_dsp_SystemStable */
-noinline enum Tfa98xx_Error tfa98xx_dsp_system_stable(struct tfa_device *tfa,
+enum Tfa98xx_Error tfa98xx_dsp_system_stable(struct tfa_device *tfa,
 			int *ready)
 {
-	return (tfa->dev_ops.dsp_system_stable)(tfa, ready);
+	/* g3q: the stock wrapper prints every result (KERN_INFO) */
+	enum Tfa98xx_Error err = (tfa->dev_ops.dsp_system_stable)(tfa, ready);
+
+	pr_info("%s error=%d  ready=%d\n", __func__, err, *ready);
+	return err;
 }
 
 /* the ops wrapper for tfa98xx_dsp_system_stable */
@@ -813,7 +817,7 @@ enum Tfa98xx_Error tfa98xx_get_mtp(struct tfa_device *tfa, uint16_t *value)
 		return Tfa98xx_Error_NoClock;
 	}
 
-	tfa98xx_dsp_system_stable(tfa, &status);
+	[[clang::always_inline]] tfa98xx_dsp_system_stable(tfa, &status);
 	if (status == 0) {
 		pr_info("PLL not running\n");
 		return Tfa98xx_Error_NoClock;
@@ -857,7 +861,7 @@ void tfa2_manual_mtp_cpy(struct tfa_device *tfa, uint16_t reg_row_to_keep,
 	if (tfa->is_probus_device) {
 		error = tfa98xx_faim_protect(tfa, 1);
 		if (tfa->verbose)
-			pr_debug("FAIM enabled (err:%d).\n", error);
+			pr_info("FAIM enabled (err:%d).\n", error);
 	}
 	tfa_reg_read(tfa, (unsigned char)reg_row_to_keep, &value);
 	if (!row) {
@@ -878,7 +882,7 @@ void tfa2_manual_mtp_cpy(struct tfa_device *tfa, uint16_t reg_row_to_keep,
 		}
 		error = tfa98xx_faim_protect(tfa, 0);
 		if (tfa->verbose)
-			pr_debug("FAIM disabled (err:%d).\n", error);
+			pr_info("FAIM disabled (err:%d).\n", error);
 	}
 }
 
@@ -898,7 +902,7 @@ enum Tfa98xx_Error tfa98xx_set_mtp(struct tfa_device *tfa, uint16_t value,
 
 	if (mtp_old == mtp_new) /* no change */ {
 		if (tfa->verbose)
-			pr_info("No change in MTP. Value not written!\n");
+			pr_info("No change in MTP. Value not written! \n");
 		return Tfa98xx_Error_Ok;
 	}
 
@@ -913,10 +917,10 @@ enum Tfa98xx_Error tfa98xx_set_mtp(struct tfa_device *tfa, uint16_t value,
 		return error;
 
 	if (tfa->verbose)
-		pr_debug("MTP clock enabled.\n");
+		pr_info("MTP clock enabled.\n");
 
 	/* assure that the clock is up, else we can't write MTP */
-	error = tfa98xx_dsp_system_stable(tfa, &status);
+	[[clang::always_inline]] error = tfa98xx_dsp_system_stable(tfa, &status);
 	if (error)
 		return error;
 
@@ -953,7 +957,7 @@ enum Tfa98xx_Error tfa98xx_set_mtp(struct tfa_device *tfa, uint16_t value,
 		return error;
 
 	if (tfa->verbose)
-		pr_debug("MTP clock disabled.\n");
+		pr_info("MTP clock disabled.\n");
 
 	error = tfa98xx_update_lpm(tfa, 0);
 	if (error) {
@@ -995,11 +999,11 @@ void tfa98xx_set_exttemp(struct tfa_device *tfa, short ext_temp)
 {
 	if ((-256 <= ext_temp) && (ext_temp <= 255)) {
 		/* make twos complement */
-		pr_debug("Using ext temp %d C\n", twos(ext_temp));
+		pr_info("Using ext temp %d C\n", twos(ext_temp));
 		TFA_SET_BF(tfa, TROS, 1);
 		TFA_SET_BF(tfa, EXTTS, twos(ext_temp));
 	} else {
-		pr_debug("Clearing ext temp settings\n");
+		pr_info("Clearing ext temp settings\n");
 		TFA_SET_BF(tfa, TROS, 0);
 	}
 }
@@ -1161,7 +1165,7 @@ enum Tfa98xx_Error
 tfa98xx_set_mute(struct tfa_device *tfa, enum Tfa98xx_Mute mute)
 {
 	if (tfa->in_use == 0) {
-		pr_err("device is not opened\n");
+		pr_err("device is not opened \n");
 		return Tfa98xx_Error_NotOpen;
 	}
 
@@ -1211,59 +1215,60 @@ static enum Tfa98xx_Error
 tfa98xx_check_ic_rom_version(struct tfa_device *tfa,
 		const unsigned char patchheader[])
 {
+	/* g3q: rebuilt from the stock disassembly (tfa_dsp_patch inlines it) */
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
-	unsigned short checkrev, revid;
-	unsigned char lsb_revid;
-	unsigned short checkaddress;
+	unsigned short checkrev, revid, checkaddress;
+	unsigned char romid;
 	int checkvalue;
 	int value = 0;
-	int status;
+	int status = 0;
+	int devid = tfa_cnt_get_devid(tfa->cnt, tfa->dev_idx);
+
+	/* the container device id equals the hardware (extended) revid: no check at all */
+	if (devid == tfa->rev || devid == tfa->rev_ext)
+		return Tfa98xx_Error_Ok;
 
 	checkrev = patchheader[0];
-	lsb_revid = tfa->rev & 0xff; /* only compare lower byte */
-
-	if ((checkrev != 0xFF) && (checkrev != lsb_revid))
+	if ((checkrev != 0xFF) && (checkrev != (tfa->rev & 0xff)))
 		return Tfa98xx_Error_Not_Supported;
 
 	checkaddress = (patchheader[1] << 8) + patchheader[2];
-	checkvalue =
-		(patchheader[3] << 16) + (patchheader[4] << 8) + patchheader[5];
-	if (checkaddress != 0xFFFF) {
-		/* before reading XMEM, check if we can access the DSP */
-		error = tfa98xx_dsp_system_stable(tfa, &status);
-		if (error == Tfa98xx_Error_Ok) {
-			if (!status) {
-				/* DSP subsys not running */
-				error = Tfa98xx_Error_DSP_not_running;
-			}
-		}
-		/* read register to check the correct ROM version */
-		if (error == Tfa98xx_Error_Ok)
-			error = tfa_mem_read(tfa, checkaddress, 1, &value);
+	romid = patchheader[5];
+	if ((romid & 0xe) < 6)
+		romid += 10;
+	checkvalue = (patchheader[3] << 16) + (patchheader[4] << 8) + romid;
 
-		if (error == Tfa98xx_Error_Ok) {
-			if (value != checkvalue) {
-				pr_err("patch file romid type check failed [0x%04x]: expected 0x%02x, actual 0x%02x\n",
-						checkaddress,
-						value,
-						checkvalue);
-				error = Tfa98xx_Error_Not_Supported;
-			}
-		}
-	} else { /* == 0xffff */
-		/* check if the revid subtype is in there */
-		if (checkvalue != 0xFFFFFF && checkvalue != 0) {
-			revid = patchheader[5]<<8 | patchheader[0];
-			/* full revid */
+	if (checkaddress == 0xFFFF) {
+		if (checkvalue != 0 && checkvalue != 0xFFFFFF) {
+			revid = (romid << 8) | checkrev;
 			if (revid != tfa->rev) {
-				pr_err("patch file device type check failed: expected 0x%02x, actual 0x%02x\n",
-						tfa->rev, revid);
+				/* GUESS: the stock selects between rev and rev_ext for the first value */
+				pr_err("container patch and HW mismatch: expected: 0x%02x, actual 0x%02x\n",
+				       tfa->rev, revid);
 				return Tfa98xx_Error_Not_Supported;
 			}
 		}
+		return Tfa98xx_Error_Ok;
 	}
 
-	return error;
+	/* before reading XMEM, check if we can access the DSP */
+	error = tfa98xx_dsp_system_stable(tfa, &status);
+	if (error == Tfa98xx_Error_Ok && !status)
+		error = Tfa98xx_Error_DSP_not_running;
+	if (error != Tfa98xx_Error_Ok)
+		return error;
+
+	error = tfa_mem_read(tfa, checkaddress, 1, &value);
+	if (error != Tfa98xx_Error_Ok)
+		return error;
+
+	if (value != checkvalue) {
+		pr_err("patch file romid mismatch [0x%04x]: expected 0x%02x, actual 0x%02x\n",
+		       checkaddress, value, checkvalue);
+		return Tfa98xx_Error_Not_Supported;
+	}
+
+	return Tfa98xx_Error_Ok;
 }
 
 
@@ -1272,13 +1277,10 @@ enum Tfa98xx_Error
 tfa_dsp_patch(struct tfa_device *tfa, int patchLength,
 		 const unsigned char *patchBytes)
 {
-	#ifndef OPLUS_ARCH_EXTENDS
-	/*2018/08/10,Modify for smart mute issue.*/
-	enum Tfa98xx_Error error;
-	#else /* OPLUS_ARCH_EXTENDS */
+	/* g3q: stock flow: rom check (inlined), DSP clock check -> NoClock, coldboot for non-probus devices -> DSP_not_running */
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
-	int status;
-	#endif /* OPLUS_ARCH_EXTENDS */
+	int status = 0;
+
 	if (tfa->in_use == 0)
 		return Tfa98xx_Error_NotOpen;
 
@@ -1289,24 +1291,15 @@ tfa_dsp_patch(struct tfa_device *tfa, int patchLength,
 	if (Tfa98xx_Error_Ok != error)
 		return error;
 
-	#ifdef OPLUS_ARCH_EXTENDS
-	/*2018/08/10,Add for smart mute issue.*/
-	tfa98xx_dsp_system_stable(tfa, &status);
-	if (!status) {
-		pr_err("tfa no clock\n");
+	[[clang::always_inline]] tfa98xx_dsp_system_stable(tfa, &status);
+	if (!status)
 		return Tfa98xx_Error_NoClock;
-	}
-	/******MCH_TO_TEST**************/
-	if (error == Tfa98xx_Error_Ok && (!tfa->is_probus_device)) {
-		pr_info("tfa cold boot patch\n");
+
+	if (!tfa->is_probus_device) {
 		error = tfaRunColdboot(tfa, 1);
-		if (error) {
-			pr_err("%s DSP_not_running\n", __func__);
+		if (error)
 			return Tfa98xx_Error_DSP_not_running;
-		}
 	}
-	/**************************/
-	#endif /* OPLUS_ARCH_EXTENDS */
 
 	error = tfa98xx_process_patch_file(
 				tfa,
@@ -1730,8 +1723,8 @@ enum Tfa98xx_Error tfa_dsp_msg(struct tfa_device *tfa, int length24,
 				(const char *)blob);
 
 			if (tfa->verbose)
-				pr_debug(
-					"Last message for the multi-message received. Multi-message length=%d\n",
+				pr_info(
+					"Last message for the multi-message received. Multi-message length=%d \n",
 						length);
 
 			if (tfa->has_msg == 0 && (tfa->dev_ops.dsp_msg != NULL)) /* via i2c */ {
@@ -1762,9 +1755,9 @@ enum Tfa98xx_Error tfa_dsp_msg(struct tfa_device *tfa, int length24,
 
 	/* DSP verbose has argument 0x04 */
 	if ((tfa->verbose & 0x04) != 0) {
-		pr_debug("DSP w [%d]: ", length);
+		pr_info("DSP w [%d]: ", length);
 		for (i = 0; i < length; i++)
-			pr_debug("0x%02x ", (uint8_t)buf[i]);
+			pr_info("0x%02x ", (uint8_t)buf[i]);
 		pr_debug("\n");
 	}
 
@@ -1806,9 +1799,9 @@ enum Tfa98xx_Error tfa_dsp_msg_read(struct tfa_device *tfa, int length24,
 
 	/* DSP verbose has argument 0x04 */
 	if ((tfa->verbose & 0x04) != 0) {
-		pr_debug("DSP R [%d]: ", length);
+		pr_info("DSP R [%d]: ", length);
 		for (i = 0; i < length; i++)
-			pr_debug("0x%02x ", (uint8_t)bytes[i]);
+			pr_info("0x%02x ", (uint8_t)bytes[i]);
 		pr_debug("\n");
 	}
 
@@ -1833,10 +1826,8 @@ enum Tfa98xx_Error tfa_reg_read(struct tfa_device *tfa,
 			unsigned short *value)
 {
 	enum Tfa98xx_Error error;
-	if (tfa->dev_ops.tfa_reg_read == NULL) {
-		pr_err("%s: not init yet!", __func__);
-		return Tfa98xx_Error_Fail;
-	}
+	if (tfa->dev_ops.tfa_reg_read == NULL)
+		return Tfa98xx_Error_Ok; /* g3q: stock returns 0 silently */
 
 	error = (tfa->dev_ops.tfa_reg_read)(tfa, subaddress, value);
 	if (error != Tfa98xx_Error_Ok)
@@ -1930,7 +1921,7 @@ enum Tfa98xx_Error tfa_dsp_msg_rpc(struct tfa_device *tfa, int length,
 		/* DSP RPC call returned an error */
 		error = (enum Tfa98xx_Error) (rpc_status +
 					Tfa98xx_Error_RpcBase);
-		pr_debug("DSP msg status: %d (%s)\n", rpc_status,
+		pr_info("DSP msg status: %d (%s)\n", rpc_status,
 			tfa98xx_get_i2c_status_id_string(rpc_status));
 	}
 	return error;
@@ -1965,7 +1956,7 @@ enum Tfa98xx_Error tfa_dsp_msg_id(struct tfa_device *tfa, int length,
 		/* DSP RPC call returned an error */
 		error = (enum Tfa98xx_Error) (rpc_status +
 			Tfa98xx_Error_RpcBase);
-		pr_debug("DSP msg status: %d (%s)\n",
+		pr_info("DSP msg status: %d (%s)\n",
 			rpc_status,
 			tfa98xx_get_i2c_status_id_string(rpc_status));
 	}
@@ -2190,17 +2181,15 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_write_read(struct tfa_device *tfa,
 	int nr = 0;
 
 	if (num_bytes <= 0) {
-		pr_debug("Error: The number of READ bytes is smaller or equal to 0!\n");
+		pr_info("Error: The number of READ bytes is smaller or equal to 0! \n");
 		return Tfa98xx_Error_Fail;
 	}
 
-	if ((tfa->is_probus_device) && (tfa->channel_num == 1) &&
+	/* g3q: stock tests cnt->ndev and only these three ids (mask 0x61) */
+	if ((tfa->is_probus_device) && (tfa->cnt->ndev == 1) &&
 		(param_id == SB_PARAM_GET_RE25C ||
 		 param_id == SB_PARAM_GET_LSMODEL ||
-		 param_id == SB_PARAM_GET_ALGO_PARAMS ||
-		 param_id == SB_PARAM_GET_EXCURSION_FILTERS ||
-		 param_id == SB_PARAM_GET_ZFILTER ||
-		 param_id == SB_PARAM_GET_XFILTER)) {
+		 param_id == SB_PARAM_GET_ALGO_PARAMS)) {
 		/* Modifying the ID for GetRe25C */
 		buffer[nr++] = 4;
 	} else {
@@ -2312,7 +2301,7 @@ tfa98xx_dsp_get_hw_feature_bits(struct tfa_device *tfa, int *features)
 		if (tfa->tfa_family == 1) {
 			int status;
 
-			tfa98xx_dsp_system_stable(tfa, &status);
+			[[clang::always_inline]] tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
 				tfa_get_hw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
@@ -2345,7 +2334,7 @@ tfa98xx_dsp_get_sw_feature_bits(struct tfa_device *tfa, int features[2])
 		if (tfa->tfa_family == 1) {
 			int status;
 
-			tfa98xx_dsp_system_stable(tfa, &status);
+			[[clang::always_inline]] tfa98xx_dsp_system_stable(tfa, &status);
 			if (!status) {
 				tfa_get_sw_features_from_cnt(tfa, features);
 				/* skip reading MTP: */
@@ -2791,7 +2780,7 @@ enum Tfa98xx_Error tfa_cf_powerup(struct tfa_device *tfa)
 	if (tfa->verbose)
 		pr_info("Waiting for DSP system stable...\n");
 	for (tries = CFSTABLE_TRIES; tries > 0; tries--) {
-		err = tfa98xx_dsp_system_stable(tfa, &status);
+		[[clang::always_inline]] err = tfa98xx_dsp_system_stable(tfa, &status);
 		_ASSERT(err == Tfa98xx_Error_Ok);
 		if (status)
 			break;
@@ -2811,21 +2800,47 @@ enum Tfa98xx_Error tfa_cf_powerup(struct tfa_device *tfa)
  * Enable/Disable the I2S output for TFA1 devices
  * without TDM interface
  */
-static enum Tfa98xx_Error tfa98xx_aec_output(struct tfa_device *tfa, int enable)
+/* g3o: rebuilt from the stock: tfa_set_bf (error codes mapped as -100 - err) inlined for the TFA1 family */
+static __used enum Tfa98xx_Error tfa98xx_aec_output(struct tfa_device *tfa, int enable)
 {
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
+	unsigned short v = 0;
+	const char *fmt;
+	int e;
 
 	if ((tfa->daimap & Tfa98xx_DAI_TDM) == Tfa98xx_DAI_TDM)
 		return err;
 
-	if (tfa->tfa_family == 1)
-		err = -tfa_set_bf(tfa, TFA1_BF_I2SDOE, (enable != 0));
-	else {
+	if (tfa->tfa_family == 1) {
+		unsigned short nv;
+
+		if (tfa->dev_ops.tfa_reg_read) {
+			e = tfa->dev_ops.tfa_reg_read(tfa, 4, &v);
+			if (e != 0 && e != -100) {
+				fmt = KERN_ERR "Error getting bf :%d \n";
+				goto fail;
+			}
+		}
+		nv = (v & ~0x0800) | ((enable != 0) << 11);
+		if (nv != v) {
+			v = nv;
+			if (tfa->dev_ops.tfa_reg_write) {
+				e = tfa->dev_ops.tfa_reg_write(tfa, 4, v);
+				if (e != 0 && e != -100) {
+					fmt = KERN_ERR "Error setting bf :%d \n";
+					goto fail;
+				}
+			}
+		}
+	} else {
 		pr_err("I2SDOE on unsupported family\n");
 		err = Tfa98xx_Error_Not_Supported;
 	}
 
 	return err;
+fail:
+	printk(fmt, -100 - e);
+	return e + 100;
 }
 
 /*
@@ -2840,66 +2855,61 @@ int tfa_is_94_N2_device(struct tfa_device *tfa)
 
 enum Tfa98xx_Error tfa_show_current_state(struct tfa_device *tfa)
 {
-	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
-	int manstate = -1;
+	/* g3q: rebuilt from the stock: no verbose test, family 2 only, messages at KERN_INFO with a trailing space */
+	int manstate;
 
-	if (tfa->tfa_family == 2 && tfa->verbose) {
-		if (tfa_is_94_N2_device(tfa))
-			manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
-		else
-			manstate = TFA_GET_BF(tfa, MANSTATE);
-		if (manstate < 0)
-			return -manstate;
+	if (tfa->tfa_family != 2)
+		return Tfa98xx_Error_Ok;
 
-		//pr_debug("Current HW manager state: ");
+	manstate = tfa_get_bf(tfa, tfa_manstate_bf(tfa));
+	if (manstate < 0)
+		return -manstate;
 
-		switch (manstate) {
-		case 0:
-			pr_debug("%s(), power_down_state\n", __func__);
-			break;
-		case 1:
-			pr_debug("%s(), wait_for_source_settings_state\n",
-				 __func__);
-			break;
-		case 2:
-			pr_debug("%s(), connnect_pll_input_state\n", __func__);
-			break;
-		case 3:
-			pr_debug("%s(), disconnect_pll_input_state\n",
-				 __func__);
-			break;
-		case 4:
-			pr_debug("%s(), enable_pll_state\n", __func__);
-			break;
-		case 5:
-			pr_debug("%s(), enable_cgu_state\n", __func__);
-			break;
-		case 6:
-			pr_debug("%s(), init_cf_state\n", __func__);
-			break;
-		case 7:
-			pr_debug("%s(), enable_amplifier_state\n", __func__);
-			break;
-		case 8:
-			pr_debug("%s(), alarm_state\n", __func__);
-			break;
-		case 9:
-			pr_debug("%s(), operating_state\n", __func__);
-			break;
-		case 10:
-			pr_debug("%s(), mute_audio_state\n", __func__);
-			break;
-		case 11:
-			pr_debug("%s(), disable_cgu_pll_state\n", __func__);
-			break;
-		default:
-			pr_debug("%s(), Unable to find current state\n",
-				 __func__);
-			break;
-		}
+	pr_info("Current HW manager state: ");
+
+	switch (manstate) {
+	case 0:
+		pr_info("power_down_state \n");
+		break;
+	case 1:
+		pr_info("wait_for_source_settings_state \n");
+		break;
+	case 2:
+		pr_info("connnect_pll_input_state \n");
+		break;
+	case 3:
+		pr_info("disconnect_pll_input_state \n");
+		break;
+	case 4:
+		pr_info("enable_pll_state \n");
+		break;
+	case 5:
+		pr_info("enable_cgu_state \n");
+		break;
+	case 6:
+		pr_info("init_cf_state \n");
+		break;
+	case 7:
+		pr_info("enable_amplifier_state \n");
+		break;
+	case 8:
+		pr_info("alarm_state \n");
+		break;
+	case 9:
+		pr_info("operating_state \n");
+		break;
+	case 10:
+		pr_info("mute_audio_state \n");
+		break;
+	case 11:
+		pr_info("disable_cgu_pll_state \n");
+		break;
+	default:
+		pr_info("Unable to find current state \n");
+		break;
 	}
 
-	return err;
+	return Tfa98xx_Error_Ok;
 }
 
 enum Tfa98xx_Error tfaGetFwApiVersion(struct tfa_device *tfa, unsigned char *pFirmwareVersion)
@@ -2915,7 +2925,7 @@ enum Tfa98xx_Error tfaGetFwApiVersion(struct tfa_device *tfa, unsigned char *pFi
 		int buffer;
 		err = tfa_mem_read(tfa, FW_VAR_API_VERSION, 1, (int *)(&buffer));
 		if (err) {
-			pr_debug("%s Error: Unable to get API Version from DSP \n", __FUNCTION__);
+			pr_info("%s Error: Unable to get API Version from DSP \n", __FUNCTION__);
 			return err;
 		}
 
@@ -3001,7 +3011,7 @@ enum Tfa98xx_Error tfaRunSpeakerBoost(struct tfa_device *tfa,
 	/* Returns 1 when device is "cold" and 0 when device is warm */
 	value = tfa_is_cold(tfa);
 
-	pr_debug("Startup of device [%s] is a %sstart\n",
+	pr_info("Startup of device [%s] is a %sstart\n",
 		tfaContDeviceName(tfa->cnt, tfa->dev_idx),
 		value ? "cold" : "warm");
 
@@ -3060,7 +3070,7 @@ enum Tfa98xx_Error tfaRunSpeakerStartup(struct tfa_device *tfa, int force,
 	/* write all the files from the device list */
 	err = tfaContWriteFiles(tfa);
 	if (err) {
-		pr_debug("[%s] tfaContWriteFiles error = %d\n",
+		pr_info("[%s] tfaContWriteFiles error = %d \n",
 			__func__, err);
 		return err;
 	}
@@ -3068,7 +3078,7 @@ enum Tfa98xx_Error tfaRunSpeakerStartup(struct tfa_device *tfa, int force,
 	/* write all the files from the profile list (use volumstep 0) */
 	err = tfaContWriteFilesProf(tfa, profile, 0);
 	if (err) {
-		pr_debug("[%s] tfaContWriteFilesProf error = %d\n",
+		pr_info("[%s] tfaContWriteFilesProf error = %d \n",
 			__func__, err);
 		return err;
 	}
@@ -3090,7 +3100,7 @@ enum Tfa98xx_Error tfaRunSpeakerCalibration(struct tfa_device *tfa)
 
 	/* When MTPOTC is set (cal=once) unlock key2 */
 	if (TFA_GET_BF(tfa, MTPOTC) == 1)
-		tfa98xx_key2(tfa, 0);
+		[[clang::always_inline]] tfa98xx_key2(tfa, 0);
 
 	/* await calibration, this should return ok */
 	err = tfaRunWaitCalibration(tfa, &calibrateDone);
@@ -3101,7 +3111,7 @@ enum Tfa98xx_Error tfaRunSpeakerCalibration(struct tfa_device *tfa)
 
 	/* When MTPOTC is set (cal=once) re-lock key2 */
 	if (TFA_GET_BF(tfa, MTPOTC) == 1)
-		tfa98xx_key2(tfa, 1);
+		[[clang::always_inline]] tfa98xx_key2(tfa, 1);
 
 	return err;
 }
@@ -3183,7 +3193,7 @@ enum Tfa98xx_Error tfaRunColdboot(struct tfa_device *tfa, int state)
 		PRINT_ASSERT(err);
 
 		if (tries-- == 0) {
-			pr_debug("coldboot (ACS) did not %s\n",
+			pr_info("coldboot (ACS) did not %s\n",
 				state ? "set":"clear");
 			return Tfa98xx_Error_Other;
 		}
@@ -3272,7 +3282,7 @@ enum Tfa98xx_Error tfaRunStartup(struct tfa_device *tfa, int profile)
 		TFA_SET_BF(tfa, AUDFS, audfs);
 		TFA_SET_BF(tfa, FRACTDEL, fractdel);
 	} else {
-		pr_debug("\nWarning: No init keyword found in the cnt file. Init is skipped!\n");
+		pr_info("\nWarning: No init keyword found in the cnt file. Init is skipped! \n");
 	}
 
 	/* I2S settings to define the audio input properties
@@ -3351,7 +3361,7 @@ enum Tfa98xx_Error tfaRunMute(struct tfa_device *tfa)
 
 
 			if (tfa->verbose)
-				pr_debug("-------------------- muted --------------------\n");
+				pr_info("-------------------- muted --------------------\n");
 
 			/*The amplifier is always switching*/
 			if (tries == AMPOFFWAIT_TRIES)
@@ -3372,7 +3382,7 @@ enum Tfa98xx_Error tfaRunUnmute(struct tfa_device *tfa)
 	err = tfa98xx_set_mute(tfa, Tfa98xx_Mute_Off);
 
 	if (tfa->verbose)
-		pr_debug("-------------------unmuted ------------------\n");
+		pr_info("-------------------unmuted ------------------\n");
 
 	return err;
 }
@@ -3388,13 +3398,13 @@ static void individual_calibration_results(struct tfa_device *tfa)
 	tfa_mem_read(tfa, 530, 1, &value_S);
 
 	if (value_P != 1 && value_S != 1)
-		pr_debug("Calibration failed on both channels!\n");
+		pr_info("Calibration failed on both channels! \n");
 	else if (value_P != 1) {
-		pr_debug("Calibration failed on Primary (Left) channel!\n");
+		pr_info("Calibration failed on Primary (Left) channel! \n");
 		TFA_SET_BF_VOLATILE(tfa, SSLEFTE, 0); // Disable the sound for
 			// the left speaker
 	} else if (value_S != 1) {
-		pr_debug("Calibration failed on Secondary (Right) channel!\n");
+		pr_info("Calibration failed on Secondary (Right) channel! \n");
 		TFA_SET_BF_VOLATILE(tfa, SSRIGHTE, 0); // Disable the sound for
 			// the right speaker
 	}
@@ -3471,10 +3481,10 @@ enum Tfa98xx_Error tfaRunWaitCalibration(struct tfa_device *tfa,
 		pr_err("Calibration failed!\n");
 		err = Tfa98xx_Error_Bad_Parameter;
 	} else if (tries == TFA98XX_API_WAIT_TRIES) {
-		pr_debug("Calibration has timedout!\n");
+		pr_info("Calibration has timedout! \n");
 		err = Tfa98xx_Error_StateTimedOut;
 	} else if (tries_mtp_busy == 1000) {
-		pr_err("Calibrate Failed: MTP_busy stays high!\n");
+		pr_err("Calibrate Failed: MTP_busy stays high! \n");
 		err = Tfa98xx_Error_StateTimedOut;
 	}
 
@@ -3482,7 +3492,7 @@ enum Tfa98xx_Error tfaRunWaitCalibration(struct tfa_device *tfa,
 	if (err != Tfa98xx_Error_Ok) {
 		if ((tfa->tfa_family == 2) &&
 			(TFA_GET_BF(tfa, REFCKSEL) == 1)) {
-			pr_err("Unable to calibrate the device with the internal clock!\n");
+			pr_err("Unable to calibrate the device with the internal clock! \n");
 		}
 	}
 
@@ -3497,6 +3507,10 @@ enum Tfa98xx_Error tfaRunWaitCalibration(struct tfa_device *tfa,
  * tfa_dev_start will only do the basics: Going from powerdown to operating or a
  * profile switch. for calibrating or akoustic shock handling use the
  * tfa98xxCalibration function.
+ *
+ * g3p: rewritten from the stock disassembly (v6.13 xiaomi): no OPLUS branches, OPERATING|MUTE is always requested
+ * after the speaker boost, the vstep ARGUMENT (not tfa->vstep) is stored, and after error_exit the 986x-specific
+ * bitfield clean-up of the stock runs (rev_ext 0x3a64/0x3a65: 0xf090 = 0, low revid 0x66: 0xc050 = 0).
  */
 enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 						int next_profile, int vstep)
@@ -3504,7 +3518,7 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	int active_profile = -1;
 
-	pr_info("%s enter\n", __func__);
+	pr_info("tfa_dev_start entry...\n");
 
 	/* Get currentprofile */
 	active_profile = tfa_dev_get_swprof(tfa);
@@ -3512,96 +3526,88 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 		active_profile = -1;
 
 	/* TfaRun_SpeakerBoost implies un-mute */
-	pr_debug("Active_profile:%s, next_profile:%s\n",
+	pr_info("Active_profile:%s, next_profile:%s\n",
 			tfaContProfileName(tfa->cnt,
 				tfa->dev_idx, active_profile),
 			tfaContProfileName(tfa->cnt,
 				tfa->dev_idx, next_profile));
 
-	err = tfa_show_current_state(tfa);
+	tfa_show_current_state(tfa);
 
-	if (tfa->tfa_family == 1) { /* TODO move this to ini file */
+	if (tfa->tfa_family == 1) {
 		/* Enable I2S output on TFA1 devices without TDM */
-		err = tfa98xx_aec_output(tfa, 1);
+		[[clang::always_inline]] err = tfa98xx_aec_output(tfa, 1);
 		if (err != Tfa98xx_Error_Ok)
 			goto error_exit;
 	}
 
-	if (tfa->bus != 0)  { /* non i2c  */
-#ifndef __KERNEL__
-		tfadsp_fw_start(tfa, next_profile, vstep);
-#endif /* __KERNEL__ */
-	} else {
+	if (tfa->bus == 0) {
 		/* Check if we need coldstart or ACS is set */
 		err = tfaRunSpeakerBoost(tfa, 0, next_profile);
-		if (err != Tfa98xx_Error_Ok)
+		if (err != Tfa98xx_Error_Ok) {
+			pr_err("RunSpeakerBoost failed  %d\n", err);
 			goto error_exit;
+		}
 
-		#ifdef OPLUS_ARCH_EXTENDS
-		/* add for ultrasound set profile fail issues. */
 		if (strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") != NULL) {
 			pr_info("Skip powering on device, in standby profile!\n");
 		} else {
 			/* Make sure internal oscillator is running for DSP devices
-			* (non-dsp and max1 this is no-op)
-			*/
+			 * (non-dsp and max1 this is no-op)
+			 */
 			tfa98xx_set_osc_powerdown(tfa, 0);
-
-			/* Go to the Operating state */
-			#ifndef OPLUS_ARCH_EXTENDS
-			/*every time umute PA, because PA umute need some time.*/
-			tfa_dev_set_state(tfa, TFA_STATE_OPERATING | TFA_STATE_MUTE);
-			#else /* OPLUS_ARCH_EXTENDS */
-			tfa_dev_set_state(tfa, TFA_STATE_OPERATING);
-			#endif /*OPLUS_ARCH_EXTENDS*/
 		}
-		#endif // OPLUS_ARCH_EXTENDS
+
+		/* Go to the Operating state, muted */
+		tfa_dev_set_state(tfa, TFA_STATE_OPERATING | TFA_STATE_MUTE);
+		err = Tfa98xx_Error_Ok;
 	}
-		active_profile = tfa_dev_get_swprof(tfa);
 
-		/* Profile switching */
-		if ((next_profile != active_profile && active_profile >= 0)) {
-			err = tfaContWriteProfile(tfa, next_profile, vstep);
-			if (err != Tfa98xx_Error_Ok)
-				goto error_exit;
-		}
+	active_profile = tfa_dev_get_swprof(tfa);
 
-		/* If the profile contains the .standby suffix go to powerdown
-		 * else we should be in operating state
-		 */
-		if (strstr(tfaContProfileName(tfa->cnt,
-				tfa->dev_idx, next_profile),
-				".standby") != NULL) {
-			tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
-			tfa_dev_set_swvstep(tfa, (unsigned short)tfa->vstep);
-
-			#ifdef OPLUS_ARCH_EXTENDS
-			/* add for ultrasound set profile fail issues. */
-			pr_info("Power down device, by force, in standby profile!\n");
-			err = (int)tfa_dev_stop(tfa);
-			#endif // OPLUS_ARCH_EXTENDS
-
+	/* Profile switching */
+	if (next_profile != active_profile && active_profile >= 0) {
+		err = tfaContWriteProfile(tfa, next_profile, vstep);
+		if (err != Tfa98xx_Error_Ok) {
+			pr_err("tfaContWriteProfile failed  %d\n", err);
 			goto error_exit;
 		}
+	}
 
-		err = tfa_show_current_state(tfa);
+	/* If the profile contains the .standby suffix go to powerdown
+	 * else we should be in operating state
+	 */
+	if (strstr(tfaContProfileName(tfa->cnt,
+			tfa->dev_idx, next_profile),
+			".standby") != NULL) {
+		tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
+		tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
 
-		tfa->vstep = tfa_dev_get_swvstep(tfa);
-		if ((TFA_GET_BF(tfa, CFE) != 0) &&
-				(vstep != tfa->vstep) && (vstep != -1)) {
-			err = tfaContWriteFilesVstep(tfa,
-				next_profile, vstep);
-			if (err != Tfa98xx_Error_Ok)
-				goto error_exit;
-		}
+		pr_info("Power down device, by force, in standby profile!\n");
+		err = (int)tfa_dev_stop(tfa);
 
-		/* Always search and apply filters after a startup */
-		err = tfa_set_filters(tfa, next_profile);
+		goto error_exit;
+	}
+
+	tfa_show_current_state(tfa);
+
+	if ((TFA_GET_BF(tfa, CFE) != 0) &&
+			(vstep != -1) && (vstep != tfa->vstep)) {
+		err = tfaContWriteFilesVstep(tfa,
+			next_profile, vstep);
 		if (err != Tfa98xx_Error_Ok)
 			goto error_exit;
+	}
+
+	/* Always search and apply filters after a startup */
+	err = tfa_set_filters(tfa, next_profile);
+	if (err != Tfa98xx_Error_Ok) {
+		pr_err("tfaContWriteFilesVstep failed  %d\n", err);
+		goto error_exit;
+	}
 
 	tfa_dev_set_swprof(tfa, (unsigned short)next_profile);
-	tfa_dev_set_swvstep(tfa, (unsigned short)tfa->vstep);
+	tfa_dev_set_swvstep(tfa, (unsigned short)vstep);
 
 	/* PLMA5539: Gives information about current setting of powerswitch */
 	if (tfa->verbose) {
@@ -3609,20 +3615,34 @@ enum tfa_error tfa_dev_start(struct tfa_device *tfa,
 			pr_info("Device start without powerswitch enabled!\n");
 	}
 
+	err = Tfa98xx_Error_Ok;
+
 error_exit:
 	tfa_show_current_state(tfa);
 
-	return (enum tfa_error)err;
+	if ((tfa->rev_ext & 0xfffe) == 0x3a64) {
+		[[clang::always_inline]] tfa_set_bf(tfa, 0xf090, 0);
+		pr_info("\nInfo: 0xf090 = %d line:%d \n", tfa_get_bf(tfa, 0xf090), 3493);
+	}
+
+	if ((tfa->rev & 0xff) == 0x66 &&
+		strstr(tfaContProfileName(tfa->cnt, tfa->dev_idx, next_profile), ".standby") == NULL) {
+		[[clang::always_inline]] err = tfa_set_bf(tfa, 0xc050, 0);
+		pr_info("\nInfo: 0xc050 = %d line:%d \n", tfa_get_bf(tfa, 0xc050), 3498);
+	}
+
+	if (err != Tfa98xx_Error_Ok) {
+		pr_err("TFA98xx Error code is %d\n", err);
+		return (enum tfa_error)7;
+	}
+
+	return (enum tfa_error)0;
 }
 
-enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
+noinline enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 {
-	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
-	#ifdef OPLUS_ARCH_EXTENDS
-	/* 2018/06/18, Add for mute issue*/
-	int total_wait_count = 20;
-	int times = 0, ready = 0;
-	#endif /*OPLUS_ARCH_EXTENDS*/
+	/* g3q: rebuilt from the stock disassembly (no Oplus MANSTATE wait; errors map to 7) */
+	enum Tfa98xx_Error err;
 
 	/* mute */
 	tfaRunMute(tfa);
@@ -3635,34 +3655,21 @@ enum tfa_error tfa_dev_stop(struct tfa_device *tfa)
 	/* powerdown CF */
 	err = tfa98xx_powerdown(tfa, 1);
 	if (err != Tfa98xx_Error_Ok)
-		return (enum tfa_error)err;
+		return (enum tfa_error)7;
+
+	if ((tfa->rev & 0xff) == 0x66) {
+		tfa_set_bf_volatile(tfa, 0xc050, 1);
+		pr_info("\nInfo: 0xc050 = %d line:%d \n", tfa_get_bf(tfa, 0xc050), 3526);
+	}
 
 	/* disable I2S output on TFA1 devices without TDM */
 	err = tfa98xx_aec_output(tfa, 0);
-
-	#ifdef OPLUS_ARCH_EXTENDS
-	/*2018/06/18, Add for mute issue*/
-	/* we should ensure state machine in powedown here. */
-	while ((TFA_GET_BF(tfa, MANSTATE) != 0) &&
-			(times++ < total_wait_count)) {
-		pr_info("tfa stop wait state machine goto powerdown mode.\n");
-		err = tfa98xx_dsp_system_stable(tfa, &ready);
-		if ((err != Tfa98xx_Error_Ok) || !ready) {
-			pr_warn("tfa stop: No I2S CLK\n");
-			break;
-		}
-		msleep_interruptible(5);
+	if (err != Tfa98xx_Error_Ok) {
+		pr_err("TFA98xx Error code is %d\n", err);
+		return (enum tfa_error)7;
 	}
-	//pr_debug("exit....  MANSTATE=%d\n", manstate);
 
-	if (times < total_wait_count)
-		pr_info("tfa stop: already in PowerDown\n");
-	else
-		pr_info("tfa stop: Not in PowerDown\n");
-
-	#endif /*OPLUS_ARCH_EXTENDS*/
-
-	return (enum tfa_error)err;
+	return (enum tfa_error)0;
 }
 
 /*
@@ -3771,11 +3778,7 @@ int tfa_reset(struct tfa_device *tfa)
 			for (retry_cnt = 0;
 				retry_cnt < TFA98XX_WAITRESULT_NTRIES;
 				retry_cnt++) {
-				if (tfa_is_94_N2_device(tfa))
-					state = tfa_get_bf(
-						tfa, TFA9894N2_BF_MANSTATE);
-				else
-					state = TFA_GET_BF(tfa, MANSTATE);
+				state = tfa_get_bf(tfa, tfa_manstate_bf(tfa));
 				if (state < 0)
 					return err;
 
@@ -3836,103 +3839,76 @@ tfa98xx_write_data(struct tfa_device *tfa,
  */
 enum Tfa98xx_Error tfa_dsp_get_calibration_impedance(struct tfa_device *tfa)
 {
+	/* g3q: rebuilt from the stock v6.13 disassembly (tfa+0x48 spkr_count, 0x49 spkr_select, mohm[] +0x50) */
 	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
 	unsigned char bytes[3 * 2] = { 0 };
-	int nr_bytes, i, data[2], calibrateDone, spkr_count = 0, cal_idx = 0;
+	int nr_bytes, i, data[2], calibrateDone = 0, spkr_count = 0, cal_idx = 0;
 	unsigned int scaled_data;
-	int tries = 0;
+	int tries;
 
 	error = tfa_supported_speakers(tfa, &spkr_count);
 
-	if (tfa_dev_mtp_get(tfa, TFA_MTP_OTC)) {
-		pr_debug("Getting calibration values from MTP\n");
+	if (TFA_GET_BF(tfa, MTPOTC)) {
+		pr_info("Getting calibration values from MTP\n");
 
 		if ((tfa->rev & 0xFF) == 0x88) {
 			for (i = 0; i < spkr_count; i++) {
-				if (i == 0)
+				if (i == 0) {
 					tfa->mohm[i] = tfa_dev_mtp_get(
 						tfa, TFA_MTP_RE25_PRIM);
-				else
-					tfa->mohm[i] = tfa_dev_mtp_get(
-						tfa, TFA_MTP_RE25_SEC);
+				} else if ((tfa->rev & 0xFF) == 0x88) {
+					tfa->mohm[i] = TFA_GET_BF(tfa, R25CR);
+				} else {
+					pr_info("Error: Current device has no secondary Re25 channel \n");
+					tfa->mohm[i] = 0;
+				}
 			}
 		} else
 			tfa->mohm[0] = tfa_dev_mtp_get(tfa, TFA_MTP_RE25);
-
-	} else {
-		pr_debug("Getting calibration values from Speakerboost\n");
-
-		/* Make sure the calibrateDone bit is set before getting the
-		 * values from speakerboost! This does not work for 72 (because
-		 * the dsp cannot set this bit)
-		 */
-		if (!tfa->is_probus_device) {
-			/* poll xmem for calibrate always
-			 * calibrateDone = 0 means "calibrating",
-			 * calibrateDone = -1 (or 0xFFFFFF) means "fails"
-			 * calibrateDone = 1 means calibration done
-			 */
-			calibrateDone = 0;
-			while ((calibrateDone != 1) &&
-					(tries < TFA98XX_API_WAIT_TRIES)) {
-				error = tfa_mem_read(tfa,
-						TFA_FW_XMEM_CALIBRATION_DONE,
-					1, &calibrateDone);
-				if (calibrateDone == 1)
-					break;
-				tries++;
-			}
-
-			if (calibrateDone != 1) {
-				pr_err("Calibration failed!\n");
-				error = Tfa98xx_Error_Bad_Parameter;
-			} else if (tries == TFA98XX_API_WAIT_TRIES) {
-				pr_debug("Calibration has timedout!\n");
-				error = Tfa98xx_Error_StateTimedOut;
-			}
-		}
-		/* SoftDSP interface differs from hw-dsp interfaces */
-		if (tfa->is_probus_device && tfa->cnt->ndev > 1)
-			spkr_count = tfa->channel_num;
-
-		nr_bytes = spkr_count * 3;
-		error = tfa_dsp_cmd_id_write_read(tfa, MODULE_SPEAKERBOOST,
-					SB_PARAM_GET_RE25C, nr_bytes,
-					bytes);
-		if (error == Tfa98xx_Error_Ok) {
-			tfa98xx_convert_bytes2data(nr_bytes, bytes, data);
-
-			for (i = 0; i < spkr_count; i++) {
-				// for probus devices, calibration values coming
-				// from soft-dsp speakerboost, are ordered in a
-				// different way. Re-align to standard
-				// representation.
-				cal_idx = i;
-				if (tfa->is_probus_device &&
-					(tfa->dev_idx % 2) == 1) {
-					cal_idx = 0;
-				}
-
-				/* signed data has a limit of 30 Ohm */
-                if (data[i] < 0) {
-                    /* Negative impedance value from Firmware indicates an open-circuited speaker */
-                    data[i] = 0;
-                }
-				scaled_data = data[i];
-
-				if (tfa->tfa_family == 2)
-					tfa->mohm[cal_idx] =
-						(scaled_data * 1000) /
-						TFA2_FW_ReZ_SCALE;
-				else
-					tfa->mohm[cal_idx] =
-						(scaled_data * 1000) /
-						TFA1_FW_ReZ_SCALE;
-			}
-		}
+		return error;
 	}
 
-	return error;
+	pr_info("Getting calibration values from Speakerboost\n");
+
+	if (!tfa->is_probus_device) {
+		/* poll xmem until calibrateDone == 1 */
+		calibrateDone = 0;
+		tries = 0;
+		while ((calibrateDone != 1) && (tries < TFA98XX_API_WAIT_TRIES)) {
+			tfa_mem_read(tfa, TFA_FW_XMEM_CALIBRATION_DONE, 1,
+				     &calibrateDone);
+			if (calibrateDone == 1)
+				break;
+			tries++;
+		}
+		if (calibrateDone != 1)
+			pr_err("Calibration failed! \n");
+	}
+	/* SoftDSP interface differs from hw-dsp interfaces */
+	if (tfa->is_probus_device && tfa->cnt->ndev > 1)
+		spkr_count = tfa->cnt->ndev;
+
+	nr_bytes = spkr_count * 3;
+	error = tfa_dsp_cmd_id_write_read(tfa, MODULE_SPEAKERBOOST,
+				SB_PARAM_GET_RE25C, nr_bytes, bytes);
+	if (error != Tfa98xx_Error_Ok)
+		return error;
+
+	tfa98xx_convert_bytes2data(nr_bytes, bytes, data);
+
+	for (i = 0; i < spkr_count; i++) {
+		cal_idx = i;
+		if (tfa->is_probus_device && i == 1)
+			cal_idx = (tfa->dev_idx < 1);
+
+		scaled_data = data[i];
+		if (tfa->tfa_family == 2)
+			tfa->mohm[cal_idx] = (scaled_data * 1000) >> 16;
+		else
+			tfa->mohm[cal_idx] = (scaled_data * 1000) >> 14;
+	}
+
+	return Tfa98xx_Error_Ok;
 }
 
 #ifdef OPLUS_ARCH_EXTENDS
@@ -3946,7 +3922,7 @@ enum Tfa98xx_Error tfa_dsp_get_calibration_impedance_for_aging(struct tfa_device
 
 	error = tfa_supported_speakers(tfa, &spkr_count);
 
-	pr_debug("Getting calibration values from Speakerboost\n");
+	pr_info("Getting calibration values from Speakerboost\n");
 
 	/* Make sure the calibrateDone bit is set before getting the
 	 * values from speakerboost! This does not work for 72 (because
@@ -3973,7 +3949,7 @@ enum Tfa98xx_Error tfa_dsp_get_calibration_impedance_for_aging(struct tfa_device
 			pr_err("Calibration failed!\n");
 			error = Tfa98xx_Error_Bad_Parameter;
 		} else if (tries == TFA98XX_API_WAIT_TRIES) {
-			pr_debug("Calibration has timedout!\n");
+			pr_info("Calibration has timedout! \n");
 			error = Tfa98xx_Error_StateTimedOut;
 		}
 	}
@@ -4275,14 +4251,14 @@ enum Tfa98xx_Error tfa_dsp_partial_coefficients(struct tfa_device *tfa,
 			} else
 				new_cost += bq_sz;
 		}
-		pr_debug("eq_biquad_mask[%d] = 0x%.8x\n", eq,
+		pr_info("eq_biquad_mask[%d] = 0x%.8x\n", eq,
 			 eq_biquad_mask[eq]);
 
 		eq_offset += eq_biquads[eq];
 	}
 
-	pr_debug("cost for writing all coefficients     = %d\n", old_cost);
-	pr_debug("cost for writing changed coefficients = %d\n", new_cost);
+	pr_info("cost for writing all coefficients     = %d\n", old_cost);
+	pr_info("cost for writing changed coefficients = %d\n", new_cost);
 
 	if (new_cost >= old_cost) {
 		err = dsp_msg_for_all_equalizers_old(tfa, data2);
@@ -4303,7 +4279,7 @@ int tfa_dev_probe(int slave, struct tfa_device *tfa)
 
 	/* read revid via low level hal, register 3 */
 	if (tfa98xx_read_register16(tfa, 3, &rev) != Tfa98xx_Error_Ok) {
-		pr_err("Error: Unable to read revid from slave:0x%02x\n",
+		pr_err("\nError: Unable to read revid from slave:0x%02x \n",
 			slave);
 		return -1;
 	}
@@ -4320,11 +4296,14 @@ int tfa_dev_probe(int slave, struct tfa_device *tfa)
 	return 0;
 }
 
-enum tfa_error (tfa_dev_set_state)(struct tfa_device *tfa, enum tfa_state state, int unused)
+enum tfa_error (tfa_dev_set_state)(struct tfa_device *tfa, enum tfa_state state, int is_calibration)
 {
 	enum tfa_error err = tfa_error_ok;
 	int loop = 50, ready = 0;
 	int count;
+
+	/* g3q: the stock prints its arguments first (third argument = is_calibration) */
+	pr_info("tfa_dev_set_state()   state=%d    is_calibration=%d\n", state, is_calibration);
 
 	/* Base states */
 	/* Do not change the order of setting bits as this is important! */
@@ -4369,7 +4348,7 @@ enum tfa_error (tfa_dev_set_state)(struct tfa_device *tfa, enum tfa_state state,
 			/* to avoid MTP corruption */
 			err = (enum tfa_error)tfa98xx_faim_protect(tfa, 1);
 			if (tfa->verbose)
-				pr_debug("FAIM enabled (err:%d).\n", err);
+				pr_info("FAIM enabled (err:%d).\n", err);
 		}
 		break;
 	case TFA_STATE_INIT_FW: /* DSP framework active (~patch loaded) */
@@ -4400,12 +4379,12 @@ enum tfa_error (tfa_dev_set_state)(struct tfa_device *tfa, enum tfa_state state,
 		if (!tfa->is_probus_device) {
 			err = (enum tfa_error)tfa98xx_faim_protect(tfa, 0);
 			if (tfa->verbose)
-				pr_debug("FAIM disabled (err:%d).\n", err);
+				pr_info("FAIM disabled (err:%d).\n", err);
 		}
 		/* Synchonize I/V delay on 96/97 at cold start */
 		if (tfa->sync_iv_delay) {
 			if (tfa->verbose)
-				pr_debug("syncing I/V delay for %x\n",
+				pr_info("syncing I/V delay for %x\n",
 				(tfa->rev & 0xff));
 
 			/* wait for ACS to be cleared */
@@ -4546,7 +4525,7 @@ enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa,
 	case TFA_MTP_RE25:
 	case TFA_MTP_RE25_PRIM:
 		if (tfa->tfa_family == 2) {
-			tfa98xx_key2(tfa, 0); /* unlock */
+			[[clang::always_inline]] tfa98xx_key2(tfa, 0); /* unlock */
 			if ((tfa->rev & 0xFF) == 0x88)
 				TFA_SET_BF(tfa, R25CL, (uint16_t)value);
 			else {
@@ -4556,7 +4535,7 @@ enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa,
 						value, 2);
 				TFA_SET_BF(tfa, R25C, (uint16_t)value);
 			}
-			tfa98xx_key2(tfa, 1); /* lock */
+			[[clang::always_inline]] tfa98xx_key2(tfa, 1); /* lock */
 		}
 		break;
 	case TFA_MTP_RE25_SEC:
@@ -4654,16 +4633,16 @@ void tfa_adapt_noisemode(struct tfa_device *tfa)
 	if ((tfa_get_bf(tfa, 0x5900) == 0) || (tfa_get_bf(tfa, TFA9873_BF_LP1) == 1))
 	{
 		if (tfa->verbose)
-			pr_debug("Adapting low noise mode is not needed, condition not fulfilled!\n");
+			pr_info("Adapting low noise mode is not needed, condition not fulfilled!\n");
 		return;
 	}
 	if (tfa->verbose)
-		pr_debug("Adapting low noise mode\n");
+		pr_info("Adapting low noise mode\n");
 
 	for (i = 0; i < NR_OF_BATS; i++) {
 		int bat = TFA_GET_BF(tfa, BATS);
 		if (tfa->verbose)
-			pr_debug("bats[%d]=%d\n", i, bat);
+			pr_info("bats[%d]=%d\n", i, bat);
 		total_bats += bat;
 		msleep_interruptible(5);
 	}
@@ -4673,12 +4652,12 @@ void tfa_adapt_noisemode(struct tfa_device *tfa)
 	if (avbatt <= MIN_BATT_LEVEL && !tfa_get_bf(tfa, TFA9873_BF_LNMODE))//640 corresponds to 3.4 volt, MCH_TO_TEST
 	{
 		tfa_set_bf(tfa, TFA9873_BF_LNMODE, 1);
-		pr_debug("\navbatt= %d--Applying high noise gain\n", avbatt);
+		pr_info("\navbatt= %d--Applying high noise gain\n", avbatt);
 	}
 	else if (avbatt > MAX_BATT_LEVEL && tfa_get_bf(tfa, TFA9873_BF_LNMODE))
 	{
 		tfa_set_bf(tfa, TFA9873_BF_LNMODE, 0);
-		pr_debug("\navbatt= %d--Applying automatic noise gain\n", avbatt);
+		pr_info("\navbatt= %d--Applying automatic noise gain\n", avbatt);
 	}
 
 

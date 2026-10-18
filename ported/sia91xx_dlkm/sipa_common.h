@@ -64,46 +64,32 @@ typedef struct sipa_dev_s {
 	int rst_pin;
 	int owi_pin;
 	int irq_pin;
-	int id_pin;
+	int boost_pin;			/* stock +0x1e8 (si,si_pa_boost, chip type 20 only) */
+	int id_pin;			/* stock +0x1ec (si,si_pa_id) */
 
-	unsigned int owi_delay_us;
-	unsigned int owi_cur_mode;
-	unsigned int owi_polarity;
-
-	spinlock_t rst_lock;		/* stock +0x1f8 */
-	spinlock_t owi_lock;		/* stock +0x1fc */
-	unsigned char g3l_pad200[0x18];	/* stock +0x200..0x218: not recovered (not referenced by the code below) */
+	unsigned int owi_delay_us;	/* stock +0x1f0 (read by sipa_owi_write_mode, pending_actions stores 10) */
+	uint32_t owi_mode[6];		/* stock +0x1f4..0x208: owi mode per scene (resume: owi_write_mode(owi_mode[scene])) */
+	unsigned int owi_polarity;	/* stock +0x20c: read by sipa_owi_write_mode, pending_actions stores 0 */
+	uint32_t g3p_unk210;		/* stock +0x210 [GUESS: 4 bytes, no access found] */
+	spinlock_t owi_lock;		/* stock +0x214 (x26 = si_pa + 0x214 in sipa_owi_write_mode) */
 
 	struct regmap *regmap;		/* stock +0x218 */
 	unsigned int scene;		/* stock +0x220 */
 
 	uint32_t channel_num;		/* stock +0x224 */
-	uint32_t g3l_en_compat;		/* stock +0x228 (en_compatible_type, guess) */
-	uint32_t g3l_en_irq;		/* stock +0x22c (en_irq_func, guess) */
+	uint32_t g3l_en_compat;		/* stock +0x228 (en_compatible_type_func) */
+	uint32_t g3l_en_irq;		/* stock +0x22c (extra_cfg.dyn_ud_vdd_port, cmd_show prints it as dynamic_updata_vdd_port) */
 	uint32_t en_dyn_id;		/* stock +0x230 */
 	uint8_t status;			/* stock +0x234 ("Sipa Status") */
 	uint8_t fw_load_retry;		/* stock +0x235: retry counter of sipa_fw_load_work_delay (G11) */
-	struct list_head list;		/* stock +0x238 */
+	uint8_t g3p_pad236[2];
+	uint8_t g3p_pad238[16];		/* stock +0x238..0x247: the template list_head, unused (the stock has no list) */
 	uint8_t mute;			/* stock +0x248 ("Sipa Mute") */
 	struct sipa_err err_info;	/* stock +0x250 (9 words) */
 	uint8_t power_mode;		/* stock +0x298 */
 	int spksw_gpio;			/* stock +0x29c */
 	int spksw_level;		/* stock +0x2a0 */
-
-	/* template-only fields (the stock has no tuning/cal/set_vdd code) */
-	uint32_t en_dyn_ud_vdd;
-	uint32_t en_dyn_ud_pvdd;
-	uint32_t dyn_ud_vdd_port;
-	uint32_t en_spk_cal_dl;
-	uint32_t spk_model_flag;
-	uint32_t timer_task_hdl;
-	uint32_t timer_task_hdl_backup;
-	struct snd_soc_codec *codec;
-	int pstream;
-	int cstream;
-	int mute_mode;
-	uint32_t g3n_scene_clamp[6];	/* g3n: stock +0x1f4..0x208 (clamped chip_cfg words), layout mismatch */
-	uint32_t g3n_unk20c;
+	/* sizeof == 0x2a8 as in the stock (kmalloc size in sipa_probe) */
 } sipa_dev_t;
 
 struct sipa_chip_compat {
@@ -133,6 +119,7 @@ enum {
 	AUDIO_SCENE_NUM
 };
 
+/* g3p: chip type numbering of the stock (index of support_chip_type_name_table, 26 types) */
 enum {
 	CHIP_TYPE_SIA8101 = 0,
 	CHIP_TYPE_SIA8109,
@@ -140,17 +127,32 @@ enum {
 	CHIP_TYPE_SIA8152S,
 	CHIP_TYPE_SIA8159,
 	CHIP_TYPE_SIA8159A,
-	// add analog chip type here
 	CHIP_TYPE_SIA9195,
+	CHIP_TYPE_SIA9196,
 	CHIP_TYPE_SIA9175,
-	// add digital chip type here
+	CHIP_TYPE_SIA8001,
+	CHIP_TYPE_SIA8102,
+	CHIP_TYPE_SIA9177,
+	CHIP_TYPE_SIA9255,
 	CHIP_TYPE_SIA8100X,
 	CHIP_TYPE_SIA81X9,
 	CHIP_TYPE_SIA8152X,
-	// add compatible chip type here
-	CHIP_TYPE_UNKNOWN,
+	CHIP_TYPE_SIA917X,
+	CHIP_TYPE_SIA8150,
+	CHIP_TYPE_SIA815T,
+	CHIP_TYPE_SIA9187,
+	CHIP_TYPE_SIA5118,
+	CHIP_TYPE_SIA9197X,
+	CHIP_TYPE_SIA8132,
+	CHIP_TYPE_SIA5118S,
+	CHIP_TYPE_SIA5118X,
+	CHIP_TYPE_SIA9306,
+	CHIP_TYPE_UNKNOWN = 200,
 	CHIP_TYPE_INVALID
 };
+
+/* chip type t is <= max and in the bit mask (stock: cmp t,max; lsl 1,t; tst mask) */
+#define SIPA_TYPE_IN(t, max, mask)	((t) <= (max) && ((1u << (t)) & (mask)))
 
 #define SIPA_MAX_REG_ADDR					(0xFF)
 
@@ -196,9 +198,6 @@ int get_smartpa_type(void);
 void set_smartpa_codec(const char *codec_name, const char *dai_name);
 struct snd_kcontrol;
 struct snd_ctl_elem_value;
-int sia91xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
-int sia91xx_spksw_gpio_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
-void sipa_scene_set(sipa_dev_t *si_pa, unsigned int scene);
 int sipa_read_reg(struct regmap *regmap, unsigned char reg, unsigned int *val);
 int sipa_write_reg(struct regmap *regmap, unsigned char reg, unsigned int val);
 

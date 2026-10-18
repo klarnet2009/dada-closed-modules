@@ -13,6 +13,14 @@
 #include "tfa_container.h"
 #include "tfa98xx_tfafieldnames.h"
 
+/* g3r: the stock inlines tfa_is_94_N2_device into every function of this file */
+static __always_inline int tfa_is_94_N2_device_i(struct tfa_device *tfa)
+{
+	return ((((tfa->rev) & 0xff) == 0x94) &&
+		(((tfa->rev >> 8) & 0xff) > 0x1a));
+}
+#define tfa_is_94_N2_device(t) tfa_is_94_N2_device_i(t)
+
 /* The CurrentSense4 registers are not in the datasheet */
 #define TFA98XX_CURRENTSENSE4_CTRL_CLKGATECFOFF (1 << 2)
 #define TFA98XX_CURRENTSENSE4 0x49
@@ -93,6 +101,12 @@ static enum Tfa98xx_Error tfa_set_osc_powerdown(struct tfa_device *tfa,
 	return Tfa98xx_Error_Ok;
 }
 
+/* generic "bitfield write" op used through dev_ops.set_bitfield [g3o: static, as in the stock] */
+static int tfa_set_bitfield(struct tfa_device *tfa, uint16_t bf, uint16_t value)
+{
+	return tfa_set_bf(tfa, bf, value);
+}
+
 static enum Tfa98xx_Error tfa_update_lpm(struct tfa_device *tfa, int state)
 {
 	/* This function has no effect in general case, only for tfa9912 */
@@ -100,6 +114,15 @@ static enum Tfa98xx_Error tfa_update_lpm(struct tfa_device *tfa, int state)
 	(void)state;
 
 	return Tfa98xx_Error_Ok;
+}
+
+/* tfa9912: low power mode bitfield (0x65c0); returns the negated tfa_set_bf() result, 2 on bad state */
+static enum Tfa98xx_Error tfa9912_update_lpm(struct tfa_device *tfa, int state)
+{
+	if ((unsigned int)state > 1)
+		return Tfa98xx_Error_Bad_Parameter;
+
+	return -tfa_set_bf(tfa, 0x65c0, state);
 }
 
 static enum Tfa98xx_Error tfa_dsp_reset(struct tfa_device *tfa, int state)
@@ -527,6 +550,7 @@ void tfa9912_ops(struct tfa_device_ops *ops)
 	ops->set_mute = tfa9912_set_mute;
 	ops->faim_protect = tfa9912_faim_protect;
 	ops->set_osc_powerdown = tfa9912_set_osc_powerdown;
+	ops->update_lpm = tfa9912_update_lpm;
 }
 
 /******************************************************************************/
@@ -594,7 +618,7 @@ static enum Tfa98xx_Error tfa9872_specific(struct tfa_device *tfa)
 		/* ----- generated code end   ----- */
 		break;
 	default:
-		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x\n",
+		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n",
 			tfa->rev);
 		break;
 	}
@@ -905,7 +929,7 @@ static enum Tfa98xx_Error tfa9874_specific(struct tfa_device *tfa)
 		/* ----- generated code end   ----- */
 		break;
 	default:
-		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x\n",
+		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n",
 			tfa->rev);
 		break;
 	}

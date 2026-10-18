@@ -4,11 +4,6 @@
  * "g3k-guess" marks parts that are not verified against the stock bytes.
  */
 
-/* generic "bitfield write" op used through dev_ops.set_bitfield */
-int tfa_set_bitfield(struct tfa_device *tfa, uint16_t bf, uint16_t value)
-{
-	return tfa_set_bf(tfa, bf, value);
-}
 
 /* wait until the bitfield bf reaches (>=) value, polling at most `tries` times; -ETIME on timeout */
 int tfa_wait4manstate(struct tfa_device *tfa, uint16_t bf, uint16_t value, int tries)

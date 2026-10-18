@@ -8,7 +8,7 @@ Some modules compare equal to the stock only because of a documented hack. None 
   - *GENKSYMS-only padding* (`tools/padcrc.py`, `tools/crcpad.py`): an enum value, attribute or struct member under `#ifdef __GENKSYMS__` with an identifier fitted until the CRC hits. Code and ABI are untouched. The padding must also be in the header prototype (genksyms takes the first declaration).
   - *`crcforge`*: a forged declaration used only for the CRC (for example `mi_power`: one import, `millet_binder`: two exports).
   - *`crc_patch.py` / `crc_patch2.py`*: the CRC words in the built `.ko` are overwritten with the stock values after the build (`tas25xx_dlkm`: 2 export CRCs; `minidump`: 1 import CRC; `tas25xx` in the first round). `crc_patch2.py` also handles import CRCs.
-- **Stub providers** (`stubs/`, `tools/gen_stubs.py`): a module imports symbols of another module that is not part of the build. A stub module with the same exported names and exactly the stock CRCs (genksyms hashes `void sym ( struct tag { UNKNOWN } * )` with crc32 and a short struct tag is searched until the CRC matches) stands in so that the module under test links. **A matching import CRC through a stub does not confirm the prototype**; that is how one real prototype error in a charging module slipped through the old tool. The strict tool reports such imports as INFO. The stubs and their `os4_*`/`mca_st_*`/`*_stub` names appear in the built module's `depends=`; the package fixes that with `tools/modinfo_fix.py`. Stub trees in this repository: `stubs`, `stubs_a17A`, `stubs_a17B`, `stubs_a17C`, `stubs_a17D`, `stubs_g1`, `stubs_g1e`, `stubs_g2g`, `stubs_g2h`, `stubs_g2i`, `stubs_g2j`, `stubs_g2k`, `stubs_g3`, `stubs_g3g`, `stubs_g3i`, `stubs_g4`, `stubs_g5`, `stubs_g6`, `stubs_mcaA`, `stubs_mcaB`, `stubs_misc`, `stubs_perfA`, `stubs_perfB`, `stubs_perfC`, `stubs_portA`, `stubs_portB`, `stubs_portC`, `stubs_portD`. They are build helpers, never modules to load.
+- **Stub providers** (`stubs/`, `tools/gen_stubs.py`): a module imports symbols of another module that is not part of the build. A stub module with the same exported names and exactly the stock CRCs (genksyms hashes `void sym ( struct tag { UNKNOWN } * )` with crc32 and a short struct tag is searched until the CRC matches) stands in so that the module under test links. **A matching import CRC through a stub does not confirm the prototype**; that is how one real prototype error in a charging module slipped through the old tool. The strict tool reports such imports as INFO. The stubs and their `os4_*`/`mca_st_*`/`*_stub` names appear in the built module's `depends=`; the package fixes that with `tools/modinfo_fix.py`. Stub trees in this repository: `stubs`, `stubs_a17A`, `stubs_a17B`, `stubs_a17C`, `stubs_a17D`, `stubs_g1`, `stubs_g13a`, `stubs_g13b`, `stubs_g13d_g2k`, `stubs_g13d_g5`, `stubs_g1e`, `stubs_g2g`, `stubs_g2h`, `stubs_g2i`, `stubs_g2j`, `stubs_g2k`, `stubs_g3`, `stubs_g3g`, `stubs_g3i`, `stubs_g4`, `stubs_g5`, `stubs_g6`, `stubs_mcaA`, `stubs_mcaB`, `stubs_misc`, `stubs_perfA`, `stubs_perfB`, `stubs_perfC`, `stubs_portA`, `stubs_portB`, `stubs_portC`, `stubs_portD`. They are build helpers, never modules to load.
 - **`#line` pins.** `__LINE__` is baked into log macros and bug-table entries; a `#line N` before a statement makes our object carry the stock line number. In the Wi-Fi drivers a generated pin file was used for all chips: this is **not** restored code, it only equalises numbers.
 - **Codegen hints**: `likely`/`unlikely`, `__builtin_expect_with_probability`, `[[clang::__noinline__]]`/`[[clang::always_inline]]` on single calls, local copies of inline helpers from 6.6.57, dead literals, thin static helpers where LLVM folds a phi: only to make the compiler emit the stock instruction sequence.
 - **Environment defines** in the Wi-Fi drivers (`__ANDROID_COMMON_KERNEL__`, `CONFIG_SCHED_WALT`, ...) derived from the stock function and import sets, not from the vendor Kconfig.
@@ -30,7 +30,12 @@ Some modules compare equal to the stock only because of a documented hack. None 
 | `tas25xx_dlkm` | 2 export CRCs set after the build (`crc_patch2.py`) |
 | `sia91xx_dlkm` | the two exports `sipa_multi_channel_power_*` keep the stock CRC unreproduced (about 2000 declaration variants tried); the kCFI hashes of the same functions match |
 | `mist`, `miloadtrace` | forged export/import CRCs from the first round (OS3) |
-| `mca_*` (charging) | forged `os4_*` stub providers |
+| `sia91xx_dlkm`, `tfa98xx_dlkm`, `aw882xx_dlkm` | not forged but not reproduced either: the import CRC of `set_smartpa_codec` (stock `0x77aedcd7`, ours `0xab30d685` in `tfa98xx_dlkm`) and the two `sipa_multi_channel_power_*` export CRCs stay different from the stock; these modules are COMPILES-only anyway |
+| `xr_qi` | 10 of 14 export CRCs forged by GENKSYMS-only pads (`xr_qi` is community-only, PARTIAL) |
+| `mca_smart_charge` | the export CRC of `mca_smartchg_if_ops_register` (stock `0x85e2f9d0`) is forged by a GENKSYMS-only pad: our own spelling of the struct gives the OS3 value `0xf068973d`, the OS4 member is unknown |
+| `mitee_dlkm` | built only against forged `os4_*` stub providers (`gh_msgq`, `secure_buffer`, `qcom-scm`, `minidump`, `gh_rm_drv`) whose export CRCs were fitted; `depends=` therefore differs; the stub modules are **not published and must never be shipped** |
+| `qca_cld3_*` (Wi-Fi) | the `#line` pin table (equalises line numbers only), the force-included `xm_compat_6657.h` (6.6.57 header emulation, not Xiaomi code), appended PCL table overrides, bug-compatible places; see `docs/WIFI.md` |
+| `mca_*` (charging) | forged `os4_*` stub providers; shared BTF-derived header overlays `stubs_g13a`, `stubs_g13b`, `stubs_g13d_g2k`, `stubs_g13d_g5` (headers only, no modules) |
 
 The generated table below lists every exported module whose `STATUS.md` mentions forged CRCs, GENKSYMS-only padding or a post-build CRC patch (a mention is not proof that the hack is still active: the note may say that it was removed). Stub providers, `#line` pins and codegen hints are too widespread to list; they are described in each `STATUS.md`.
 
@@ -51,6 +56,7 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 | dynamic_readahead | forged CRC, genksyms-only padding |
 | fs19xx_dlkm | forged CRC |
 | matt | forged CRC, genksyms-only padding |
+| mca_basic_wireless | forged CRC |
 | mca_bmd | forged CRC, genksyms-only padding |
 | mca_buckchg_jeita | forged CRC |
 | mca_charge_mievent | forged CRC |
@@ -63,7 +69,11 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 | mca_protocol_class | genksyms-only padding |
 | mca_protocol_pd_class | forged CRC, genksyms-only padding |
 | mca_pwm_fan | forged CRC, genksyms-only padding |
+| mca_quick_wireless | forged CRC |
+| mca_smart_charge | forged CRC, genksyms-only padding |
+| mca_strategy_buckchg | forged CRC |
 | mca_strategy_fg_class | forged CRC |
+| mca_strategy_quickchg | forged CRC |
 | mca_vbat_ovp_monitor | forged CRC |
 | mca_wireless_revchg | forged CRC |
 | mi_fp | forged CRC, genksyms-only padding |
@@ -75,6 +85,7 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 | miev | forged CRC |
 | millet_binder | forged CRC, genksyms-only padding |
 | miscore | forged CRC |
+| mitee_dlkm | forged CRC |
 | nuvolta_1652 | forged CRC |
 | perf_actuator | forged CRC, genksyms-only padding |
 | plat_common | genksyms-only padding |
@@ -97,4 +108,6 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 ## Where a forgery was removed
 
 - `dcvs_main`: the prototype `mi_recalculate_freq_mhz(..., s64)` was found from the kCFI hash; with it the export CRC matches without forging, and the forging hack was removed.
+- `mi_low_lat_mem`, `xr_qi`, `mi_game`, `mi_damon`, `cameramsger`: wrong prototypes (not forged CRCs) were found from the kCFI hash with the substitution-aware search (`tools/kcfi/kcs.c`); the earlier search without Itanium substitutions missed every prototype that repeats a type, which is why some modules carried an "unnamed vendor type" for a while.
+- `mca_business_charger_comp`, `mca_strategy_fg_comp`: enumerator names that were wrong (right values) were replaced by the stock BTF names (`docs/reviews/charging_enum_audit.md`); this removed no CRC forgery.
 - The kCFI hash of an address-taken function carries no struct body or typedef name, so the same trick cannot remove a forged CRC that comes from a struct of another tree (6.6.57 versus 6.6.144) or from an unknown member (`cs_dsp`, `seq_file`, `task_struct`, `fs19xx`/`xiaomi_touch` members).

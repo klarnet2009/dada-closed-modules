@@ -1,0 +1,25 @@
+# g4t notes (18.10.2026) - Wi-Fi round 10 (goal-G4t)
+Scratch <work-dir> (copy of g4s state + changes), symlinks <build-dir> Tools in work/a17/g4t/tools (get.sh/put.sh = edit local mirror pkg/ and upload one file, t.sh = put + lab compile + compare, ldiff/fdr/calls = diffs as in g4s, final_t1.sh = peach_v2 chain sf -> cls -> line hack -> hack build -> compare_ko_v2 + preamble_cmp, scripts/callscan.py + scripts/pcl_fix.py on the server). The local mirror pkg/ holds only the touched files; orig/ the g4s versions; g4t.patch = diff orig -> pkg (replay: apply to a g4s package, plus pcl_fix.py output is inside the patch). LESSON: python text-mode writes on Windows turn LF files into CRLF: use open(..., newline='') or the Edit tool.
+
+## Method that worked
+Write the function the way the ORIGINAL (kernel / CAF) source has it: most "codegen only" leftovers were the previous rewrites (compound conditions, merged ifs, reordered statements). Check the call+string sequence first (tools/calls.sh), then the register-agnostic diff (ldiff.sh); the lab compile (single TU) is reliable only for small self-contained functions (it shows lab-only differences such as adapter magic constants).
+
+## Fixed (all shared source = five variants)
+Codegen / structure (byte-identical in the lab compile, real build confirms in STATUS):
+- dlhc_init (positive range tests `rslots > 255 || rslots < 0 || ...`), dlhc_remember (kernel form: two separate ifs `isize < 20`, `ihl < 5`), dlhc_uncompress (`cs = &comp->rstate[comp->recv_current]` after the if/else, psh store after window/check): all dlhc_* now byte-identical in the lab.
+- p2phc_device_event: switch(event), p2phc_p2px_event(unsigned int event) with `event == REGISTER && !hooked` / `event == UNREGISTER && hooked`: 43 -> 8 differing words (store order only).
+- wlan_hdd_netif_queue_control: queue history copy loop bounded by min(num_tx_queues, NUM_TX_QUEUES) once.
+- wlan_hdd_cfg80211_vendor_add_scan_entry: bandwidth as switch (0,1,2,default).
+Real behaviour differences (stock disassembly):
+- policy_mgr_allow_same_mac_diff_freq (inlined in allow_new_home_channel): the 3-freq clause only prints "3rd home channel on same MAC" and keeps the connection ALLOWED (no allow = false), text without "don't allow"; policy_mgr_allow_new_home_channel byte-identical.
+- target_if_deinit_dbr_ring chain: empty_ring unmaps every buffer unconditionally (no paddr test / clear), no `dbr_ring_cfg->srng = NULL`, deinit_srng/deinit_dbr_ring free only after explicit NULL tests: byte-identical.
+- wlan_hdd_update_iface_combination: one ucfg_policy_mgr_is_fw_supports_dbs() call per loop iteration (value reused).
+- p2phc_hooks: pf = NFPROTO_INET, hooknum = NF_INET_INGRESS (review F1; stock bytes checked: pf 1, hooknum 5, priority INT_MIN). Ours hooked global IPv4 PRE_ROUTING.
+- review F3 STA+P2P+P2P limit 3 / num_different_channels 3 / max_interfaces 4; F4 mi_sap_only_allow_sta_dfs_indoor_chan default 1; F5 miracast timer 20000 ms (= 5000 jiffies, stock mod_timer(jiffies + mult*5000)); F6 no ch_switch_in_progress condition in the SAP/STA DFS CSA failure path; F7 interdependent_setters 20 entries (data_stall twice), 76th vendor event (OUI 0x1374, subcmd 240), command 251 (SET_P2P_MODE) flags + NEED_RUNNING on peach/peach-v2 only (BUILD.bazel define XM_P2P_MODE_NEED_RUNNING), hdd_drv_cmds SetScanExtFlag last, rssi_mcs_tbl 3 rows; F11 sinfo->filled TX_RETRIES in get_link_peer_stats_sap, "Beacon interval changed from %d to %d" argument order, "Re-enter low latency mode failed after scan" at debug level.
+- F2 PCL tables (90 words, 5 tables): scripts/pcl_fix.py appends `[a][b][c] = value` designated overrides marked "g4t: values of the OS4 stock table" before the closing brace of every definition (the ones in the unused #if variants too); values taken from the peach_v2 stock, confirmed on the other variants in the final compare.
+
+## Not done / written down
+- do_acs: stock frame 0xb50 vs 0xb40: all locals above the first alloca are shifted by 0x10..0x20 (stock has an extra 16-byte zero-initialised local at sp+0x1a8 and a different spill layout); no source-level cause found.
+- lim_fill_pe_session (register allocation x27/x28), policy_mgr_allow_4th_new_freq (local-variable layout: stock `str wzr,[sp,#0x2c]; stp wzr,wzr,[sp,#0x34]` vs ours `str xzr,[sp,#0x30]`), cm_process_join_req (stock inlines lim_update_connect_rsn_ie three times), target_if_direct_buf_rx_module_register (stack slots), cfg_parse (store scheduling of the default values), hdd_open_p2p_interface, util_scan_gen_fast_connect_scan_entry, htc_connect_service: scheduling / register names only (call sequences equal).
+- objects: opcls_13x_cfis_lst + global_op_class: the stock pointer targets an anonymous chunk, ours the symbol `lockkey` (layout of the empty arrays); anon-data, jump-table, altinstructions, bug-lines unchanged in character.
+- 'NLA_F_NESTED is missing' / '\x02' string references appear only in the stock listing: they are the static __msg objects (our compile keeps them as separate local objects), not code differences.

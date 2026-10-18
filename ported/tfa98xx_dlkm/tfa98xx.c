@@ -1822,164 +1822,101 @@ static const struct file_operations tfa98xx_dbgfs_calib_mtpex_fops;
 static const struct file_operations tfa98xx_dbgfs_calib_temp_fops;
 static const struct file_operations tfa98xx_dbgfs_pga_gain_fops;
 
+static int tfa98xx_dbgfs_name_open(struct inode *inode, struct file *file);
+static int tfa98xx_dbgfs_probus_open(struct inode *inode, struct file *file);
+
+/* g3o: the stock fops all carry .llseek = default_llseek, plus DIEID/name/probus (seq_file for name and probus) */
 static const struct file_operations tfa98xx_dbgfs_calib_start_fops = {
-	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.write = tfa98xx_dbgfs_start_set,
+	.open = simple_open,
 };
 
 static const struct file_operations tfa98xx_dbgfs_r_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_r_read,
-};
-
-#ifdef OPLUS_ARCH_EXTENDS
-static const struct file_operations tfa98xx_dbgfs_range_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_range_read,
-};
-static const struct file_operations tfa98xx_dbgfs_r_aging_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_r_aging_read,};
-static const struct file_operations tfa98xx_dbgfs_r_impedance_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_r_impedance_read,
-};
-static const struct file_operations tfa98xx_dbgfs_r_calibrated_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_r_calibrated_read,
-};
-
-static const struct file_operations tfa98xx_dbgfs_r_tfa_cali_sq_fops = {
-	.open = simple_open,
-	.read = tfa98xx_dbgfs_r_tfa_cali_sq_read,
+	.owner = THIS_MODULE,
 	.llseek = default_llseek,
+	.read = tfa98xx_dbgfs_r_read,
+	.open = simple_open,
 };
 
-static const struct file_operations tfa98xx_dbgfs_f0_range_fops = {
+static const struct file_operations tfa98xx_dbgfs_dieid_fops = {
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
+	.read = tfa98xx_dbgfs_dieid_read,
 	.open = simple_open,
-	.read = tfa98xx_dbgfs_f0_range_read,
 };
-#endif /* OPLUS_ARCH_EXTENDS */
+
+static const struct file_operations tfa98xx_dbgfs_name_fops = {
+	.owner = THIS_MODULE,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.open = tfa98xx_dbgfs_name_open,
+	.release = single_release,
+};
+
+static const struct file_operations tfa98xx_dbgfs_probus_fops = {
+	.owner = THIS_MODULE,
+	.llseek = seq_lseek,
+	.read = seq_read,
+	.open = tfa98xx_dbgfs_probus_open,
+	.release = single_release,
+};
 
 static const struct file_operations tfa98xx_dbgfs_version_fops = {
-	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.read = tfa98xx_dbgfs_version_read,
+	.open = simple_open,
 };
 
 static const struct file_operations tfa98xx_dbgfs_dsp_state_fops = {
-	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.read = tfa98xx_dbgfs_dsp_state_get,
 	.write = tfa98xx_dbgfs_dsp_state_set,
+	.open = simple_open,
 };
 
 static const struct file_operations tfa98xx_dbgfs_fw_state_fops = {
-	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.read = tfa98xx_dbgfs_fw_state_get,
+	.open = simple_open,
 };
 
 static const struct file_operations tfa98xx_dbgfs_rpc_fops = {
-	.open = simple_open,
+	.owner = THIS_MODULE,
+	.llseek = default_llseek,
 	.read = tfa98xx_dbgfs_rpc_read,
 	.write = tfa98xx_dbgfs_rpc_send,
+	.open = simple_open,
 };
 
+/* g3o: order and modes as in the stock tfa98xx_debug_init; OTC, MTPEX and R are skipped for devices with flag bit 10 [GUESSED meaning] */
 static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 {
 	char name[50];
 
 	scnprintf(name, MAX_CONTROL_NAME, "%s-%x", i2c->name, i2c->addr);
-#ifdef CONFIG_DEBUG_FS
 	tfa98xx->dbg_dir = debugfs_create_dir(name, NULL);
-	debugfs_create_file("OTC", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_calib_otc_fops);
-	debugfs_create_file("MTPEX", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_calib_mtpex_fops);
-	debugfs_create_file("TEMP", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_calib_temp_fops);
-	debugfs_create_file("calibrate", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_calib_start_fops);
-	debugfs_create_file("R", 0444, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_r_fops);
-	#ifdef OPLUS_ARCH_EXTENDS
-	debugfs_create_file("range", S_IRUGO, tfa98xx->dbg_dir,
-						i2c, &tfa98xx_dbgfs_range_fops);
-	#endif /* OPLUS_ARCH_EXTENDS */
-	debugfs_create_file("version", 0444, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_version_fops);
-	debugfs_create_file("dsp-state", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_dsp_state_fops);
-	debugfs_create_file("fw-state", 0664, tfa98xx->dbg_dir,
-			    i2c,
-			    &tfa98xx_dbgfs_fw_state_fops);
-	debugfs_create_file("rpc", 0664, tfa98xx->dbg_dir,
-			    i2c, &tfa98xx_dbgfs_rpc_fops);
-
-	#ifdef OPLUS_ARCH_EXTENDS
-	debugfs_create_file("f0_range", S_IRUGO, tfa98xx->dbg_dir,
-				i2c, &tfa98xx_dbgfs_f0_range_fops);
-	#endif /* OPLUS_ARCH_EXTENDS */
-
-	if (tfa98xx->flags & TFA98XX_FLAG_SAAM_AVAILABLE) {
-		dev_dbg(tfa98xx->dev, "Adding pga_gain debug interface\n");
-		debugfs_create_file("pga_gain", 0444, tfa98xx->dbg_dir,
-						tfa98xx->i2c,
-						&tfa98xx_dbgfs_pga_gain_fops);
+	if (!(tfa98xx->flags & TFA98XX_FLAG_G3N_BIT10)) {
+		debugfs_create_file("OTC", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_calib_otc_fops);
+		debugfs_create_file("MTPEX", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_calib_mtpex_fops);
+		debugfs_create_file("R", 0444, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_r_fops);
 	}
-#else /*CONFIG_DEBUG_FS*/
-	tfa98xx->dbg_dir = proc_mkdir(name, NULL);
-	proc_create_data("OTC", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_calib_otc_fops, i2c);
-	proc_create_data("MTPEX", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_calib_mtpex_fops, i2c);
-	proc_create_data("TEMP", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_calib_temp_fops, i2c);
-	proc_create_data("calibrate", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_calib_start_fops, i2c);
-	proc_create_data("R", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_r_fops, i2c);
-	proc_create_data("FRES", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_fres_fops, i2c);
-#ifdef OPLUS_ARCH_EXTENDS
-	proc_create_data("range", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_range_fops, i2c);
-#endif /* OPLUS_ARCH_EXTENDS */
-	proc_create_data("version", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_version_fops, i2c);
-	proc_create_data("dsp-state", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_dsp_state_fops, i2c);
-	proc_create_data("fw-state", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_fw_state_fops, i2c);
-	proc_create_data("rpc", S_IRUGO|S_IWUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_rpc_fops, i2c);
-#ifdef OPLUS_ARCH_EXTENDS
-	proc_create_data("r_aging", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_r_aging_fops, i2c);
-	proc_create_data("r_impedance", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_r_impedance_fops, i2c);
-	proc_create_data("r_calibrated", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_r_calibrated_fops, i2c);
-	proc_create_data("cali_info", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_r_tfa_cali_sq_fops, i2c);
+	debugfs_create_file("DIEID", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_dieid_fops);
+	debugfs_create_file("name", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_name_fops);
+	debugfs_create_file("probus", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_probus_fops);
+	debugfs_create_file("TEMP", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_calib_temp_fops);
+	debugfs_create_file("calibrate", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_calib_start_fops);
+	debugfs_create_file("version", 0444, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_version_fops);
+	debugfs_create_file("dsp-state", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_dsp_state_fops);
+	debugfs_create_file("fw-state", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_fw_state_fops);
+	debugfs_create_file("rpc", 0666, tfa98xx->dbg_dir, i2c, &tfa98xx_dbgfs_rpc_fops);
 
-	proc_create_data("f0_range", S_IRUGO, tfa98xx->dbg_dir,
-					&tfa98xx_dbgfs_f0_range_fops, i2c);
-
-#endif
-
-	if (tfa98xx->flags & TFA98XX_FLAG_SAAM_AVAILABLE) {
-		dev_dbg(tfa98xx->dev, "Adding pga_gain debug interface\n");
-		proc_create_data("pga_gain", S_IRUGO, tfa98xx->dbg_dir,
-						&tfa98xx_dbgfs_pga_gain_fops,
-						tfa98xx->i2c);
-	}
-#endif /*CONFIG_DEBUG_FS*/
+	if (tfa98xx->flags & TFA98XX_FLAG_SAAM_AVAILABLE)
+		debugfs_create_file("pga_gain", 0444, tfa98xx->dbg_dir, tfa98xx->i2c, &tfa98xx_dbgfs_pga_gain_fops);
 }
 
 static void tfa98xx_debug_remove(struct tfa98xx *tfa98xx)
@@ -2130,9 +2067,9 @@ static int tfa98xx_get_vstep(struct snd_kcontrol *kcontrol,
 	int ret = 0;
 	int profile;
 
-	[[clang::__noinline__]] profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
+	profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
 	if (profile < 0) {
-		pr_err("%s: invalid profile %d (mixer_profile=%d, rate=%d)\n",
+		pr_err("%s(): tfa98xx: tfa98xx_get_vstep: invalid profile %d (mixer_profile=%d, rate=%d)\n",
 		__func__, profile, mixer_profile, tfa98xx->rate);
 		return -EINVAL;
 	}
@@ -2163,9 +2100,9 @@ static int tfa98xx_set_vstep(struct snd_kcontrol *kcontrol,
 	if (no_start != 0)
 		return 0;
 
-	[[clang::__noinline__]] profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
+	profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
 	if (profile < 0) {
-		pr_err("%s: invalid profile %d (mixer_profile=%d, rate=%d)\n",
+		pr_err("%s(): tfa98xx: tfa98xx_set_vstep: invalid profile %d (mixer_profile=%d, rate=%d)\n",
 			__func__, profile, mixer_profile, tfa98xx->rate);
 		return -EINVAL;
 	}
@@ -2241,10 +2178,10 @@ static int tfa98xx_info_vstep(struct snd_kcontrol *kcontrol,
 	int mixer_profile = tfa98xx_mixer_profile;
 	int profile;
 
-	[[clang::__noinline__]] profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
+	profile = get_profile_id_for_sr(mixer_profile, tfa98xx->rate);
 
 	if (profile < 0) {
-		pr_err("%s: invalid profile %d (mixer_profile=%d, rate=%d)\n",
+		pr_err("%s(): tfa98xx: tfa98xx_info_vstep: invalid profile %d (mixer_profile=%d, rate=%d)\n",
 			__func__, profile, mixer_profile, tfa98xx->rate);
 		return -EINVAL;
 	}
@@ -3223,12 +3160,12 @@ static void tfa98xx_interrupt_enable_tfa2(struct tfa98xx *tfa98xx, bool enable)
 {
 	/* Only for 0x72 we need to enable NOCLK interrupts */
 	if (tfa98xx->flags & TFA98XX_FLAG_REMOVE_PLOP_NOISE)
-		tfa_irq_ena(tfa98xx->tfa, tfa9912_irq_stnoclk, enable);
+		[[clang::always_inline]] tfa_irq_ena(tfa98xx->tfa, tfa9912_irq_stnoclk, enable);
 
 	if (tfa98xx->flags & TFA98XX_FLAG_LP_MODES) {
 		/* FIXME: IELP0 does not excist for 9912 */
-		tfa_irq_ena(tfa98xx->tfa, 36, enable);
-		tfa_irq_ena(tfa98xx->tfa, tfa9912_irq_stclpr, enable);
+		[[clang::always_inline]] tfa_irq_ena(tfa98xx->tfa, 36, enable);
+		[[clang::always_inline]] tfa_irq_ena(tfa98xx->tfa, tfa9912_irq_stclpr, enable);
 	}
 }
 
@@ -3405,41 +3342,13 @@ bool is_tfa98xx_series_v6(int rev)
 
 
 
+/* g3q: the stock bodies of both works are a single `ret` (verified in the disassembly); the work items are still queued/cancelled */
 static void tfa98xx_nmode_update_work(struct work_struct *work)
 {
-	struct tfa98xx *tfa98xx;
-
-	//MCH_TO_TEST, checking if noise mode update is required or not
-	tfa98xx = container_of(work, struct tfa98xx, nmodeupdate_work.work);
-	mutex_lock(&tfa98xx->dsp_lock);
-	tfa_adapt_noisemode(tfa98xx->tfa);
-	mutex_unlock(&tfa98xx->dsp_lock);
-	queue_delayed_work(tfa98xx->tfa98xx_wq, &tfa98xx->nmodeupdate_work,5 * HZ);
 }
 
 static void tfa98xx_monitor(struct work_struct *work)
 {
-	struct tfa98xx *tfa98xx;
-	enum Tfa98xx_Error error = Tfa98xx_Error_Ok;
-
-	tfa98xx = container_of(work, struct tfa98xx, monitor_work.work);
-
-	/* Check for tap-detection - bypass monitor if it is active */
-	if (!tfa98xx->input) {
-		mutex_lock(&tfa98xx->dsp_lock);
-		error = tfa_status(tfa98xx->tfa);
-		mutex_unlock(&tfa98xx->dsp_lock);
-		if (error == Tfa98xx_Error_DSP_not_running) {
-			if (tfa98xx->dsp_init == TFA98XX_DSP_INIT_DONE) {
-				tfa98xx->dsp_init = TFA98XX_DSP_INIT_RECOVER;
-				queue_delayed_work(tfa98xx->tfa98xx_wq,
-					&tfa98xx->init_work, 0);
-			}
-		}
-	}
-
-	/* reschedule */
-	queue_delayed_work(tfa98xx->tfa98xx_wq, &tfa98xx->monitor_work, 5 * HZ);
 }
 
 static noinline void tfa98xx_dsp_init(struct tfa98xx *tfa98xx)
@@ -3641,46 +3550,22 @@ static void tfa98xx_interrupt(struct work_struct *work)
 static int tfa98xx_startup(struct snd_pcm_substream *substream,
 						struct snd_soc_dai *dai)
 {
+	/* g3q: as the stock: no pcm format mask / rate list constraint is applied (the imports snd_pcm_hw_constraint_* are gone) */
 	struct snd_soc_component *codec = dai->component;
 	struct tfa98xx *tfa98xx = snd_soc_component_get_drvdata(codec);
 	unsigned int sr;
 	int len, prof, nprof, idx = 0;
 	char *basename;
-	u64 formats;
-	int err;
 
-
-	pr_info("entry\n");
 	/*
 	 * Support CODEC to CODEC links,
 	 * these are called with a NULL runtime pointer.
 	 */
-	if (!substream->runtime) {
-		pr_err("return 0 - !substream->runtime\n");
+	if (!substream->runtime)
 		return 0;
-	}
 
-	if (pcm_no_constraint != 0) {
-		pr_err("return 0 - pcm_no_constraint != 0\n");
+	if (pcm_no_constraint != 0)
 		return 0;
-	}
-
-	switch (pcm_sample_format) {
-	case 1:
-		formats = SNDRV_PCM_FMTBIT_S24_LE;
-		break;
-	case 2:
-		formats = SNDRV_PCM_FMTBIT_S32_LE;
-		break;
-	default:
-		formats = SNDRV_PCM_FMTBIT_S16_LE;
-		break;
-	}
-
-	err = snd_pcm_hw_constraint_mask64(substream->runtime,
-					SNDRV_PCM_HW_PARAM_FORMAT, formats);
-	if (err < 0)
-		return err;
 
 	if (no_start != 0)
 		return 0;
@@ -3727,9 +3612,7 @@ static int tfa98xx_startup(struct snd_pcm_substream *substream,
 
 	kfree(basename);
 
-	return snd_pcm_hw_constraint_list(substream->runtime, 0,
-				SNDRV_PCM_HW_PARAM_RATE,
-				&tfa98xx->rate_constraint);
+	return 0;
 }
 
 static int tfa98xx_set_dai_sysclk(struct snd_soc_dai *codec_dai,
@@ -4083,122 +3966,67 @@ static __always_inline enum Tfa98xx_Error tfa98xx_adsp_send_calib_values(void)
 
 }
 
+/* g3p: rewritten from the stock disassembly (89 insns): no power gpio, no monitor/bytes_inst bookkeeping, the spk-sw
+ * gpio is driven here (low on playback mute, level == (mixer profile == 1) on playback unmute), the DSP is stopped on
+ * every PLAYBACK mute (not only when both streams are idle), unmute calls tfa98xx_dsp_init directly. */
 static int tfa98xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
 	struct tfa98xx *tfa98xx = snd_soc_component_get_drvdata(component);
-	int ret = 0;
 
 	dev_info(&tfa98xx->i2c->dev, "%s: state: %d\n", __func__, mute);
 
-	if (no_start) {
-		pr_info("no_start parameter set no tfa_dev_start or tfa_dev_stop, returning\n");
+	if (no_start)
 		return 0;
-	}
 
 	if (mute) {
-		/* stop DSP only when both playback and capture streams
-		 * are deactivated
-		 */
-#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
-		/* Add for smartpa err feedback*/
-		oplus_tfa98xx_exit_check_work(tfa98xx);
-		if (tfa98xx->dsp_init != TFA98XX_DSP_INIT_STOPPED) {
-			oplus_tfa98xx_check_reg(tfa98xx);
-		}
-#endif /* OPLUS_FEATURE_MM_FEEDBACK */
-
-		if (stream == SNDRV_PCM_STREAM_PLAYBACK)
+		if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
 			tfa98xx->pstream = 0;
-		else
+			if (tfa98xx->spksw_gpio >= 0)
+				gpiod_direction_output_raw(gpio_to_desc(tfa98xx->spksw_gpio), 0);
+		} else {
 			tfa98xx->cstream = 0;
-
-        if (tfa98xx->pstream == 0 && tfa98xx_device_count > 1) {
-            bytes_inst0[0] = 0;
-            bytes_inst1[0] = 0;
-            called_count = 0;
-        }
-
-#ifdef OPLUS_ARCH_EXTENDS
-		if (TFA_GET_BF(tfa98xx->tfa, PWDN) == 1)
-#else
-		if (tfa98xx->pstream != 0 || tfa98xx->cstream != 0)
-#endif
-			return 0;
+		}
 
 		mutex_lock(&tfa98xx_mutex);
 		tfa98xx_sync_count = 0;
 		mutex_unlock(&tfa98xx_mutex);
 
 		cancel_delayed_work_sync(&tfa98xx->monitor_work);
-
 		cancel_delayed_work_sync(&tfa98xx->init_work);
+
+		if (stream == SNDRV_PCM_STREAM_CAPTURE)
+			return 0;
+
 		if (tfa98xx->dsp_fw_state != TFA98XX_DSP_FW_OK)
 			return 0;
+
 		mutex_lock(&tfa98xx->dsp_lock);
 		tfa_dev_stop(tfa98xx->tfa);
 		tfa98xx->dsp_init = TFA98XX_DSP_INIT_STOPPED;
 		mutex_unlock(&tfa98xx->dsp_lock);
-		if(tfa98xx->flags & TFA98XX_FLAG_ADAPT_NOISE_MODE)
+
+		if (tfa98xx->flags & TFA98XX_FLAG_ADAPT_NOISE_MODE)
 			cancel_delayed_work_sync(&tfa98xx->nmodeupdate_work);
-
-		if (gpio_is_valid(tfa98xx->power_gpio)) {
-			ret = devm_gpio_request_one(&tfa98xx->i2c->dev, tfa98xx->power_gpio,
-				 GPIOF_OUT_INIT_LOW, "TFA98XX_PWR");
-			if (ret) {
-				dev_err(&tfa98xx->i2c->dev, "%s: devm_gpio_request_one request low failed, ret = %d\n", __func__, ret);
-			}
-
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0))
-			devm_gpio_free(&tfa98xx->i2c->dev, tfa98xx->power_gpio);
-#endif
-		}
 	} else {
-		if (gpio_is_valid(tfa98xx->power_gpio)) {
-			ret = devm_gpio_request_one(&tfa98xx->i2c->dev, tfa98xx->power_gpio,
-				 GPIOF_OUT_INIT_HIGH, "TFA98XX_PWR");
-			if (ret) {
-				dev_err(&tfa98xx->i2c->dev, "%s: devm_gpio_request_one request high failed, ret = %d\n", __func__, ret);
-			}
-
-#if (LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0))
-			devm_gpio_free(&tfa98xx->i2c->dev, tfa98xx->power_gpio);
-#endif
-
+		if (stream != SNDRV_PCM_STREAM_PLAYBACK) {
+			tfa98xx->cstream = 1;
+			return 0;
 		}
 
-		if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			tfa98xx->pstream = 1;
-			if (tfa98xx->tfa->is_probus_device)
-				tfa98xx_adsp_send_calib_values();
+		tfa98xx->pstream = 1;
+		if (tfa98xx->spksw_gpio >= 0)
+			gpiod_direction_output_raw(gpio_to_desc(tfa98xx->spksw_gpio),
+				tfa98xx_mixer_profile == 1);
 
-#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
-			oplus_tfa98xx_queue_check_work(tfa98xx);
-#endif /*CONFIG_OPLUS_FEATURE_MM_FEEDBACK*/
+		pr_info("%s(): [goodix] %s dsp_init=%d\n", __func__, __func__, tfa98xx->dsp_init);
 
-		} else
-			tfa98xx->cstream = 1;
-
-		/* Start DSP */
-		#ifndef OPLUS_ARCH_EXTENDS
-		/*2018/05/02, Modify for no sound*/
 		if (tfa98xx->dsp_init != TFA98XX_DSP_INIT_PENDING)
-			queue_delayed_work(tfa98xx->tfa98xx_wq,
-				&tfa98xx->init_work, 0);
-		#else /* OPLUS_ARCH_EXTENDS */
-		if (
-#ifdef CONFIG_TFA9874_NONDSP_STEREO
-		(tfa98xx->flags & TFA98XX_FLAG_CHIP_SELECTED) &&
-#endif
-			tfa98xx->dsp_init != TFA98XX_DSP_INIT_PENDING)
 			tfa98xx_dsp_init(tfa98xx);
 
-		#endif /* OPLUS_ARCH_EXTENDS */
-
-	     if(tfa98xx->flags & TFA98XX_FLAG_ADAPT_NOISE_MODE)
-		 	queue_delayed_work(tfa98xx->tfa98xx_wq,
-						&tfa98xx->nmodeupdate_work,
-						0);
+		if (tfa98xx->flags & TFA98XX_FLAG_ADAPT_NOISE_MODE)
+			queue_delayed_work(tfa98xx->tfa98xx_wq,
+				&tfa98xx->nmodeupdate_work, 0);
 	}
 
 	return 0;
@@ -4540,7 +4368,7 @@ static __always_inline void tfa98xx_initialize_staic_variant(void)
 int tfa98xx_i2c_probe(struct i2c_client *i2c,
 				const struct i2c_device_id *id)
 #else
-int tfa98xx_i2c_probe(struct i2c_client *i2c)
+static int tfa98xx_i2c_probe(struct i2c_client *i2c)
 #endif
 {
 	struct snd_soc_dai_driver *dai;
@@ -4889,7 +4717,7 @@ static int __init tfa98xx_i2c_init(void)
 {
 	int ret = 0;
 
-	pr_err("TFA98XX driver version %s\n", TFA98XX_VERSION);
+	pr_info("TFA98XX driver version %s\n", TFA98XX_VERSION);
 
 	/* Enable debug traces */
 	tfa98xx_kmsg_regs = trace_level & 2;

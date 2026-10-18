@@ -1,0 +1,15 @@
+--- core/hdd/src/wlan_hdd_cm_disconnect.c
++++ core/hdd/src/wlan_hdd_cm_disconnect.c
+@@ -333,8 +334,10 @@
+ 		 * for Link Switch disconnect/internal disconnect
+ 		 */
+-		if (source != CM_MLO_ROAM_INTERNAL_DISCONNECT)
++		if (source != CM_MLO_ROAM_INTERNAL_DISCONNECT) {
++			hdd_wmm_adapter_clear(adapter);
+ 			hdd_adapter_reset_station_ctx(adapter);
+-		else
++		} else {
+ 			hdd_cm_clear_ieee_link_id(link_info, false);
++		}
+ 	}
+ 

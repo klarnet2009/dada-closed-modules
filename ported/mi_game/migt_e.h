@@ -24,19 +24,19 @@ extern bool migt_skip_cpus(struct cpumask *mask);
 extern bool migt_skip_cpus_rt(struct task_struct *p, struct cpumask *mask);
 extern bool migt_should_skip_this_cpu_rt(struct task_struct *p, int cpu);
 extern bool migt_choose_exclusive_cpu_enable(void);
-extern void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p);
+static void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p);
 extern int migt_choose_exclusive_cpu(struct task_struct *p);
-extern bool migt_enable_gpsync(void);
-extern void xr_game_find_energy_hook(struct task_struct *p, bool *need_idle);
+static bool migt_enable_gpsync(void);
+static void xr_game_find_energy_hook(struct task_struct *p, bool *need_idle);
 extern int game_load_init(void);
 extern void game_load_exit(void);
 extern int mist_frame_load_init(void);
 extern void mist_frame_load_exit(void);
-extern int migt_mmap(struct file *file, struct vm_area_struct *vma);
-extern int migt_open(struct inode *inode, struct file *file);
-extern int migt_release(struct inode *inode, struct file *file);
-extern int migt_reset_open(struct inode *inode, struct file *file);
-extern int migt_reset(struct inode *inode, struct file *file);
+static int migt_mmap(struct file *file, struct vm_area_struct *vma);
+static int migt_open(struct inode *inode, struct file *file);
+static int migt_release(struct inode *inode, struct file *file);
+static int migt_reset_open(struct inode *inode, struct file *file);
+static int migt_reset(struct inode *inode, struct file *file);
 extern void migt_sched_exit(void);
 extern int migt_sched_init(void);
 extern struct tracepoint __tracepoint_android_rvh_try_to_wake_up_success;
@@ -60,7 +60,7 @@ static int migt_hardwork(void *data);
 /* ---- sysctl dir "migt" ---- */
 static struct ctl_table migt_table[] = {
 	{ .procname = "enable_pkg_monitor", .data = &enable_pkg_monitor, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
-	{ .procname = "migt_sched_debug", .data = &migt_debug, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
+	{ .procname = "migt_sched_debug", .data = &migt_debug_l, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
 	{ .procname = "render_stask", .data = &set_render_as_stask, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
 	{ .procname = "stask_candidate_num", .data = &stask_candidate_num, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
 	{ .procname = "vip_task_max_num", .data = &vip_task_max_num, .maxlen = sizeof(int), .mode = 0644, .proc_handler = proc_dointvec },
@@ -111,7 +111,7 @@ static __always_inline bool is_render_inl(struct task_struct *p)
 	return XR_GAME_VALID(xr) && xr->game && (xr->game->type & 0xc0);
 }
 
-static __used int migt_prefer_cpu(struct task_struct *p)
+__used int migt_prefer_cpu(struct task_struct *p)
 {
 	u64 util;
 
@@ -122,7 +122,7 @@ static __used int migt_prefer_cpu(struct task_struct *p)
 	if (!uid_traced_inl(p))
 		return -1;
 	util = READ_ONCE(top_task_util[0]) + READ_ONCE(top_task_util[1]);
-	if (unlikely(migt_debug))
+	if (unlikely(migt_debug_l))
 		trace_printk("migt: prefer cpu: util=%llu top=%llu/%llu window=%u\n", util, top_task_util[0],
 			     top_task_util[1], sched_ravg_window);
 	if (game_super_task(p))
@@ -142,7 +142,7 @@ static __always_inline bool reserve_usable_inl(void)
 	       !(reserve & ~cpumask_bits(cpu_online_mask)[0]);
 }
 
-static __used bool migt_should_skip_migrate(struct task_struct *p, int cpu)
+__used bool migt_should_skip_migrate(struct task_struct *p, int cpu)
 {
 	if (!reserve_usable_inl())
 		return false;

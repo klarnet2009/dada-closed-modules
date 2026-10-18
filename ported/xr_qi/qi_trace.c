@@ -27,7 +27,7 @@ struct qi_struct *get_task_qi(struct task_struct *p)
 
 	if (unlikely(!v))
 		return NULL;
-	return smp_load_acquire(&v->qi);
+	return READ_ONCE(v->qi);
 }
 
 struct qi_struct *get_alloc_task_qi(struct task_struct *p)
@@ -38,13 +38,13 @@ struct qi_struct *get_alloc_task_qi(struct task_struct *p)
 	int i;
 
 	if (v) {
-		qi = smp_load_acquire(&v->qi);
+		qi = READ_ONCE(v->qi);
 		if (likely(qi))
 			return qi;
 	}
 	spin_lock_irqsave(&g_qi_lock, flags);
 	if (v) {
-		qi = smp_load_acquire(&v->qi);
+		qi = READ_ONCE(v->qi);
 		if (qi)
 			goto out;
 	}
@@ -129,7 +129,7 @@ static void android_vh_free_task(void *unused, struct task_struct *p)
 	if (!p)
 		return;
 	v = android_task_vendor_data(p);
-	qi = v ? smp_load_acquire(&v->qi) : NULL;
+	qi = v ? READ_ONCE(v->qi) : NULL;
 	if (qi) {
 		if (qi->timeout && time_after(jiffies, qi->timeout))
 			printk(KERN_ERR "qi_utils: %s pid:%d ends with QI timeout: flags:0x%x, timeout:[%u]ms, static_qos:%d, dyn_qos:%d\n",
@@ -158,10 +158,10 @@ int qi_vh_comm_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_exit_check(android_vh_task_exit, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_free_task(android_vh_free_task, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_utils: register hooks failed, ret %d\n", ret);

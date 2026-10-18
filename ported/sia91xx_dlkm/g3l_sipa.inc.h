@@ -9,7 +9,7 @@
 	snd_soc_component_get_drvdata(snd_soc_kcontrol_component(kcontrol))
 
 /* stock: scene < 6 (Playback, Voice, Voip, Receiver, Factory, FM); the template tables only know AUDIO_SCENE_NUM (4) scenes */
-void sipa_scene_set(sipa_dev_t *si_pa, unsigned int scene)
+static void sipa_scene_set(sipa_dev_t *si_pa, unsigned int scene)
 {
 	if (scene >= AUDIO_SCENE_NUM) {
 		pr_err("[  err][%s] %s: set audio scene val = %u !!! \n", LOG_FLAG, __func__, scene);
@@ -137,13 +137,15 @@ static int sipa_reg_get(struct snd_kcontrol *kcontrol, unsigned int __user *byte
 	u8 buf[12] = { 0 };
 	unsigned int val = 0;
 	unsigned int addr;
+	int ret;
 
 	if (!si_pa || !si_pa->regmap) {
 		pr_err("[  err][%s] pa or i2c not init\n", __func__);
 		return -EFAULT;
 	}
 
-	if (copy_from_user(buf, bytes, size)) {
+	/* g3r: the stock calls _copy_from_user directly with the unclamped size (no check_object_size) */
+	if (_copy_from_user(buf, bytes, size)) {
 		pr_err("[  err][%s] ,Fail copy to user Ptr:%p\n", __func__, bytes);
 		return -EFAULT;
 	}
@@ -156,12 +158,15 @@ static int sipa_reg_get(struct snd_kcontrol *kcontrol, unsigned int __user *byte
 	buf[10] = (val >> 8) & 0xff;
 	buf[11] = val & 0xff;
 
+	ret = 0;
 	if (copy_to_user(bytes, buf, sizeof(buf))) {
 		pr_err("[  err][%s] ,Fail copy to user Ptr:%p\n", __func__, bytes);
-		return -EFAULT;
+		ret = -EFAULT;
 	}
 
-	return 0;
+	pr_debug("[debug][%s] %s: channle = %d size:%d\n",
+		LOG_FLAG, __func__, si_pa->channel_num, size);
+	return ret;
 }
 
 static int sipa_reg_set(struct snd_kcontrol *kcontrol, const unsigned int __user *bytes, unsigned int size)
@@ -175,7 +180,7 @@ static int sipa_reg_set(struct snd_kcontrol *kcontrol, const unsigned int __user
 		return -EFAULT;
 	}
 
-	if (copy_from_user(buf, bytes, size)) {
+	if (_copy_from_user(buf, bytes, size)) {
 		pr_err("[  err][%s] ,Fail copy to user Ptr:%p\n", __func__, bytes);
 		return -EFAULT;
 	}
@@ -332,3 +337,31 @@ void sipa_i2c_shutdown(struct i2c_client *client)
 		sipa_suspend(si_pa);
 }
 EXPORT_SYMBOL(sipa_i2c_shutdown);
+
+/* g3o: moved here from sia91xx_g3k.c so that they are local as in the stock */
+static int sia91xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+	int level = gpiod_get_raw_value_cansleep(gpio_to_desc(si_pa->spksw_gpio));
+
+	dev_info(&si_pa->client->dev, "spksw level cached = %d, actual = %d\n", si_pa->spksw_level, level);
+	if (level < 0) {
+		ucontrol->value.integer.value[0] = si_pa->spksw_level;
+	} else {
+		ucontrol->value.integer.value[0] = level;
+		si_pa->spksw_level = level;
+	}
+	return 0;
+}
+
+static int sia91xx_spksw_gpio_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+	int level = ucontrol->value.integer.value[0];
+
+	dev_info(&si_pa->client->dev, "spksw = %d\n", level);
+	gpiod_set_raw_value_cansleep(gpio_to_desc(si_pa->spksw_gpio), level != 0);
+	return 0;
+}

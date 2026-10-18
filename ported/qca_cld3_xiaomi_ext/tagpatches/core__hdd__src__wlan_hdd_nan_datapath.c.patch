@@ -1,0 +1,17 @@
+--- core/hdd/src/wlan_hdd_nan_datapath.c
++++ core/hdd/src/wlan_hdd_nan_datapath.c
+@@ -1227,12 +1227,12 @@
+ 	}
+ 
++	sta_ctx->conn_info.conn_state = eConnectionState_NdiConnected;
+ 	vdev = hdd_objmgr_get_vdev_by_user(link_info, WLAN_DP_ID);
+ 	if (vdev) {
+ 		ucfg_dp_bus_bw_compute_prev_txrx_stats(vdev);
++		ucfg_nan_set_peer_mc_list(vdev, *peer_mac_addr);
+ 		hdd_objmgr_put_vdev_by_user(vdev, WLAN_DP_ID);
+ 	}
+-
+ 	ucfg_dp_bus_bw_compute_timer_start(hdd_ctx->psoc);
+-	sta_ctx->conn_info.conn_state = eConnectionState_NdiConnected;
+ 	hdd_wmm_connect(adapter, roam_info, eCSR_BSS_TYPE_NDI);
+ 	wlan_hdd_netif_queue_control(adapter,

@@ -1,0 +1,9 @@
+--- core/mac/src/pe/nan/nan_datapath.c
++++ core/mac/src/pe/nan/nan_datapath.c
+@@ -82,6 +82,4 @@
+ 		QDF_MAC_ADDR_REF(peer_mac_addr.bytes));
+ 
+-	ucfg_nan_set_peer_mc_list(session->vdev, peer_mac_addr);
+-
+ 	peer_idx = lim_assign_peer_idx(mac_ctx, session);
+ 	if (!peer_idx) {

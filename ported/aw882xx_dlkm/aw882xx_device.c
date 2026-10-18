@@ -40,8 +40,6 @@
 #define AW_DEV_SYSST_CHECK_MAX   (10)
 
 
-char ext_dsp_prof_write = AW_EXT_DSP_WRITE_NONE;
-DEFINE_MUTEX(g_ext_dsp_prof_wr_lock); /*lock ext wr flag*/
 static unsigned int g_fade_in_time = AW_1000_US / 10;
 static unsigned int g_fade_out_time = AW_1000_US >> 1;
 static LIST_HEAD(g_dev_list);
@@ -1372,12 +1370,14 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 	aw_dev_pwd(aw_dev, false);
 	usleep_range(AW_2000_US, AW_2000_US + 10);
 
-	ret = aw_dev_syspll_check(aw_dev);
-	if (ret < 0) {
-		aw_dev_reg_dump(aw_dev);
-		aw_dev_pwd(aw_dev, true);
-		aw_dev_dbg(aw_dev->dev, "pll check failed cannot start");
-		return ret;
+	if (!aw_dev->pll_check_disable) {
+		ret = aw_dev_syspll_check(aw_dev);
+		if (ret < 0) {
+			aw_dev_reg_dump(aw_dev);
+			aw_dev_pwd(aw_dev, true);
+			aw_dev_dbg(aw_dev->dev, "pll check failed cannot start");
+			return ret;
+		}
 	}
 
 	/*amppd on*/
@@ -1385,18 +1385,20 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 	usleep_range(AW_1000_US, AW_1000_US + 50);
 
 	/*check i2s status*/
-	ret = aw_dev_sysst_check(aw_dev);
-	if (ret < 0) {
-		aw_dev_reg_dump(aw_dev);
-		/*close tx feedback*/
-		aw_dev_i2s_enable(aw_dev, false);
-		/*clear interrupt*/
-		aw882xx_dev_clear_int_status(aw_dev);
-		/*close amppd*/
-		aw_dev_amppd(aw_dev, true);
-		/*power down*/
-		aw_dev_pwd(aw_dev, true);
-		return -EINVAL;
+	if (!aw_dev->pll_check_disable) {
+		ret = aw_dev_sysst_check(aw_dev);
+		if (ret < 0) {
+			aw_dev_reg_dump(aw_dev);
+			/*close tx feedback*/
+			aw_dev_i2s_enable(aw_dev, false);
+			/*clear interrupt*/
+			aw882xx_dev_clear_int_status(aw_dev);
+			/*close amppd*/
+			aw_dev_amppd(aw_dev, true);
+			/*power down*/
+			aw_dev_pwd(aw_dev, true);
+			return -EINVAL;
+		}
 	}
 
 	/*boost type recover*/
@@ -1480,7 +1482,6 @@ int aw882xx_device_stop(struct aw_device *aw_dev)
 	/*set power down*/
 	aw_dev_pwd(aw_dev, true);
 
-	ext_dsp_prof_write = AW_EXT_DSP_WRITE_NONE;
 	aw_dev_info(aw_dev->dev, "done");
 	return 0;
 }
@@ -1551,6 +1552,11 @@ static int aw_device_parse_dt(struct aw_device *aw_dev)
 		aw_dev_err(aw_dev->dev, "parse sound-channel failed!");
 		return ret;
 	}
+	/* g3r: the stock reads this property between the sound channel and the topo id */
+	aw_dev->pll_check_disable = of_find_property(aw_dev->dev->of_node, "pll-check-disable", NULL) != NULL;
+	if (aw_dev->pll_check_disable)
+		aw_dev_info(aw_dev->dev, "pll check disable");
+
 	aw882xx_dsp_parse_topo_id_dt(aw_dev);
 	aw882xx_dsp_parse_port_id_dt(aw_dev);
 	aw_dev_parse_fade_flag_dt(aw_dev);

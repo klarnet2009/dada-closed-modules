@@ -309,7 +309,7 @@ void game_load_reset(void)
 }
 
 /* irq_work: bring the walt window accounting of every running task up to date */
-static void glk_irq_work(struct irq_work *work)
+void glk_irq_work(struct irq_work *work)
 {
 	struct walt_sched_cluster *cluster;
 	int cpu, i;
@@ -451,7 +451,7 @@ static void xr_set_next_freq(void *nouse, unsigned long a1, unsigned long a2, un
 				if (period_ms > (u64)migt_thresh * 2) {
 					glk = b;
 					if (policy->cur >= b && perf_mod)
-						glk = perf_mod;
+						glk = policy->max;	/* stock: ldr w26,[policy+0x38]; perf_mod is only the flag (G1ai: was glk = perf_mod) */
 				} else {
 					glk = b;
 					pct = game_load_history[last].util[cl] * 100 / capacity;

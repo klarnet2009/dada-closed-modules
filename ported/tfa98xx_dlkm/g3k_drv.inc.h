@@ -43,42 +43,7 @@ enum Tfa98xx_Error tfa98xx_set_phase_shift(struct tfa_device *tfa)
 	return tfa->dev_ops.phase_shift(tfa);
 }
 
-/* tfa9912: low power mode bitfield (0x65c0); returns the negated tfa_set_bf() result, 2 on bad state */
-enum Tfa98xx_Error tfa9912_update_lpm(struct tfa_device *tfa, int state)
-{
-	if ((unsigned int)state > 1)
-		return Tfa98xx_Error_Bad_Parameter;
 
-	return -tfa_set_bf(tfa, 0x65c0, state);
-}
-
-/* aec output select: g3k-guess, only the tfa1 branch (reg 0x04 bit 11) of the stock was transcribed */
-int tfa98xx_aec_output(struct tfa_device *tfa, int enable)
-{
-	unsigned short v = 0;
-	enum Tfa98xx_Error err;
-
-	if (tfa->daimap & Tfa98xx_DAI_TDM)
-		return 0;
-	if (tfa->tfa_family != 1)
-		return 0;
-
-	if (tfa->dev_ops.tfa_reg_read) {
-		err = tfa->dev_ops.tfa_reg_read(tfa, 4, &v);
-		if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail)
-			return 0;
-	}
-	v = (v & ~0x0800) | ((enable != 0) << 11);
-	if (tfa->dev_ops.tfa_reg_write) {
-		err = tfa->dev_ops.tfa_reg_write(tfa, 4, v);
-		if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail) {
-			pr_err("Error setting bf :%d \n", -100 - (int)err);
-			return 0;
-		}
-	}
-
-	return 0;
-}
 
 /* --- debugfs (seq_file / simple attribute flavour of the stock) --- */
 static int __used tfa98xx_print_device_name(struct seq_file *m, void *v)

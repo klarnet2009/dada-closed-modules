@@ -194,7 +194,7 @@ enum adp_icon_type {
 	ADP_ICON_TYPE_SUPER = 4,
 };
 
-#define MCA_EVENT_HW_INFO_0X53	0x53
+/* G13d: MCA_EVENT_SBU_LPD_CHANGE (83 = 0x53) and MCA_EVENT_BOOST_STS (47 = 0x2f) are stock BTF enumerators (stubs_g13d_g5) */
 
 bool mca_strategy_is_support_pps_100w(void);
 
@@ -348,9 +348,9 @@ static int business_charger_notifier_hw_cb(struct notifier_block *nb,
 	case MCA_EVENT_CC_SHORT_VBUS:
 	case MCA_EVENT_VBAT_OVP_CHANGE:
 	case MCA_EVENT_IBAT_OCP_CHANGE:
-	case MCA_EVENT_CP_REVERT_CHANGE:
-	case 0x2f:			/* OS4: new int-sized hw-info event (name unknown) */
-	case MCA_EVENT_HW_INFO_0X53:	/* OS4: sbu_lpd status from mca_qcom_subpmic_proxy */
+	case MCA_EVENT_QUICK_REVCHG_CHANGE:
+	case MCA_EVENT_BOOST_STS:	/* 0x2f */
+	case MCA_EVENT_SBU_LPD_CHANGE:	/* OS4: sbu_lpd status from mca_qcom_subpmic_proxy */
 		size = sizeof(int);
 		break;
 	default:
@@ -418,10 +418,10 @@ static int business_charger_notifier_debug_cb(struct notifier_block *nb,
 #line 298
 	mca_log_info("debug event %lu\n", event);
 	switch (event) {
-	case MCA_EVENT_DEBUG_DOUBLE85:
-	case MCA_EVENT_DEBUG_REMOVE_TEMP_LIMIT:
-	case MCA_EVENT_DEBUG_MEMORY_TEST:
-	case MCA_EVENT_DEBUG_SOC_LIMIT:
+	case MCA_EVENT_DEBUG_CTRL_DOUBLE85:
+	case MCA_EVENT_DEBUG_CTRL_REMOVE_TEMP_LIMIT:
+	case MCA_EVENT_DEBUG_CTRL_MEMORY_TEST:
+	case MCA_EVENT_DEBUG_CTRL_SOC_LIMIT:
 		size = sizeof(int);
 		break;
 	default:
@@ -745,7 +745,7 @@ static void business_charger_process_type_change(struct business_charger *charge
 			charger->disconnect_time = now;
 	} else if (charger->enable_broken_charge_check) {
 		if (ktime_sub(now, charger->disconnect_time) < NSEC_PER_SEC)
-			mca_charge_mievent_report(0x2d, NULL, 0);
+			mca_charge_mievent_report(CHARGE_DFX_CHARGER_BROKEN, NULL, 0);
 	}
 }
 
@@ -955,7 +955,7 @@ static void business_charger_process_set_revchg_bcl(struct business_charger *cha
 {
 #line 775
 	mca_log_info("set_revchg_bcl: %d\n", value);
-	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_SET_REVCHG_BCL, value);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_REVCHG_BCL, value);
 }
 
 /* stop_handle_charge / handle_state state machine written by the sysfs nodes of the same name */
@@ -985,8 +985,8 @@ static void business_charger_process_handle_logic(struct business_charger *charg
 
 	charger->usb_psy_info->last_allow_charge = allow_charge;
 	business_usb_psy_event_process(charger->usb_psy_info);
-	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_HANDLE_STATE, allow_charge);
-	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_HANDLE_STATE, allow_charge);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_HANDLE_ALLOW_CHARGE, allow_charge);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_HANDLE_ALLOW_CHARGE, allow_charge);
 	if (allow_charge) {
 		if (charger->real_type != XM_CHARGER_TYPE_PD_VERIFY)
 			business_charger_update_wired_quick_charge_type(charger);
@@ -1342,27 +1342,27 @@ static void business_charger_process_event(struct business_charger *charger)
 			case MCA_EVENT_BATTERY_HEALTH_CHANGE:
 				business_charger_process_batt_health_change(charger, event_node->event);
 				break;
-			case MCA_EVENT_CP_VBUS_OVP:
-				mca_charge_mievent_report(CHARGE_DFX_CP_VBUS_OVP, NULL, 0);
+			case MCA_EVENT_CP_VUSB_OVP:
+				mca_charge_mievent_report(CHARGE_DFX_CP_VAC_OVP, NULL, 0);
 				break;
 			case MCA_EVENT_CP_VBAT_OVP:
 				business_charger_mievent_report_cp_vbat_ovp();
 				break;
-			case MCA_EVENT_CP_IBUS_OCP:
-				mca_charge_mievent_report(CHARGE_DFX_CP_IBUS_OCP, NULL, 0);
+			case MCA_EVENT_CP_VBUS_OVP:
+				mca_charge_mievent_report(CHARGE_DFX_CP_VBUS_OVP, NULL, 0);
 				break;
 			case MCA_EVENT_CP_IBAT_OCP:
 				mca_charge_mievent_report(CHARGE_DFX_CP_IBAT_OCP, NULL, 0);
 				break;
-			case MCA_EVENT_CP_VUSB_OVP:
-				mca_charge_mievent_report(CHARGE_DFX_CP_VAC_OVP, NULL, 0);
+			case MCA_EVENT_CP_IBUS_OCP:
+				mca_charge_mievent_report(CHARGE_DFX_CP_IBUS_OCP, NULL, 0);
 				break;
 			case MCA_EVENT_CP_CBOOT_FAIL:
 				business_charger_process_cp_cboot_short(charger, event_node->event, event_node->data);
 				break;
 			case MCA_EVENT_CP_IIC_ERROR:
 				mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event_node->event, 0);
-				mca_charge_mievent_report(0x39 /* OS4 CHARGE_DFX_CP_ABSENT (stubs header: 0x2c) */, data, 2);
+				mca_charge_mievent_report(CHARGE_DFX_CP_ABSENT /* 0x39 */, data, 2);
 				break;
 			case MCA_EVENT_CP_TSHUT_FLAG:
 				if (charger->cp_type == 1) {
@@ -1397,10 +1397,10 @@ static void business_charger_process_event(struct business_charger *charger)
 			case MCA_EVENT_IBAT_OCP_CHANGE:
 				business_charger_process_ibat_ocp_status_change(charger, event_node->event, event_node->data);
 				break;
-			case MCA_EVENT_CP_REVERT_CHANGE:
+			case MCA_EVENT_QUICK_REVCHG_CHANGE:
 				business_charger_process_quick_revchg(charger, event_node->event, event_node->data);
 				break;
-			case 0x2f:
+			case MCA_EVENT_BOOST_STS:
 				business_charger_process_boost_status(charger, event_node->event, event_node->data);
 				break;
 			case MCA_EVENT_USB_STS_CHANGE:
@@ -1421,22 +1421,22 @@ static void business_charger_process_event(struct business_charger *charger)
 			case MCA_EVENT_USB_SUSPEND:
 				business_charger_process_usb_suspend_change(charger, event_node->event, event_node->data);
 				break;
-			case MCA_EVENT_DEBUG_DOUBLE85:
+			case MCA_EVENT_DEBUG_CTRL_DOUBLE85:
 				business_charger_process_debug_ctrl_double85(charger, event_node->event, event_node->data);
 				break;
-			case MCA_EVENT_DEBUG_REMOVE_TEMP_LIMIT:
+			case MCA_EVENT_DEBUG_CTRL_REMOVE_TEMP_LIMIT:
 				business_charger_process_debug_ctrl_remove_temp_limit(charger, event_node->event, event_node->data);
 				break;
-			case MCA_EVENT_DEBUG_MEMORY_TEST:
+			case MCA_EVENT_DEBUG_CTRL_MEMORY_TEST:
 				business_charger_process_debug_ctrl_memory_test(charger, event_node->event, event_node->data);
 				break;
-			case MCA_EVENT_DEBUG_SOC_LIMIT:
+			case MCA_EVENT_DEBUG_CTRL_SOC_LIMIT:
 				business_charger_process_debug_ctrl_soc_limit(charger, event_node->event, event_node->data);
 				break;
 			case MCA_EVENT_FG_OTA_PROCESS:
 				business_charger_process_fg_ota(charger, event_node->event, event_node->data);
 				break;
-			case 0x53:
+			case MCA_EVENT_SBU_LPD_CHANGE:
 				business_charger_process_sbu_lpd_status_change(charger, event_node->event, event_node->data);
 				break;
 			}
@@ -1611,7 +1611,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 		num = sscanf(buf, "%s %d", name, &value);
 		if (num == 2) {
 			if (value != g_debug_ctrl[i].args[0]) {
-				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_DOUBLE85, &value);
+				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_CTRL_DOUBLE85, &value);
 				charger_partition_write_double85(value);
 			}
 		} else {
@@ -1623,7 +1623,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 		num = sscanf(buf, "%s %d", name, &value);
 		if (num == 2) {
 			if (value != g_debug_ctrl[i].args[0]) {
-				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_REMOVE_TEMP_LIMIT, &value);
+				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_CTRL_REMOVE_TEMP_LIMIT, &value);
 				charger_partition_write_remove_temp_limit(value);
 			}
 		} else {
@@ -1635,7 +1635,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 		num = sscanf(buf, "%s %d", name, &value);
 		if (num == 2) {
 			if (value != g_debug_ctrl[i].args[0]) {
-				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_MEMORY_TEST, &value);
+				mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_CTRL_MEMORY_TEST, &value);
 				charger_partition_write_memory_test(value);
 			}
 		} else {
@@ -1653,7 +1653,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 				if (value != g_debug_ctrl[i].args[0] || value2 != g_debug_ctrl[i].args[1]) {
 					int soc_limit = (value << 8) | value2;
 
-					mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_SOC_LIMIT, &soc_limit);
+					mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_CTRL_SOC_LIMIT, &soc_limit);
 					charger_partition_write_soc_limit(soc_limit);
 				}
 			}

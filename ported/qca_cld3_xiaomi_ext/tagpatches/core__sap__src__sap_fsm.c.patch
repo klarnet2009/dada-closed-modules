@@ -1,0 +1,11 @@
+--- core/sap/src/sap_fsm.c
++++ core/sap/src/sap_fsm.c
+@@ -3801,6 +3845,6 @@
+ 			sap_ctx->ch_params.sec_ch_offset = HIGH_PRIMARY_CH;
+ 	}
+-	sap_debug("updated BW %d -> %d", orig_ch_width,
+-		  sap_ctx->ch_params.ch_width);
++	sap_debug("vdev %d updated BW %d -> %d", sap_ctx->vdev_id,
++		  orig_ch_width, sap_ctx->ch_params.ch_width);
+ }
+ 

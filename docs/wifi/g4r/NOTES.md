@@ -1,0 +1,36 @@
+# g4r notes (18.10.2026) - in progress
+r1 (specs 56,57 on top of g4q): peach_v2 identical 17804 (g4q 17791); lim_sta_send_add_bss, lim_update_sta_run_time_ht_switch_chnl_params, populate_dot11f_ht_caps now identical (1 word: __LINE__);
+lim_send_assoc_req_mgmt_frame 5776 stock / 5780 ours.
+
+## Result (real Kleaf builds, fcmp: byte-identical functions of N stock functions, WITHOUT / WITH the #line hack; g4q in brackets)
+| variant | N | no hack | with hack | only-stock | only-ours |
+| peach_v2 | 18446 | 17804 [17791] | 18289 [18275] | 0 | 0 |
+| peach | 18324 | 17404 [17391] | 17880 [17866] | 0 | 0 |
+| kiwi_v2 | 18271 | 17635 [17622] | 18113 [18099] | 0 | 0 |
+| qca6750 | 15880 | 15288 [15274] | 15739 [15722] | 0 | 0 [2: hdd_disable_wifi, hdd_get_wlan_driver_status] |
+| wcn7750 | 17981 | 17347 [17333] | 17828 [17811] | 0 | 0 [2] |
+peach_v2 without hack (offpairs2): STRUCT 38 [41], IMM 593, OTHER 7, REG 3, MISSING 1.
+compare_ko_v2 (peach_v2, hack build, `compare_ko_v2_peach_v2_hack.txt`): NOT STRICT-EQUIVALENT. PASS: function-set, function-binding [was FAIL], kcfi-preamble 17008/17008, unowned-code, exports, imports 584+CRC, modinfo, buildmeta, depends, vermagic, notes. FAIL: function-bytes 157 of 18601 [171], function-relocs 191 [194], objects (only-stock nss_mode_type is GONE; content of p2phc_hooks + opcls_131..137_cfis_lst = relocation-target hashes, i.e. bss/rodata layout), anon-data (19/21 chunks), bug-table + bug-lines (161 of 195, __LINE__), jump-table (48=48, contents), .altinstructions (5390 vs 5391).
+preamble_cmp.py (kCFI hash words before every function) on all five hack builds: 0 mismatches (peach_v2 16958 functions, peach 16839, kiwi_v2 16800, qca6750 14744, wcn7750 16542).
+
+## What was found / written (specs 56-61; replay: replay.sh after g4q/replay.sh)
+56 pe_session layout: the stock has one extra bool at pe_session+0x300a, between is_oui_auth_assoc_6mbps_2ghz_enable (0x3009) and is_unexpected_peer_error (0x300b); dfs_p2p_info stays at 0x3010 (the g4q guess "layout differs after 0x2fe8" was right only for this one byte). Found by scanning ALL stock accesses of 0x2fd0..0x3040 (tools/offscan.py: handles mov+add, add lsl 12, register-offset loads) and matching the shifted neighbours (join_probe_cnt 0x300b/0x300c, cal_tpc_post_csa, rsno_gen_used, wnm token). Readers in the stock: populate_dot11f_ht_caps (clears supportedChannelWidthSet after the STA/AP width decision) and lim_update_sta_run_time_ht_switch_chnl_params ("Preventing HT40 switch for IoT AP on vdev %d", 2.4 GHz, returns before the HT-info update). NO WRITER in the whole stock (static scan, also covering stp/str ranges): bug-compatible dead flag, always 0 (the real flag of the IoT feature is the join_req byte of spec 32). Result: populate_dot11f_ht_caps and lim_update_sta_run_time_ht_switch_chnl_params byte-identical. lim_sta_send_add_bss does NOT read +0x300a (the g4q note was wrong).
+56 lim_sta_send_add_bss (was -172 B, now 3824 = stock, 1 word = __LINE__): the stock has the OLDER channel-width decision: EHT op-info present or (chan_width_support and VHTCaps.present) -> pe_session->ch_width; else chan_width_support and (assoc HT supportedChannelWidthSet or beacon HT cw) -> CH_WIDTH_40MHZ (ours used pe_session->ch_width there); else 20 MHz. After the 5/10 MHz override it caps ch_width (bss and sta ctx): EHT op info -> 320, (vhtCapability and VHTCaps.present) or (he capable and he_cap.present) -> 160, else 40 MHz (an HT-only AP is capped to 40; read from the disassembly, also applies after the 5/10 MHz override).
+57 lim_send_assoc_req_mgmt_frame: the stripped RSNXE (EID 0xf4) and MSCS ext IE are appended to the frame (public r1-07500 strips them and never puts them back = real functional bug) and counted in the frame size; copy order stock: fils hlp, eht cap, rsnx, mscs, rsn_sel, vendor ies, mbo, adaptive 11r, mlo; new 12-argument "Assoc Req IEs: dot11mode %d, extcap %d, open %d, IE len:: mbo %d vendor %d, rsnx %d, mscs %d, rsn_sel %d, ft11r %d, mlo %d, eht %d, fils %d". The "PMF check / aead_encrypt after the frame is built" of the g4q note was a basic-block placement artefact (same flow as ours). Function now 5780 B vs 5776 (1446 instructions both), the 414 differing words are spill slots/registers + __LINE__.
+58 policy_mgr_mac_freq_list_allow as in the stock: no force_scc (older CAF, the stock allow_4th_new_freq has no 3-vif MCC-to-SCC read), case 4 added (SCC test on freq[0..2] only, allowed 3AP+1STA, 4AP, 2AP+2STA, 1AP+3STA).
+60 policy_mgr_if_max_two_home_channel_used: `case 3: case 4:` with loops bounded by mac_freq_num (the stock has two unrolled copies, i.e. 4 entries are handled): codegen 3400 -> 3648 B (stock 3968); 2 iterations used, rest not resolved.
+59 qca6750 / wcn7750: the stock has NO soft-unload feature (no "WiFi is disabled"/"Initiating WLAN idle shutdown" strings, no cnss_wlan_hw_enable import): CONFIG_CNSS_HW_SECURE_DISABLE removed from their g4_module defines in BUILD.bazel -> only-ours hdd_disable_wifi + hdd_get_wlan_driver_status gone (the define stays for peach_v2/peach/kiwi_v2). Also an unused GLOBAL `int nss_mode_type;` (stock .bss+0x10e30c, next to the static g_nss_mode_type): objects only-stock list is empty now.
+61 wlan_mlme_miracast_opt_timer_handler static (stock local symbol): compare_ko_v2 function-binding PASS.
+Checked and found cosmetic: opcls_131..137_cfis_lst (16 B, relocation pointing into rodata at a different offset: layout), p2phc_hooks (contents equal, relocation targets in .bss differ).
+
+## Left (not recovered)
+- policy_mgr_allow_4th_new_freq 3648 vs 3968 B (the stock inlines mac_freq_list_allow and two copies of if_max_two_home_channel_used differently; its first policy_mgr_get_mac_freq_list call is hoisted); wlan_hdd_cfg80211_do_acs frame 7240 vs 7196 B (+16 stack, unchanged); lim_fill_pe_session 9704 vs 9720; dlhc_uncompress/remember.
+- No writer of pe_session+0x300a could be found in this module.
+- objects/tables: jump-table contents, .altinstructions 1 entry, bug-lines (__LINE__), anon-data.
+- Hacks: #line hack (logs/lh_rb.json, regenerated for this source state, NOT restored code), xm_compat_6657.h (g4q), bug-compatible items of g4q (kobject fall-through, hal_srng_cleanup, vdev ref leak) + new: dead pe_session flag, width cap for HT-only APs, no force_scc. NOT hardware-tested.
+- Tools: tools/offscan.py (struct-offset scanner over a disassembly), tools/cmpf.sh (normalised stock-vs-ours diff of one function), up.sh/ed.py. Lab note: the lab (wcc.sh) struct layouts are NOT the real ones (pe_session offsets 12-24 bytes bigger than the real build); use real builds or the asm offsets.
+
+## Next 3 targets
+1. policy_mgr_allow_4th_new_freq (-320 B) + do_acs frame (+16 B) + lim_fill_pe_session (-16 B): look at the hoisted first pass of policy_mgr_get_mac_freq_list in the stock.
+2. The remaining 157 function-byte diffs of peach_v2 (hack): classify with offpairs2 (STRUCT 38 first: dlhc_*, scm_filter_match, sap_fsm, hdd_wmm_select_queue, wlan_hdd_cfg80211_start_bss), then jump-table / altinstructions.
+3. Layout-driven object diffs (p2phc_hooks, opcls cfis, anon-data): order of .data/.rodata objects of xiaomi_ext vs stock; bug-lines need the real source line numbers.

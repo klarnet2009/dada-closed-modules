@@ -233,7 +233,7 @@ static enum Tfa98xx_Error tfa9875_specific(struct tfa_device *tfa)
 }
 
 /* status check of the tfa9875: STATUS_FLAG0 (0x1000) based, same flow as the other probus chips */
-static enum Tfa98xx_Error tfa9875_tfa_status(struct tfa_device *tfa)
+enum Tfa98xx_Error tfa9875_tfa_status(struct tfa_device *tfa)
 {
 	int val;
 
@@ -590,7 +590,7 @@ static enum Tfa98xx_Error tfa986x_specific(struct tfa_device *tfa)
 	return error;
 }
 
-/* the stock 9865/986x ops do not use tfa_set_ops_defaults(): get_swvstep, get_mtpb and tfa_status stay NULL
+/* the stock 9865/986x ops do not use tfa_set_ops_defaults(): get_mtpb and tfa_status stay NULL [g3o: get_swvstep IS set]
  * (tfa_irq_report relies on get_mtpb == NULL to select the 986x irq table) */
 static void g3k_986x_ops_common(struct tfa_device_ops *ops)
 {
@@ -619,6 +619,7 @@ void tfa9865_ops(struct tfa_device_ops *ops)
 	ops->set_swprof = tfa9865_set_swprofile;
 	ops->get_swprof = tfa9865_get_swprofile;
 	ops->set_swvstep = tfa9865_set_swvstep;
+	ops->get_swvstep = tfa9865_get_swvstep;
 	ops->set_bitfield = tfa9865_set_bitfield;
 }
 
@@ -630,5 +631,6 @@ void tfa986x_ops(struct tfa_device_ops *ops)
 	ops->set_swprof = tfa986x_set_swprofile;
 	ops->get_swprof = tfa986x_get_swprofile;
 	ops->set_swvstep = tfa986x_set_swvstep;
+	ops->get_swvstep = tfa986x_get_swvstep;
 	ops->set_bitfield = tfa986x_set_bitfield;
 }

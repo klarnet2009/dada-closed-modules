@@ -1,0 +1,38 @@
+--- core/hdd/src/wlan_hdd_cfg80211.c
++++ core/hdd/src/wlan_hdd_cfg80211.c
+@@ -14900,4 +14962,8 @@
+ 		}
+ 		link_info = hdd_get_link_info_by_link_id(adapter, link_id);
++		if (!link_info) {
++			hdd_err("invalid link_info");
++			return -EINVAL;
++		}
+ 	}
+ 
+--- core/hdd/src/wlan_hdd_cfg80211.c
++++ core/hdd/src/wlan_hdd_cfg80211.c
+@@ -21297,5 +21366,4 @@
+ 		goto err;
+ 	}
+-	hdd_debug("usable channel count : %d", count);
+ 
+ 	ret = hdd_send_usable_channel(hdd_ctx, res_msg, count, tb);
+--- core/hdd/src/wlan_hdd_cfg80211.c
++++ core/hdd/src/wlan_hdd_cfg80211.c
+@@ -25215,5 +25284,15 @@
+ 			continue;
+ 
+-		if (sap_sta_nan_concurrency) {
++		/**
++		 * Enabling sap_sta_nan_concurrency will remove existing
++		 * STA + NAN and SAP + NAN configurations.
++		 * For non-DBS cases, it will not add STA + SAP + NAN
++		 * as the interface count exceeds two.
++		 * However, it will still remove STA + NAN and SAP + NAN.
++		 * Below check is to prevent removing STA + NAN and SAP + NAN
++		 * if non-DBS is present.
++		 */
++		if (sap_sta_nan_concurrency &&
++		    ucfg_policy_mgr_is_fw_supports_dbs(psoc)) {
+ 			/* remove STA NAN concurrency */
+ 			if (wlan_hdd_is_sta_nan_concurrency_present(

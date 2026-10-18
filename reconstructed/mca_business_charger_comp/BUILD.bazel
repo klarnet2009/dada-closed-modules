@@ -12,7 +12,7 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_g5:mca_headers",
+        "//re/stubs_g13d_g5:mca_headers",
         "//re/stubs_a17B/os4:os4_charger_partition",
         "//re/stubs_a17B/os4:os4_mca_charge_interface",
         "//re/stubs_a17B/os4:os4_mca_charge_mievent",

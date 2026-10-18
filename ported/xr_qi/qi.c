@@ -688,7 +688,7 @@ static int __init qi_init(void)
 	}
 	for (i = 0; i < ARRAY_SIZE(g_qi_regs); i++) {
 		err = g_qi_regs[i]();
-		if (!ret && err < 0)
+		if ((err < 0) & !ret)
 			ret = err;
 	}
 	if (ret < 0) {

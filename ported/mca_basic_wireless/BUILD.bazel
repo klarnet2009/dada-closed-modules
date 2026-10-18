@@ -1,0 +1,36 @@
+# g13a: headers = //re/stubs_g13a (BTF-authoritative enums), providers = forged OS4 stubs (stock export CRCs). Community-only charging source: never flash, never put into a ROM build.
+load("/<build-dir>", "ddk_module")
+
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_module(
+    name = "mca_basic_wireless",
+    srcs = glob(["*.c", "*.h", "inc/*.h"]),
+    out = "mca_basic_wireless.ko",
+    defconfig = "mca_basic_wireless_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_g13a:mca_headers",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_platform_cp_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_wireless_class",
+        "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",
+        "//re/stubs_a17B/os4:os4_mca_strategy_class",
+        "//re/stubs_a17B/os4:os4_mca_charge_interface",
+        "//re/stubs_a17B/os4:os4_mca_smart_charge",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_hwid",
+        "//re/stubs_a17B/os4:os4_mca_parse_dts",
+        "//re/stubs_a17B/os4:os4_mca_platform_buckchg_class",
+        "//re/stubs_a17B/os4:os4_mca_common",
+        "//re/stubs_a17B/os4:os4_mca_charge_mievent",
+        "//re/stubs_a17B/os4:os4_mca_protocol_pd_class",
+        "//re/stubs_a17B/os4:os4_mca_workqueue",
+        "//re/stubs_a17B/os4:os4_mca_wireless_revchg",
+        "//re/stubs_a17B/os4:os4_mca_platform_loadsw_class",
+        "//re/stubs_a17B/os4:os4_mca_sysfs",
+        "//common:all_headers_aarch64",
+    ],
+)

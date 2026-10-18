@@ -28,7 +28,7 @@
  * Alias:   CRC_32/ADCCP
  * Use:     WinRAR,ect.
  *****************************************************************************/
-static inline uint32_t crc32(uint8_t *data, uint32_t length)
+static noinline uint32_t crc32(uint8_t *data, uint32_t length)
 {
 	uint8_t i;
 	uint32_t crc = 0xffffffff;					// Initial value

@@ -21,7 +21,7 @@ extern void tfa98xx_i2c_remove(struct i2c_client *i2c);
 extern int tfa98xx_i2c_probe(struct i2c_client *i2c,
         const struct i2c_device_id *id);
 #else
-extern int tfa98xx_i2c_probe(struct i2c_client *i2c);
+
 #endif
 
 #endif /* __TFA98XX_EXT_INC__ */

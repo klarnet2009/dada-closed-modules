@@ -510,7 +510,6 @@ static void qos_set_callback(struct qievent_struct *data)
 {
 	struct task_struct *task = data->to;
 	u32 qos = data->from_qos.qos;
-	struct sched_param param = { 0 };
 	struct qs_struct *qs;
 	int policy, prio, min_prio, vip;
 
@@ -537,17 +536,22 @@ static void qos_set_callback(struct qievent_struct *data)
 			if (prio > min_prio) {
 				trace_qs_skip_rt_sched(task, SCHED_RR, min_prio, prio);
 			} else {
+				struct sched_param param;
+
 				param.sched_priority = MAX_RT_PRIO - 1 - prio;
 				sched_setscheduler_nocheck(task, SCHED_RR | SCHED_RESET_ON_FORK, &param);
+				trace_qs_set_rt_sched(task, SCHED_RR, prio);
 			}
 		} else {
 			policy = task->policy;
 			prio = task->prio;
-			if (policy == SCHED_BATCH || policy == SCHED_NORMAL)
+			if (fair_policy(policy))
 				policy = SCHED_RR;
 			update_static_prio(task, prio, -1);
 			min_prio = data->prio;
 			if (prio > min_prio) {
+				struct sched_param param;
+
 				param.sched_priority = MAX_RT_PRIO - 1 - min_prio;
 				sched_setscheduler_nocheck(task, policy | SCHED_RESET_ON_FORK, &param);
 				trace_qs_set_rt_sched(task, policy, min_prio);
@@ -559,7 +563,7 @@ static void qos_set_callback(struct qievent_struct *data)
 		update_static_prio(task, -1, 5);
 		vip = data->vip_prio > 5 ? data->vip_prio : 5;
 		set_vip_prio(data->to, vip, false);
-		trace_qs_set_vip_sched(data->from, data->to, data->vip_prio, data->to_qos.qos);
+		trace_qs_set_vip_sched(data->from, data->to, 5, data->to_qos.qos);
 		if (!qs->vip_sched)
 			qs->vip_sched = 1;
 	}
@@ -626,7 +630,6 @@ static void restore_qos_sched(struct qievent_struct *data, unsigned long action)
 {
 	struct task_struct *task = data->to;
 	u32 qos = data->to_qos.qos;
-	struct sched_param param = { 0 };
 	struct qs_struct *qs;
 	u32 lvl;
 
@@ -684,6 +687,8 @@ static void restore_qos_sched(struct qievent_struct *data, unsigned long action)
 			int prio = get_task_prio(task);
 			int policy = task->policy;
 
+			struct sched_param param;
+
 			param.sched_priority = MAX_RT_PRIO - 1 - prio;
 			sched_setscheduler_nocheck(task, policy | SCHED_RESET_ON_FORK, &param);
 			trace_qs_set_rt_sched(task, policy, prio);
@@ -707,7 +712,6 @@ static void qos_reset_callback(struct qievent_struct *data)
 {
 	struct task_struct *task = data->to;
 	u32 qos = data->to_qos.qos;
-	struct sched_param param = { 0 };
 	struct qs_struct *qs;
 	int policy = task->policy;
 	int prio;
@@ -757,6 +761,8 @@ static void qos_reset_callback(struct qievent_struct *data)
 		}
 		prio = get_task_prio(task);
 		if (prio < task->prio) {
+			struct sched_param param;
+
 			param.sched_priority = MAX_RT_PRIO - 1 - prio;
 			sched_setscheduler_nocheck(task, policy | SCHED_RESET_ON_FORK, &param);
 			trace_qs_set_rt_sched(task, policy, prio);

@@ -40,6 +40,7 @@ The kernel has `CONFIG_MODULE_SIG=y` without `MODULE_SIG_FORCE`, `MODULE_SIG_PRO
 - `mii` is the kernel's own signed build, not ours (ours is correct but unsigned and exports protected symbols).
 - `synaptics_tcm2` moved from stock to ours after a clean strict comparison (240 functions, 12066 relocations, 167 kCFI words).
 - The charging and gauge family and every module listed as "do not load" in `docs/STATUS_AND_LIMITS.md` are stock in the package.
+- The package was last updated when `synaptics_tcm2` moved to ours. The modules that were fixed later (`dcvs_main`, `mi_game`, `mi_low_lat_mem`, `matt`, `xr_qi`, `xr_qs`, the audio drivers, `mitee_dlkm`, the charging modules and the Wi-Fi drivers) are all PARTIAL or COMPILES-only and stay stock in it; these rounds did not change the package, and the numbers on this page still hold.
 
 ## Not done on purpose, not checked
 

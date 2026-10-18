@@ -31,27 +31,6 @@ TRACE_EVENT(qi_set_qos,
 	TP_printk("set qos: pid=%d static_qos=%u dyn_qos=%u", __entry->pid, __entry->static_qos, __entry->dyn_qos)
 );
 
-TRACE_EVENT(qi_get_qos_by_pid,
-
-	TP_PROTO(pid_t pid, u32 qos_lvl, int ret),
-
-	TP_ARGS(pid, qos_lvl, ret),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(u32,	qos_lvl)
-		__field(int,	ret)
-	),
-
-	TP_fast_assign(
-		__entry->pid = pid;
-		__entry->qos_lvl = qos_lvl;
-		__entry->ret = ret;
-	),
-
-	TP_printk("get qos by pid: pid=%d qos_lvl=%u ret=%d", __entry->pid, __entry->qos_lvl, __entry->ret)
-);
-
 TRACE_EVENT(qi_get_qos_by_tid,
 
 	TP_PROTO(pid_t pid, u32 qos_lvl, int ret),
@@ -71,6 +50,27 @@ TRACE_EVENT(qi_get_qos_by_tid,
 	),
 
 	TP_printk("get qos by tid: pid=%d qos_lvl=%u ret=%d", __entry->pid, __entry->qos_lvl, __entry->ret)
+);
+
+TRACE_EVENT(qi_get_qos_by_pid,
+
+	TP_PROTO(pid_t pid, u32 qos_lvl, int ret),
+
+	TP_ARGS(pid, qos_lvl, ret),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(u32,	qos_lvl)
+		__field(int,	ret)
+	),
+
+	TP_fast_assign(
+		__entry->pid = pid;
+		__entry->qos_lvl = qos_lvl;
+		__entry->ret = ret;
+	),
+
+	TP_printk("get qos by pid: pid=%d qos_lvl=%u ret=%d", __entry->pid, __entry->qos_lvl, __entry->ret)
 );
 
 TRACE_EVENT(qi_set_async_binder,
@@ -167,6 +167,29 @@ TRACE_EVENT(qi_binder_restore_priority,
 	TP_printk("binder restore priority: ret=%d trans=%lu pid=%d static_qos=%u dyn_qos=%u", __entry->ret, __entry->trans, __entry->pid, __entry->static_qos, __entry->dyn_qos)
 );
 
+TRACE_EVENT(qi_binder_buffer_release,
+
+	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos),
+
+	TP_ARGS(ret, task, static_qos, dyn_qos),
+
+	TP_STRUCT__entry(
+		__field(int,	ret)
+		__field(pid_t,	pid)
+		__field(u32,	static_qos)
+		__field(u32,	dyn_qos)
+	),
+
+	TP_fast_assign(
+		__entry->ret = ret;
+		__entry->pid = task->pid;
+		__entry->static_qos = static_qos;
+		__entry->dyn_qos = dyn_qos;
+	),
+
+	TP_printk("binder buffer release: ret=%d pid=%d static_qos=%u dyn_qos=%u", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos)
+);
+
 TRACE_EVENT(qi_binder_proc_transaction,
 
 	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, u32 static_qos, u32 dyn_qos),
@@ -192,40 +215,17 @@ TRACE_EVENT(qi_binder_proc_transaction,
 	TP_printk("binder proc transaction: ret=%d from=%d to=%d static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->static_qos, __entry->dyn_qos)
 );
 
-TRACE_EVENT(qi_binder_buffer_release,
+TRACE_EVENT(qi_mutex_inherit,
 
-	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos),
+	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
 
-	TP_ARGS(ret, task, static_qos, dyn_qos),
-
-	TP_STRUCT__entry(
-		__field(int,	ret)
-		__field(pid_t,	pid)
-		__field(u32,	static_qos)
-		__field(u32,	dyn_qos)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-		__entry->pid = task->pid;
-		__entry->static_qos = static_qos;
-		__entry->dyn_qos = dyn_qos;
-	),
-
-	TP_printk("binder buffer release: ret=%d pid=%d static_qos=%u dyn_qos=%u", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos)
-);
-
-TRACE_EVENT(qi_fuse_inherit,
-
-	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long req, u32 static_qos, u32 dyn_qos),
-
-	TP_ARGS(ret, task1, task2, req, static_qos, dyn_qos),
+	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
 
 	TP_STRUCT__entry(
 		__field(int,	ret)
 		__field(pid_t,	from)
 		__field(pid_t,	to)
-		__field(unsigned long,	req)
+		__field(unsigned long,	lock)
 		__field(u32,	static_qos)
 		__field(u32,	dyn_qos)
 	),
@@ -234,47 +234,66 @@ TRACE_EVENT(qi_fuse_inherit,
 		__entry->ret = ret;
 		__entry->from = task1->pid;
 		__entry->to = task2->pid;
-		__entry->req = req;
+		__entry->lock = lock;
 		__entry->static_qos = static_qos;
 		__entry->dyn_qos = dyn_qos;
 	),
 
-	TP_printk("fuse inherit: ret=%d from=%d to=%d req=%lu, static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->req, __entry->static_qos, __entry->dyn_qos)
+	TP_printk("mutex inherit: ret=%d from=%d to=%d lock=%lu, static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
 );
 
-TRACE_EVENT(qi_iter_fuse_inherit,
+TRACE_EVENT(qi_iter_mutex_inherit,
 
-	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long req),
+	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
 
-	TP_ARGS(task1, task2, req),
+	TP_ARGS(task1, task2, lock),
 
 	TP_STRUCT__entry(
 		__field(pid_t,	from)
 		__field(pid_t,	to)
-		__field(unsigned long,	req)
+		__field(unsigned long,	lock)
 	),
 
 	TP_fast_assign(
 		__entry->from = task1->pid;
 		__entry->to = task2->pid;
-		__entry->req = req;
+		__entry->lock = lock;
 	),
 
-	TP_printk("fuse iterative inherit: from=%d to=%d req=%lu", __entry->from, __entry->to, __entry->req)
+	TP_printk("mutex iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
 );
 
-TRACE_EVENT(qi_fuse_uninherit,
+TRACE_EVENT(qi_mutex_jump,
 
-	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long req),
+	TP_PROTO(struct task_struct *task, unsigned long lock),
 
-	TP_ARGS(ret, task, static_qos, dyn_qos, req),
+	TP_ARGS(task, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("mutex jump: pid=%d lock=%lu", __entry->pid, __entry->lock)
+);
+
+TRACE_EVENT(qi_mutex_uninherit,
+
+	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
+
+	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
 
 	TP_STRUCT__entry(
 		__field(int,	ret)
 		__field(pid_t,	pid)
 		__field(u32,	static_qos)
 		__field(u32,	dyn_qos)
-		__field(unsigned long,	req)
+		__field(unsigned long,	lock)
 	),
 
 	TP_fast_assign(
@@ -282,10 +301,257 @@ TRACE_EVENT(qi_fuse_uninherit,
 		__entry->pid = task->pid;
 		__entry->static_qos = static_qos;
 		__entry->dyn_qos = dyn_qos;
-		__entry->req = req;
+		__entry->lock = lock;
 	),
 
-	TP_printk("fuse uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u req=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->req)
+	TP_printk("mutex uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
+);
+
+TRACE_EVENT(qi_rwsem_inherit,
+
+	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
+
+	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
+
+	TP_STRUCT__entry(
+		__field(int,	ret)
+		__field(pid_t,	from)
+		__field(pid_t,	to)
+		__field(unsigned long,	lock)
+		__field(u32,	static_qos)
+		__field(u32,	dyn_qos)
+	),
+
+	TP_fast_assign(
+		__entry->ret = ret;
+		__entry->from = task1->pid;
+		__entry->to = task2->pid;
+		__entry->lock = lock;
+		__entry->static_qos = static_qos;
+		__entry->dyn_qos = dyn_qos;
+	),
+
+	TP_printk("rwsem inherit: ret=%d from=%d to=%d lock=%lu static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
+);
+
+TRACE_EVENT(qi_reader_owner_rwsem_inherit,
+
+	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
+
+	TP_ARGS(task1, task2, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	from)
+		__field(pid_t,	to)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->from = task1->pid;
+		__entry->to = task2->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("rwsem reader owner inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
+);
+
+TRACE_EVENT(qi_iter_rwsem_inherit,
+
+	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
+
+	TP_ARGS(task1, task2, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	from)
+		__field(pid_t,	to)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->from = task1->pid;
+		__entry->to = task2->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("rwsem iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
+);
+
+TRACE_EVENT(qi_rwsem_jump,
+
+	TP_PROTO(struct task_struct *task, unsigned long lock),
+
+	TP_ARGS(task, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("rwsem jump: pid:%d lock=%lu", __entry->pid, __entry->lock)
+);
+
+TRACE_EVENT(qi_rwsem_skip,
+
+	TP_PROTO(struct task_struct *task, bool is_reader, bool qos_rt_task),
+
+	TP_ARGS(task, is_reader, qos_rt_task),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(bool,	is_reader)
+		__field(bool,	qos_rt_task)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+		__entry->is_reader = is_reader;
+		__entry->qos_rt_task = qos_rt_task;
+	),
+
+	TP_printk("rwsem skip: pid:%d is_reader=%u qos_rt_task=%u", __entry->pid, __entry->is_reader, __entry->qos_rt_task)
+);
+
+TRACE_EVENT(qi_rwsem_uninherit,
+
+	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
+
+	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
+
+	TP_STRUCT__entry(
+		__field(int,	ret)
+		__field(pid_t,	pid)
+		__field(u32,	static_qos)
+		__field(u32,	dyn_qos)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->ret = ret;
+		__entry->pid = task->pid;
+		__entry->static_qos = static_qos;
+		__entry->dyn_qos = dyn_qos;
+		__entry->lock = lock;
+	),
+
+	TP_printk("rwsem uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
+);
+
+TRACE_EVENT(qi_percpu_rwsem_inherit,
+
+	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
+
+	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
+
+	TP_STRUCT__entry(
+		__field(int,	ret)
+		__field(pid_t,	from)
+		__field(pid_t,	to)
+		__field(unsigned long,	lock)
+		__field(u32,	static_qos)
+		__field(u32,	dyn_qos)
+	),
+
+	TP_fast_assign(
+		__entry->ret = ret;
+		__entry->from = task1->pid;
+		__entry->to = task2->pid;
+		__entry->lock = lock;
+		__entry->static_qos = static_qos;
+		__entry->dyn_qos = dyn_qos;
+	),
+
+	TP_printk("percpu-rwsem inherit: ret=%d from=%d to=%d lock=%lu static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
+);
+
+TRACE_EVENT(qi_iter_percpu_rwsem_inherit,
+
+	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
+
+	TP_ARGS(task1, task2, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	from)
+		__field(pid_t,	to)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->from = task1->pid;
+		__entry->to = task2->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("percpu-rwsem iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
+);
+
+TRACE_EVENT(qi_percpu_rwsem_jump,
+
+	TP_PROTO(struct task_struct *task, unsigned long lock),
+
+	TP_ARGS(task, lock),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+		__entry->lock = lock;
+	),
+
+	TP_printk("percpu-rwsem jump: pid:%d lock=%lu", __entry->pid, __entry->lock)
+);
+
+TRACE_EVENT(qi_percpu_rwsem_skip,
+
+	TP_PROTO(struct task_struct *task, bool is_reader, bool qos_rt_task),
+
+	TP_ARGS(task, is_reader, qos_rt_task),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(bool,	is_reader)
+		__field(bool,	qos_rt_task)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+		__entry->is_reader = is_reader;
+		__entry->qos_rt_task = qos_rt_task;
+	),
+
+	TP_printk("percpu-rwsem skip: pid:%d is_reader=%u qos_rt_task=%u", __entry->pid, __entry->is_reader, __entry->qos_rt_task)
+);
+
+TRACE_EVENT(qi_percpu_rwsem_uninherit,
+
+	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
+
+	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
+
+	TP_STRUCT__entry(
+		__field(int,	ret)
+		__field(pid_t,	pid)
+		__field(u32,	static_qos)
+		__field(u32,	dyn_qos)
+		__field(unsigned long,	lock)
+	),
+
+	TP_fast_assign(
+		__entry->ret = ret;
+		__entry->pid = task->pid;
+		__entry->static_qos = static_qos;
+		__entry->dyn_qos = dyn_qos;
+		__entry->lock = lock;
+	),
+
+	TP_printk("percpu-rwsem uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
 );
 
 TRACE_EVENT(qi_futex_inherit,
@@ -361,117 +627,38 @@ TRACE_EVENT(qi_futex_uninherit,
 	TP_printk("futex uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
 );
 
-TRACE_EVENT(qi_mutex_inherit,
+TRACE_EVENT(qi_task_exit,
 
-	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
+	TP_PROTO(struct task_struct *task),
 
-	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
-
-	TP_STRUCT__entry(
-		__field(int,	ret)
-		__field(pid_t,	from)
-		__field(pid_t,	to)
-		__field(unsigned long,	lock)
-		__field(u32,	static_qos)
-		__field(u32,	dyn_qos)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-		__entry->from = task1->pid;
-		__entry->to = task2->pid;
-		__entry->lock = lock;
-		__entry->static_qos = static_qos;
-		__entry->dyn_qos = dyn_qos;
-	),
-
-	TP_printk("mutex inherit: ret=%d from=%d to=%d lock=%lu, static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
-);
-
-TRACE_EVENT(qi_iter_mutex_inherit,
-
-	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
-
-	TP_ARGS(task1, task2, lock),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	from)
-		__field(pid_t,	to)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->from = task1->pid;
-		__entry->to = task2->pid;
-		__entry->lock = lock;
-	),
-
-	TP_printk("mutex iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
-);
-
-TRACE_EVENT(qi_mutex_uninherit,
-
-	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
-
-	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
-
-	TP_STRUCT__entry(
-		__field(int,	ret)
-		__field(pid_t,	pid)
-		__field(u32,	static_qos)
-		__field(u32,	dyn_qos)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-		__entry->pid = task->pid;
-		__entry->static_qos = static_qos;
-		__entry->dyn_qos = dyn_qos;
-		__entry->lock = lock;
-	),
-
-	TP_printk("mutex uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
-);
-
-TRACE_EVENT(qi_mutex_jump,
-
-	TP_PROTO(struct task_struct *task, unsigned long lock),
-
-	TP_ARGS(task, lock),
+	TP_ARGS(task),
 
 	TP_STRUCT__entry(
 		__field(pid_t,	pid)
-		__field(unsigned long,	lock)
 	),
 
 	TP_fast_assign(
 		__entry->pid = task->pid;
-		__entry->lock = lock;
 	),
 
-	TP_printk("mutex jump: pid=%d lock=%lu", __entry->pid, __entry->lock)
+	TP_printk("task exit: pid=%d", __entry->pid)
 );
 
-TRACE_EVENT(qos_mutex_wait,
+TRACE_EVENT(qi_free_task,
 
-	TP_PROTO(bool start, pid_t pid, u64 cnt),
+	TP_PROTO(struct task_struct *task),
 
-	TP_ARGS(start, pid, cnt),
+	TP_ARGS(task),
 
 	TP_STRUCT__entry(
-		__field(bool,	start)
 		__field(pid_t,	pid)
-		__field(u64,	cnt)
 	),
 
 	TP_fast_assign(
-		__entry->start = start;
-		__entry->pid = pid;
-		__entry->cnt = cnt;
+		__entry->pid = task->pid;
 	),
 
-	TP_printk("%s: pid=%d, cnt=%llu", __entry->start ? "start" : "finish", __entry->pid, __entry->cnt)
+	TP_printk("free task: pid=%d", __entry->pid)
 );
 
 TRACE_EVENT(qos_mutex_opt_spin,
@@ -497,17 +684,116 @@ TRACE_EVENT(qos_mutex_opt_spin,
 	TP_printk("pid=%d, is_crit=%d, start_time=%llu, delta=%llu", __entry->pid, __entry->is_crit, __entry->start_time, __entry->delta)
 );
 
-TRACE_EVENT(qi_percpu_rwsem_inherit,
+TRACE_EVENT(qos_mutex_wait,
 
-	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
+	TP_PROTO(bool start, pid_t pid, u64 cnt),
 
-	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
+	TP_ARGS(start, pid, cnt),
+
+	TP_STRUCT__entry(
+		__field(bool,	start)
+		__field(pid_t,	pid)
+		__field(u64,	cnt)
+	),
+
+	TP_fast_assign(
+		__entry->start = start;
+		__entry->pid = pid;
+		__entry->cnt = cnt;
+	),
+
+	TP_printk("%s: pid=%d, cnt=%llu", __entry->start ? "start" : "finish", __entry->pid, __entry->cnt)
+);
+
+TRACE_EVENT(qos_rwsem_opt_rspin,
+
+	TP_PROTO(pid_t pid, u64 start, int state, bool taken),
+
+	TP_ARGS(pid, start, state, taken),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+		__field(u64,	start)
+		__field(int,	state)
+		__field(bool,	taken)
+	),
+
+	TP_fast_assign(
+		__entry->pid = pid;
+		__entry->start = start;
+		__entry->state = state;
+		__entry->taken = taken;
+	),
+
+	TP_printk("pid=%d, start=%llu, state=%x, taken=%d", __entry->pid, __entry->start, __entry->state, __entry->taken)
+);
+
+TRACE_EVENT(qos_rwsem_wait,
+
+	TP_PROTO(bool start, pid_t pid, u64 cnt),
+
+	TP_ARGS(start, pid, cnt),
+
+	TP_STRUCT__entry(
+		__field(bool,	start)
+		__field(pid_t,	pid)
+		__field(u64,	cnt)
+	),
+
+	TP_fast_assign(
+		__entry->start = start;
+		__entry->pid = pid;
+		__entry->cnt = cnt;
+	),
+
+	TP_printk("%s: pid=%d, cnt=0x%llx", __entry->start ? "start" : "finish", __entry->pid, __entry->cnt)
+);
+
+TRACE_EVENT(qi_gpu_blocked,
+
+	TP_PROTO(struct task_struct *task),
+
+	TP_ARGS(task),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+	),
+
+	TP_printk("task is blocked by gpu: pid=%d", __entry->pid)
+);
+
+TRACE_EVENT(qi_gpu_unblocked,
+
+	TP_PROTO(struct task_struct *task),
+
+	TP_ARGS(task),
+
+	TP_STRUCT__entry(
+		__field(pid_t,	pid)
+	),
+
+	TP_fast_assign(
+		__entry->pid = task->pid;
+	),
+
+	TP_printk("task is unblocked by gpu: pid=%d", __entry->pid)
+);
+
+TRACE_EVENT(qi_fuse_inherit,
+
+	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long req, u32 static_qos, u32 dyn_qos),
+
+	TP_ARGS(ret, task1, task2, req, static_qos, dyn_qos),
 
 	TP_STRUCT__entry(
 		__field(int,	ret)
 		__field(pid_t,	from)
 		__field(pid_t,	to)
-		__field(unsigned long,	lock)
+		__field(unsigned long,	req)
 		__field(u32,	static_qos)
 		__field(u32,	dyn_qos)
 	),
@@ -516,47 +802,47 @@ TRACE_EVENT(qi_percpu_rwsem_inherit,
 		__entry->ret = ret;
 		__entry->from = task1->pid;
 		__entry->to = task2->pid;
-		__entry->lock = lock;
+		__entry->req = req;
 		__entry->static_qos = static_qos;
 		__entry->dyn_qos = dyn_qos;
 	),
 
-	TP_printk("percpu-rwsem inherit: ret=%d from=%d to=%d lock=%lu static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
+	TP_printk("fuse inherit: ret=%d from=%d to=%d req=%lu, static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->req, __entry->static_qos, __entry->dyn_qos)
 );
 
-TRACE_EVENT(qi_iter_percpu_rwsem_inherit,
+TRACE_EVENT(qi_iter_fuse_inherit,
 
-	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
+	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long req),
 
-	TP_ARGS(task1, task2, lock),
+	TP_ARGS(task1, task2, req),
 
 	TP_STRUCT__entry(
 		__field(pid_t,	from)
 		__field(pid_t,	to)
-		__field(unsigned long,	lock)
+		__field(unsigned long,	req)
 	),
 
 	TP_fast_assign(
 		__entry->from = task1->pid;
 		__entry->to = task2->pid;
-		__entry->lock = lock;
+		__entry->req = req;
 	),
 
-	TP_printk("percpu-rwsem iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
+	TP_printk("fuse iterative inherit: from=%d to=%d req=%lu", __entry->from, __entry->to, __entry->req)
 );
 
-TRACE_EVENT(qi_percpu_rwsem_uninherit,
+TRACE_EVENT(qi_fuse_uninherit,
 
-	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
+	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long req),
 
-	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
+	TP_ARGS(ret, task, static_qos, dyn_qos, req),
 
 	TP_STRUCT__entry(
 		__field(int,	ret)
 		__field(pid_t,	pid)
 		__field(u32,	static_qos)
 		__field(u32,	dyn_qos)
-		__field(unsigned long,	lock)
+		__field(unsigned long,	req)
 	),
 
 	TP_fast_assign(
@@ -564,50 +850,10 @@ TRACE_EVENT(qi_percpu_rwsem_uninherit,
 		__entry->pid = task->pid;
 		__entry->static_qos = static_qos;
 		__entry->dyn_qos = dyn_qos;
-		__entry->lock = lock;
+		__entry->req = req;
 	),
 
-	TP_printk("percpu-rwsem uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
-);
-
-TRACE_EVENT(qi_percpu_rwsem_jump,
-
-	TP_PROTO(struct task_struct *task, unsigned long lock),
-
-	TP_ARGS(task, lock),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-		__entry->lock = lock;
-	),
-
-	TP_printk("percpu-rwsem jump: pid:%d lock=%lu", __entry->pid, __entry->lock)
-);
-
-TRACE_EVENT(qi_percpu_rwsem_skip,
-
-	TP_PROTO(struct task_struct *task, bool is_reader, bool qos_rt_task),
-
-	TP_ARGS(task, is_reader, qos_rt_task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(bool,	is_reader)
-		__field(bool,	qos_rt_task)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-		__entry->is_reader = is_reader;
-		__entry->qos_rt_task = qos_rt_task;
-	),
-
-	TP_printk("percpu-rwsem skip: pid:%d is_reader=%u qos_rt_task=%u", __entry->pid, __entry->is_reader, __entry->qos_rt_task)
+	TP_printk("fuse uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u req=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->req)
 );
 
 TRACE_EVENT(qi_rcu_inherit,
@@ -662,184 +908,6 @@ TRACE_EVENT(qi_rcu_uninherit,
 	TP_printk("rcu uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
 );
 
-TRACE_EVENT(qi_rwsem_inherit,
-
-	TP_PROTO(int ret, struct task_struct *task1, struct task_struct *task2, unsigned long lock, u32 static_qos, u32 dyn_qos),
-
-	TP_ARGS(ret, task1, task2, lock, static_qos, dyn_qos),
-
-	TP_STRUCT__entry(
-		__field(int,	ret)
-		__field(pid_t,	from)
-		__field(pid_t,	to)
-		__field(unsigned long,	lock)
-		__field(u32,	static_qos)
-		__field(u32,	dyn_qos)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-		__entry->from = task1->pid;
-		__entry->to = task2->pid;
-		__entry->lock = lock;
-		__entry->static_qos = static_qos;
-		__entry->dyn_qos = dyn_qos;
-	),
-
-	TP_printk("rwsem inherit: ret=%d from=%d to=%d lock=%lu static_qos=%u dyn_qos=%u", __entry->ret, __entry->from, __entry->to, __entry->lock, __entry->static_qos, __entry->dyn_qos)
-);
-
-TRACE_EVENT(qi_iter_rwsem_inherit,
-
-	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
-
-	TP_ARGS(task1, task2, lock),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	from)
-		__field(pid_t,	to)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->from = task1->pid;
-		__entry->to = task2->pid;
-		__entry->lock = lock;
-	),
-
-	TP_printk("rwsem iterative inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
-);
-
-TRACE_EVENT(qi_rwsem_uninherit,
-
-	TP_PROTO(int ret, struct task_struct *task, u32 static_qos, u32 dyn_qos, unsigned long lock),
-
-	TP_ARGS(ret, task, static_qos, dyn_qos, lock),
-
-	TP_STRUCT__entry(
-		__field(int,	ret)
-		__field(pid_t,	pid)
-		__field(u32,	static_qos)
-		__field(u32,	dyn_qos)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->ret = ret;
-		__entry->pid = task->pid;
-		__entry->static_qos = static_qos;
-		__entry->dyn_qos = dyn_qos;
-		__entry->lock = lock;
-	),
-
-	TP_printk("rwsem uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
-);
-
-TRACE_EVENT(qos_rwsem_wait,
-
-	TP_PROTO(bool start, pid_t pid, u64 cnt),
-
-	TP_ARGS(start, pid, cnt),
-
-	TP_STRUCT__entry(
-		__field(bool,	start)
-		__field(pid_t,	pid)
-		__field(u64,	cnt)
-	),
-
-	TP_fast_assign(
-		__entry->start = start;
-		__entry->pid = pid;
-		__entry->cnt = cnt;
-	),
-
-	TP_printk("%s: pid=%d, cnt=0x%llx", __entry->start ? "start" : "finish", __entry->pid, __entry->cnt)
-);
-
-TRACE_EVENT(qi_reader_owner_rwsem_inherit,
-
-	TP_PROTO(struct task_struct *task1, struct task_struct *task2, unsigned long lock),
-
-	TP_ARGS(task1, task2, lock),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	from)
-		__field(pid_t,	to)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->from = task1->pid;
-		__entry->to = task2->pid;
-		__entry->lock = lock;
-	),
-
-	TP_printk("rwsem reader owner inherit: from=%d to=%d lock=%lu", __entry->from, __entry->to, __entry->lock)
-);
-
-TRACE_EVENT(qi_rwsem_jump,
-
-	TP_PROTO(struct task_struct *task, unsigned long lock),
-
-	TP_ARGS(task, lock),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(unsigned long,	lock)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-		__entry->lock = lock;
-	),
-
-	TP_printk("rwsem jump: pid:%d lock=%lu", __entry->pid, __entry->lock)
-);
-
-TRACE_EVENT(qi_rwsem_skip,
-
-	TP_PROTO(struct task_struct *task, bool is_reader, bool qos_rt_task),
-
-	TP_ARGS(task, is_reader, qos_rt_task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(bool,	is_reader)
-		__field(bool,	qos_rt_task)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-		__entry->is_reader = is_reader;
-		__entry->qos_rt_task = qos_rt_task;
-	),
-
-	TP_printk("rwsem skip: pid:%d is_reader=%u qos_rt_task=%u", __entry->pid, __entry->is_reader, __entry->qos_rt_task)
-);
-
-TRACE_EVENT(qos_rwsem_opt_rspin,
-
-	TP_PROTO(pid_t pid, u64 start, int state, bool taken),
-
-	TP_ARGS(pid, start, state, taken),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-		__field(u64,	start)
-		__field(int,	state)
-		__field(bool,	taken)
-	),
-
-	TP_fast_assign(
-		__entry->pid = pid;
-		__entry->start = start;
-		__entry->state = state;
-		__entry->taken = taken;
-	),
-
-	TP_printk("pid=%d, start=%llu, state=%x, taken=%d", __entry->pid, __entry->start, __entry->state, __entry->taken)
-);
-
 TRACE_EVENT(qi_rwsem_reader_retry_lock,
 
 	TP_PROTO(struct rw_semaphore *sem, struct task_struct *task, u32 task_qos, const char *info),
@@ -863,74 +931,6 @@ TRACE_EVENT(qi_rwsem_reader_retry_lock,
 	),
 
 	TP_printk("sem=%p pid=%d prio=%d qos=%u info=%s", __entry->sem, __entry->task_pid, __entry->task_prio, __entry->task_qos, __entry->info)
-);
-
-TRACE_EVENT(qi_task_exit,
-
-	TP_PROTO(struct task_struct *task),
-
-	TP_ARGS(task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-	),
-
-	TP_printk("task exit: pid=%d", __entry->pid)
-);
-
-TRACE_EVENT(qi_free_task,
-
-	TP_PROTO(struct task_struct *task),
-
-	TP_ARGS(task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-	),
-
-	TP_printk("free task: pid=%d", __entry->pid)
-);
-
-TRACE_EVENT(qi_gpu_blocked,
-
-	TP_PROTO(struct task_struct *task),
-
-	TP_ARGS(task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-	),
-
-	TP_printk("task is blocked by gpu: pid=%d", __entry->pid)
-);
-
-TRACE_EVENT(qi_gpu_unblocked,
-
-	TP_PROTO(struct task_struct *task),
-
-	TP_ARGS(task),
-
-	TP_STRUCT__entry(
-		__field(pid_t,	pid)
-	),
-
-	TP_fast_assign(
-		__entry->pid = task->pid;
-	),
-
-	TP_printk("task is unblocked by gpu: pid=%d", __entry->pid)
 );
 
 #endif /* _TRACE_XR_QI_H */

@@ -177,7 +177,6 @@ struct aw882xx {
 	int pstream;
 	int cstream;
 
-	unsigned int  iv_output;
 	unsigned char phase_sync;	/* phase sync */
 	unsigned char dc_flag;
 	unsigned char dbg_en_prof;	/* debug enable/disable profile function */
@@ -187,6 +186,8 @@ struct aw882xx {
 
 	int reset_gpio;
 	int irq_gpio;
+	int spksw_gpio;		/* stock +0x24 */
+	int spksw_level;	/* stock +0x28 */
 	unsigned char fw_status;
 	unsigned char fw_retry_cnt;
 	unsigned char rw_reg_addr;	/* rw attr node store read addr */
@@ -216,18 +217,8 @@ struct aw882xx {
 	int fpga_notify_reg_success;
 #endif /* OPLUS_ARCH_EXTENDS */
 	struct mutex lock;
-	int spksw_gpio;		/* g3k: stock +0x24 (appended: layout of the template kept) */
-	int spksw_level;	/* g3k: stock +0x28 */
 };
 
-int aw882xx_get_version(char *buf, int size);
-int aw882xx_get_dev_num(void);
-int aw882xx_i2c_write(struct i2c_client *i2c,
-	unsigned char reg_addr, unsigned int reg_data);
-int aw882xx_i2c_read(struct i2c_client *i2c,
-	unsigned char reg_addr, unsigned int *reg_data);
-int aw882xx_i2c_write_bits(struct i2c_client *i2c,
-	unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
 int aw882xx_init(struct aw_device *aw_dev);
 int aw882xx_hw_reset(struct aw882xx *aw882xx);
 

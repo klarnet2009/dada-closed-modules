@@ -31,13 +31,13 @@ unsigned int soc_sia81xx_get_aux_num(
 	u32 max_dev_num = 0, dev_num = 0;
 
 	if (NULL == pdev) {
-		pr_err("[  err][%s] : NULL == pdev !!! \r\n",
+		pr_err("[  err][%s] : NULL == pdev !!! \n",
 			__func__);
 		return 0;
 	}
 
 	if (NULL == pdev->dev.of_node) {
-		pr_err("[  err][%s] : NULL == pdev->dev.of_node !!! \r\n",
+		pr_err("[  err][%s] : NULL == pdev->dev.of_node !!! \n",
 			__func__);
 		return 0;
 	}
@@ -45,13 +45,13 @@ unsigned int soc_sia81xx_get_aux_num(
 	ret = of_property_read_u32(pdev->dev.of_node,
 				"si,sia81xx-max-num", &max_dev_num);
 	if (0 != ret) {
-		pr_err("[  err][%s] : of_property_read_u32 ret = %d !!! \r\n",
+		pr_err("[  err][%s] : of_property_read_u32 ret = %d !!! \n",
 			__func__, ret);
 		return 0;
 	}
 
 	if (0 == max_dev_num) {
-		pr_warn("[ warn][%s] : max_dev_num = %u !!! \r\n",
+		pr_warn("[ warn][%s] : max_dev_num = %u !!! \n",
 			__func__, max_dev_num);
 		return 0;
 	}
@@ -60,7 +60,7 @@ unsigned int soc_sia81xx_get_aux_num(
 	dev_num = of_count_phandle_with_args(pdev->dev.of_node,
 					"si,sia81xx-aux-devs", NULL);
 	if (0 >= dev_num) {
-		pr_warn("[ warn][%s] : dev_num = %u !!! \r\n",
+		pr_warn("[ warn][%s] : dev_num = %u !!! \n",
 			__func__, dev_num);
 		return 0;
 	}
@@ -97,7 +97,7 @@ int soc_sia81xx_init(
 #endif
 
 	if ((0 == aux_num) || (0 == conf_num)) {
-		pr_err("[  err][%s] : aux_num = %u, config_num= %u \r\n",
+		pr_err("[  err][%s] : aux_num = %u, config_num= %u \n",
 			__func__, aux_num, conf_num);
 		return -EINVAL;
 	}
@@ -105,7 +105,7 @@ int soc_sia81xx_init(
 	dev_num = soc_sia81xx_get_aux_num(pdev);
 	if ((aux_num != dev_num) || (conf_num != dev_num)) {
 		pr_err("[  err][%s] : aux_num = %u, config_num= %u, "
-			"dev_num = %u !!! \r\n",
+			"dev_num = %u !!! \n",
 			__func__, aux_num, conf_num, dev_num);
 		return -EINVAL;
 	}
@@ -113,7 +113,7 @@ int soc_sia81xx_init(
 	prefix_num = of_property_count_strings(pdev->dev.of_node,
 						"si,sia81xx-aux-devs-prefix");
 	if (dev_num > prefix_num) {
-		pr_err("[  err][%s] : dev_num = %u, prefix_num = %u !!! \r\n",
+		pr_err("[  err][%s] : dev_num = %u, prefix_num = %u !!! \n",
 			__func__, dev_num, prefix_num);
 		return -EINVAL;
 	}
@@ -122,7 +122,7 @@ int soc_sia81xx_init(
 		dev_of_node = of_parse_phandle(pdev->dev.of_node,
 							"si,sia81xx-aux-devs", i);
 		if (unlikely(NULL == dev_of_node)) {
-			pr_warn("[ warn][%s]: sia81xx dev %d parse error !!! \r\n",
+			pr_warn("[ warn][%s]: sia81xx dev %d parse error !!! \n",
 				__func__, i);
 			return  -EINVAL;
 		}
@@ -132,13 +132,13 @@ int soc_sia81xx_init(
 						    i, &dev_name_prefix);
 		if (0 != ret) {
 			pr_warn("[ warn][%s] : sia81xx dev %d "
-				"parse prefix ret = %d !!! \r\n",
+				"parse prefix ret = %d !!! \n",
 				__func__, i, ret);
 			return ret;
 		}
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 3, 18))
-		sia81xx = find_sipa_dev(NULL, dev_of_node);
+		sia81xx = find_sipa_dev(dev_of_node);
 		if (NULL == sia81xx) {
 			pr_err("[  err][%s] %s: sia81xx_dev not find\n",
 				LOG_FLAG, __func__);
@@ -177,10 +177,10 @@ int soc_sia81xx_init(
 		codec_conf[i].name_prefix = dev_name_prefix;
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 3, 18))
-		pr_debug("[debug][%s] : aux_dev = %s \r\n",
+		pr_debug("[debug][%s] : aux_dev = %s \n",
 			__func__, aux_dev[i].dlc.name);
 #else
-		pr_debug("[debug][%s] : aux_dev = %s \r\n",
+		pr_debug("[debug][%s] : aux_dev = %s \n",
 			__func__, aux_dev[i].name);
 #endif
 	}
@@ -199,7 +199,7 @@ int soc_sia81xx_deinit(
 	int i = 0;
 
 	if (NULL == pdev) {
-		pr_err("[  err][%s] : NULL == pdev \r\n", __func__);
+		pr_err("[  err][%s] : NULL == pdev \n", __func__);
 		return -EINVAL;
 	}
 
@@ -236,7 +236,7 @@ int soc_aux_init_only_sia81xx(
 	conf_num = soc_sia81xx_get_codec_conf_num(pdev);
 
 	if ((aux_num != conf_num) || (0 == aux_num) || (NULL == card->dev)) {
-		pr_err("[  err][%s] : aux_num = %u, conf_num= %u !!! \r\n",
+		pr_err("[  err][%s] : aux_num = %u, conf_num= %u !!! \n",
 			__func__, aux_num, conf_num);
 		return -EINVAL;
 	}
@@ -256,7 +256,7 @@ int soc_aux_init_only_sia81xx(
 
 	ret = soc_sia81xx_init(pdev, aux_dev, aux_num, codec_conf, conf_num);
 	if (0 != ret) {
-		pr_err("[  err][%s] : soc_sia81xx_init ret = %d !!! \r\n",
+		pr_err("[  err][%s] : soc_sia81xx_init ret = %d !!! \n",
 			__func__, ret);
 		return ret;
 	}
@@ -276,12 +276,12 @@ int soc_aux_deinit_only_sia81xx(
 	struct snd_soc_card *card)
 {
 	if (NULL == pdev) {
-		pr_err("[  err][%s] : NULL == pdev \r\n", __func__);
+		pr_err("[  err][%s] : NULL == pdev \n", __func__);
 		return -EINVAL;
 	}
 
 	if (NULL == card) {
-		pr_err("[  err][%s] : NULL == card \r\n", __func__);
+		pr_err("[  err][%s] : NULL == card \n", __func__);
 		return -EINVAL;
 	}
 
@@ -321,14 +321,14 @@ int soc_sia91xx_init(
 	const char *dev_name_prefix = NULL;
 
 	if (0 == conf_num) {
-		pr_err("[  err][%s] : config_num= %u \r\n",
+		pr_err("[  err][%s] : config_num= %u \n",
 			__func__, conf_num);
 		return -EINVAL;
 	}
 
 	dev_num = soc_sia81xx_get_aux_num(pdev);
 	if (conf_num != dev_num) {
-		pr_err("[  err][%s] : config_num= %u,dev_num = %u !!! \r\n",
+		pr_err("[  err][%s] : config_num= %u,dev_num = %u !!! \n",
 			__func__, conf_num, dev_num);
 		return -EINVAL;
 	}
@@ -336,7 +336,7 @@ int soc_sia91xx_init(
 	prefix_num = of_property_count_strings(pdev->dev.of_node,
 						"si,sia81xx-aux-devs-prefix");
 	if (dev_num > prefix_num) {
-		pr_err("[  err][%s] : dev_num = %u, prefix_num = %u !!! \r\n",
+		pr_err("[  err][%s] : dev_num = %u, prefix_num = %u !!! \n",
 			__func__, dev_num, prefix_num);
 		return -EINVAL;
 	}
@@ -345,7 +345,7 @@ int soc_sia91xx_init(
 		dev_of_node = of_parse_phandle(pdev->dev.of_node,
 							"si,sia81xx-aux-devs", i);
 		if (unlikely(NULL == dev_of_node)) {
-			pr_warn("[ warn][%s]: sia81xx dev %d parse error !!! \r\n",
+			pr_warn("[ warn][%s]: sia81xx dev %d parse error !!! \n",
 				__func__, i);
 			return  -EINVAL;
 		}
@@ -355,7 +355,7 @@ int soc_sia91xx_init(
 						    i, &dev_name_prefix);
 		if (0 != ret) {
 			pr_warn("[ warn][%s] : sia81xx dev %d "
-				"parse prefix ret = %d !!! \r\n",
+				"parse prefix ret = %d !!! \n",
 				__func__, i, ret);
 			return ret;
 		}
@@ -392,7 +392,7 @@ int soc_codec_conf_sia91xx(
 
 	ret = soc_sia91xx_init(pdev, codec_conf, conf_num);
 	if (0 != ret) {
-		pr_err("[  err][%s] : soc_sia81xx_init ret = %d !!! \r\n",
+		pr_err("[  err][%s] : soc_sia81xx_init ret = %d !!! \n",
 			__func__, ret);
 		return ret;
 	}

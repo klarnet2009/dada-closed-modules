@@ -1,0 +1,10 @@
+--- core/mac/src/sys/legacy/src/utils/src/parser_api.c
++++ core/mac/src/sys/legacy/src/utils/src/parser_api.c
+@@ -4314,5 +4323,6 @@
+ 					    WLAN_FC0_STYPE_ASSOC_RESP);
+ 
+-	if (!wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev) &&
++	if (p_assoc_rsp->status_code == STATUS_SUCCESS &&
++	    !wlan_vdev_mlme_is_mlo_link_vdev(session_entry->vdev) &&
+ 	    session_entry->ml_partner_info.num_partner_links &&
+ 	    !wlan_cm_is_roam_sync_in_progress(mac->psoc,

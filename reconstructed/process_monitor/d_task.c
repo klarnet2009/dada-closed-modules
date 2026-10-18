@@ -60,20 +60,20 @@ enum detect_result {
 };
 
 /* one line of /proc/process_monitor/D_task/detect_list: "<group leader comm>,<task comm>,<timeout in seconds>" */
-struct dtask_item {
+typedef struct {
 	char task_name[16];
 	char node_name[16];
 	int timeout;
 	int state;		/* 0 = ok, 1 = half timeout, 2 = full timeout */
 	bool flag;
-};
+} task_node_t;
 
 struct Dtask {
 	int enable;
 	unsigned int num;
 	int ignore_num;
-	struct dtask_item list[DTASK_MAX_ITEMS];
-	struct dtask_item ignore_list[DTASK_MAX_ITEMS];
+	task_node_t list[DTASK_MAX_ITEMS];
+	task_node_t ignore_list[DTASK_MAX_ITEMS];
 	char *log_buf;
 	int log_size;
 	int log_pos;
@@ -152,7 +152,7 @@ ssize_t detect_list_read(struct file *file, char __user *ubuf, size_t count, lof
 /* parse one "<task>,<node>,<timeout>" line and add it to the detect list */
 static void set_config(char *line)
 {
-	struct dtask_item item;
+	task_node_t item;
 	char tmp[4];
 	char field[DTASK_MAX_LINE];
 	char *p, *q;
@@ -480,7 +480,7 @@ int get_task_cmdline(struct task_struct *task, char *buf)
 	return len;
 }
 
-void timeout_check(struct task_struct *t, struct dtask_item *item)
+void timeout_check(struct task_struct *t, task_node_t *item)
 {
 	unsigned long switch_count = t->nvcsw + t->nivcsw;
 	unsigned long timeout;
@@ -514,7 +514,7 @@ void timeout_check(struct task_struct *t, struct dtask_item *item)
 void check_task(void *unused, struct task_struct *t, unsigned long timeout, bool *need_check)
 {
 	struct task_struct *leader;
-	struct dtask_item *item;
+	task_node_t *item;
 	unsigned int num, i;
 	unsigned int state;
 

@@ -1,5 +1,9 @@
 # mi_damon - PARTIAL (187 of 188 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g1aj (18.10.2026): REAL difference found by the multiset audit in `kdamond_fn` (inlined damon_split_regions_of): the stock tests `sz_region > 2 * damon_min_vma` with the GLOBAL variable (`ldr w8,[damon_min_vma]; lsl w28,w8,#1`, 32-bit, default 0x8000 = split only regions larger than 64 KiB); ours compared with the compile-time `2 * DAMON_MIN_REGION` (= 2 * PAGE_SIZE, 8 KiB). Now `2 * (unsigned int)damon_min_vma` (core.c). The ALIGN_DOWN of the split size stays 0x1000 (stock `and #0x1fff...f000`). Real Kleaf + compare_ko_v2 after the change: still 189 of 190 functions byte-identical, only kdamond_fn differs (jump-table/altinstructions offsets +32 follow from it), function set, binding, kcfi 181, objects, anon-data, bug-table, exports, imports, modinfo PASS. The residual of kdamond_fn is stack-slot layout (emulation multiset 89-99, no constant or call left).
+
+g11c (18.10.2026): kCFI prototype fixed: stock `damon_vma_need_sample` has kCFI hash 0xa9d20869 = `bool (struct vm_area_struct *)` (found with g11c_tools/kcs2: _ZTSFbP14vm_area_structE; we had `int`, 0xfddb2193). Changed int -> bool in ops-common.c/.h. Real Kleaf + compare_ko_v2 + preamble_cmp: kcfi-preamble PASS (181 words identical, was 1 mismatch), function bytes unchanged (only kdamond_fn differs, as before).
+
 g4j (17.10.2026): real Kleaf build re-run: function set (188), relocations, objects, imports (97)+CRCs, modinfo OK; 187 of 188 byte-identical, only kdamond_fn differs. Not touched in g4j.
 
 g4d (17.10.2026): real Kleaf build re-run: function set (188), relocations, objects, imports (97) + CRCs, modinfo OK; 187 of 188 identical (`kdamond_fn` differs). No change made.

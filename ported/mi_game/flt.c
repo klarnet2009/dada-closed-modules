@@ -103,7 +103,8 @@ void flt_update_gpu(s64 t)
 	irq_work_queue(&global_frame_info.irq);
 }
 
-u64 get_frame_period(void)
+/* G1ai: WEAK in the stock (readelf: FUNC WEAK): that is why the stock never inlines or CSEs it (two calls in flt_cal_freq) */
+__weak u64 get_frame_period(void)
 {
 	return GFI_U64(0x58);
 }
@@ -154,22 +155,27 @@ struct flt_slot {
 };
 #define GFI_SLOT(i)	((struct flt_slot *)((u8 *)&global_frame_info + (i) * sizeof(struct flt_slot)))
 
-u64 adjust_frame_start_slowpath(u64 now, u64 *period)
+static __always_inline u64 adjust_slowpath_body(u64 now, u64 *period)
 {
-	int idx = GFI_U32(0x1c);
+	int idx = global_frame_info.cur_idx;
 	int i;
 
 	for (i = idx; i > 0; i--) {
-		*period = GFI_SLOT(i)->period;
-		if (GFI_SLOT(i)->start < now)
-			return GFI_SLOT(i)->start;
+		*period = FLT_ITEM(i).frame_period;
+		if (FLT_ITEM(i).frame_start < now)
+			return FLT_ITEM(i).frame_start;
 	}
 	for (i = 20; i > idx; i--) {
-		*period = GFI_SLOT(i)->period;
-		if (GFI_SLOT(i)->start < now)
-			return GFI_SLOT(i)->start;
+		*period = FLT_ITEM(i).frame_period;
+		if (FLT_ITEM(i).frame_start < now)
+			return FLT_ITEM(i).frame_start;
 	}
 	return 0;
+}
+
+noinline u64 adjust_frame_start_slowpath(u64 now, u64 *period)
+{
+	return adjust_slowpath_body(now, period);
 }
 
 u64 adjust_frame_start(u64 start, u64 *period, u64 now)
@@ -421,7 +427,7 @@ static u64 sum_freq_rt[2][2] __used;
 static u64 last_freq_change_time[2] __used;
 static unsigned int cur_record_freq[2] __used;
 
-void android_rvh_cpufreq_transition(void *unused, struct cpufreq_policy *policy)
+static void android_rvh_cpufreq_transition(void *unused, struct cpufreq_policy *policy)
 {
 	u64 now = walt_sched_clock();
 	unsigned int cl = get_cluster_type(policy->cpu);
@@ -443,7 +449,7 @@ extern unsigned int flt_in_frame_enable, flt_in_frame_up_margin, flt_in_frame_do
 extern unsigned int migt_thresh __asm__("migt_thresh.llvm.597625021974665233") __attribute__((visibility("hidden")));
 extern void flt_irq_work(struct irq_work *work);
 extern void update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat, u64 wallclock, u64 irqtime, int unused);
-extern void mi_force_update_freq(unsigned int freq);
+static void mi_force_update_freq(unsigned int freq);
 extern void get_wakeup_info(struct task_struct *p);
 extern struct mi_game_task *get_gt_task(struct task_struct *p);
 extern u64 get_scale_exec_time(u64 delta, int cpu, void *wts);
@@ -514,7 +520,6 @@ void update_freq_limit(u64 frame_period)
 void flt_irq_work(struct irq_work *work)
 {
 	struct walt_sched_cluster *cluster;
-	struct list_head *pos;
 	int cpu;
 	u64 now;
 
@@ -528,8 +533,7 @@ void flt_irq_work(struct irq_work *work)
 	for_each_possible_cpu(cpu)
 		raw_spin_lock((raw_spinlock_t *)per_cpu_ptr(&runqueues, cpu));
 	now = walt_sched_clock();
-	list_for_each(pos, &cluster_head) {
-		cluster = list_entry(pos, struct walt_sched_cluster, list);
+	list_for_each_entry_rcu(cluster, &cluster_head, list) {
 		raw_spin_lock(&cluster->load_lock);
 		for_each_cpu(cpu, &cluster->cpus) {
 			void *rq = per_cpu_ptr(&runqueues, cpu);
@@ -541,11 +545,10 @@ void flt_irq_work(struct irq_work *work)
 	}
 	update_flt_load(focused_frame_load);
 	new_render_frame++;
-	list_for_each(pos, &cluster_head) {
+	list_for_each_entry_rcu(cluster, &cluster_head, list) {
 		struct cpumask online;
 		int remaining;
 
-		cluster = list_entry(pos, struct walt_sched_cluster, list);
 		cpumask_and(&online, &cluster->cpus, cpu_online_mask);
 		remaining = cpumask_weight(&online) - 1;
 		for_each_cpu(cpu, &online) {
@@ -572,7 +575,7 @@ unsigned long get_frame_vutil(u64 delta)
 	int tmp = 0;
 
 	if (tgt >= 100 && max_time >= delta_ms) {
-		tmp = 1024 / max_time + delta_ms;
+		tmp = 1024U / max_time + delta_ms;
 		if (tmp - max_time > 0)
 			vutil = (long)(int)((tmp - max_time) * delta_ms);
 		else
@@ -584,7 +587,7 @@ unsigned long get_frame_vutil(u64 delta)
 	return vutil;
 }
 
-void set_boost_step(void)
+static void set_boost_step(void)
 {
 	u64 a = 0, b = 0, ratio;
 	unsigned int ps = smp_load_acquire(&preboostStepSet);
@@ -653,7 +656,7 @@ u64 uclamp_frame_load(int cluster)
 	if (!focused_frame_load)
 		return 0;
 	now = walt_sched_clock();
-	start = global_frame_info.items[global_frame_info.cur_idx].frame_start;
+	start = FLT_ITEM(global_frame_info.cur_idx).frame_start;
 	up = flt_in_frame_up_margin;
 	tdelta = focused_frame_load->need_target_delta;
 	down = flt_in_frame_down_margin;
@@ -731,7 +734,7 @@ u64 uclamp_frame_load(int cluster)
 			       max_load, cpu_util, vutil, util_cur, capacity, cluster, flt_trigger_source);
 		}
 		trace_flt_uclamp_frame_load_mark(cluster, cpu_util, vutil, util_cur, util_prev, max_cur, max_load, reason,
-						 period, d10k, elapsed, lim);
+						 d10k, period, elapsed, lim);
 	}
 	return cpu_util;
 }
@@ -756,8 +759,8 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 	cl = per_cpu(load_info, policy->cpu).f32;
 	if (flt_render_hook && cl == flt_render_cluster)
 		return 0;
-	global_frame_info.items[last].real_util[cl] = cpu_util;
-	global_frame_info.items[last].real_freq[cl] = next_freq;
+	FLT_ITEM(last).real_util[cl] = cpu_util;
+	FLT_ITEM(last).real_freq[cl] = next_freq;
 	if (smp_load_acquire(&flt_in_frame_boost) && flt_in_frame_enable_cluster[cl]) {
 		if (global_frame_info.debug == 0x208)
 			printk(KERN_ERR "flt: flt_in_frame_boost %s\n", __func__);
@@ -771,10 +774,10 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 		target = next_freq;
 		goto after_clamp;
 	}
-	frame_period = global_frame_info.items[last].frame_period;
-	max_load = global_frame_info.items[last].cap_states[cl].cpu_util;
+	frame_period = FLT_ITEM(last).frame_period;
+	max_load = FLT_ITEM(last).cap_states[cl].cpu_util;
 	if (!max_load)
-		max_load = global_frame_info.items[last ? last - 1 : 20].cap_states[cl].cpu_util;
+		max_load = FLT_ITEM(last ? last - 1 : 20).cap_states[cl].cpu_util;
 	if (frame_boost_enable && (flt_trigger_source == 1 || (flt_trigger_source == 0 && in_scroll))) {
 		frame_load = uclamp_frame_load(cl);
 		if (!disable_soc_util) {
@@ -812,10 +815,10 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 			target = t;
 			goto scale;
 		case 2:
-			avg = global_frame_info.items[last].sum_avg_freq[cl];
+			avg = FLT_ITEM(last).sum_avg_freq[cl];
 			break;
 		default:
-			avg = global_frame_info.items[last].avg_freq[cl];
+			avg = FLT_ITEM(last).avg_freq[cl];
 			break;
 		}
 		target = t;
@@ -855,7 +858,7 @@ no_clamp:
 	if (flt_ftrace_debug == 0x2d4)
 		trace_printk("cpu %d, frame_load=%llu, util=%lu, target_freq=%d,flt_load=%llu max=%lu, capacity=%lu\n", policy->cpu,
 			     max_load, cpu_util, (int)target, flt_load, max, RQ_CAPACITY(per_cpu_ptr(&runqueues, policy->cpu)));
-	global_frame_info.items[last].cap_states[cl].freq = (unsigned int)target;
+	FLT_ITEM(last).cap_states[cl].freq = (unsigned int)target;
 after_clamp:
 	if (flt_ftrace_debug == 0x309)
 		trace_printk("cpu = %d, reasons = %u %s\n", policy->cpu, reasons, __func__);
@@ -892,7 +895,7 @@ struct frame_args {
 	u64 frame_start;
 	bool task_busy, cpu_busy, waiting_on_io;
 };
-extern void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *fa, u64 wallclock,
+static void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *fa, u64 wallclock,
 				  u64 irqtime, int unused);
 
 /*
@@ -900,7 +903,7 @@ extern void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_
  * to the previous frame (mi_rq.prev) and the current one (mi_rq.cur) and publishes both in the per-cpu load_info.
  * c is the "case" number of the stock (only shown in the debug print).
  */
-void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *fa, u64 wallclock, u64 irqtime, int unused)
+static void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *fa, u64 wallclock, u64 irqtime, int unused)
 {
 	int cpu = RQ_CPU(rq);
 	struct task_struct *curr = *(struct task_struct **)((u8 *)rq + 0xaa8);
@@ -958,6 +961,8 @@ void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *f
 		u64 since = frame_start - mark_start;
 
 		if (curr == p && irqtime && (TASK_U8(p, 0x44) & 2) && !cpu_is_waiting_on_io(rq)) {
+			/* the stock re-tests the flag here and BUG()s (brk #0x800) when it is gone; no new-task accounting on this path */
+			BUG_ON(!(TASK_U8(p, 0x44) & 2));
 			if (frame_start < wallclock - irqtime) {
 				d = get_scale_exec_time(irqtime, cpu, TASK_WTS(p));
 				mrq->cur_frame_load.exec += d;
@@ -965,11 +970,14 @@ void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_args *f
 				goto publish;
 			}
 			d = get_scale_exec_time(min(frame_start - (wallclock - irqtime), period), cpu, TASK_WTS(p));
+			mrq->prev_frame_load.exec += d;
+			d2 = get_scale_exec_time(wallclock - frame_start, cpu, TASK_WTS(p));
+			mrq->cur_frame_load.exec += d2;
 			c += 7;
-		} else {
-			d = get_scale_exec_time(min(since, period), cpu, TASK_WTS(p));
-			c += curr == p ? (since >= period ? 5 : 4) : (since >= period ? 3 : 2);
+			goto publish;
 		}
+		d = get_scale_exec_time(min(since, period), cpu, TASK_WTS(p));
+		c += curr == p ? (since >= period ? 5 : 4) : (since >= period ? 3 : 2);
 		mrq->prev_frame_load.exec += d;
 		if (new_task)
 			mrq->nt_prev_frame_load.exec += d;
@@ -1035,7 +1043,7 @@ void update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat,
 	if (!GFI_U32(0x20) || !flt_target_fps || !GFI_U64(8))
 		return;
 	idx = global_frame_info.cur_idx;
-	frame_start = global_frame_info.items[idx].frame_start;
+	frame_start = FLT_ITEM(idx).frame_start;
 	if (!frame_start)
 		return;
 	fa.frame_start = frame_start;
@@ -1074,7 +1082,7 @@ void update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat,
 	gt = get_gt_task(p);
 	if (gt) {
 		if (frame_start > wallclock)
-			frame_start = adjust_frame_start_slowpath(wallclock, &period);
+			frame_start = adjust_slowpath_body(wallclock, &period);
 		if (fa.task_busy) {
 			if (frame_start > mark_start) {
 				if (!(TASK_U8(p, 0x44) & 2))
@@ -1168,7 +1176,7 @@ void update_flt_load(struct frame_load_items *cur)
 	if (cluster_number < 1)
 		return;
 	window = GFI_U64(0x50);
-	scale = (u32)div64_u64(window * 1024, (u32)(cur->need_target_delta * 10));
+	scale = mult_frac(1024U, window, (u32)(cur->need_target_delta * 10)); /* stock: quot/rem split (udiv + msub), not div64 */
 	quot = (int)scale / 1024;
 	rem = (int)scale % 1024;
 	for (c = 0; c < cluster_number; c++) {
@@ -1221,18 +1229,16 @@ void get_wakeup_info(struct task_struct *p)
 }
 
 /* plat func 34: poke the walt governor of the first cpu of every cluster */
-void mi_force_update_freq(unsigned int flags)
+static void mi_force_update_freq(unsigned int flags)
 {
 	struct walt_sched_cluster *cluster;
-	struct list_head *pos;
 
 	if (!GFI_U32(0x20) || !flt_target_fps || !force_update_freq)
 		return;
-	list_for_each(pos, &cluster_head) {
+	list_for_each_entry_rcu(cluster, &cluster_head, list) {
 		raw_spinlock_t *lock;
 		int cpu;
 
-		cluster = list_entry(pos, struct walt_sched_cluster, list);
 		cpu = cpumask_first(&cluster->cpus);
 		if (cpu >= nr_cpu_ids)
 			continue;

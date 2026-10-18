@@ -30,20 +30,20 @@ struct llm_snap {
 
 static __always_inline void llm_snapshot(struct llm_snap *s, bool want4, bool want9)
 {
-	u32 cnt = MCI_U32(0x8e8);
+	u32 cnt = mci.hist_cnt;
 
 	memset(s, 0, sizeof(*s));
 	if (cnt) {
-		u8 *rec = (u8 *)((struct mci_slot *)mci.raw + (cnt - 1) % 30);
+		struct pc_rec *rec = &mci.hist[(cnt - 1) % 30];
 
 		if (want4) {
-			s->t4 = *(u32 *)(rec + 0x90);
-			s->p4 = *(u32 *)(rec + 0xa0);
+			s->t4 = rec->t4;
+			s->p4 = rec->n4;
 			s->c4 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
 		}
 		if (want9) {
-			s->t9 = *(u32 *)(rec + 0x94);
-			s->p9 = *(u32 *)(rec + 0xa4);
+			s->t9 = rec->t9;
+			s->p9 = rec->n9;
 			s->c9 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
 		}
 	}
@@ -75,16 +75,13 @@ static __always_inline const char *llm_app_name(void)
 #define LLM_PROC_NAME(proc)	((char *)dfx.raw + 0xf0 + (proc) * 20)
 
 /* per (scene, proc, bucket) counter + total / max latency of one handler type (0 cma, 1 dma, 2 order4, 3 order9) */
-static __always_inline void llm_account(int scene, int proc, int type, u64 dt)
+static __always_inline void llm_account(short scene, int proc, int type, u64 dt)
 {
-	u64 *tot = (u64 *)(dfx.raw + 0x5e0 + scene * 0x60 + proc * 0x20 + type * 8);
-	u32 *max = (u32 *)(dfx.raw + 0x7c0 + scene * 0x30 + proc * 0x10 + type * 4);
-
-	atomic_inc(DFX_ATOMIC(0x12c + scene * 0xf0 + proc * 0x50 + type * 0x14 + get_time_bucket(dt) * 4));
+	atomic_inc((atomic_t *)&dfx.cnt[scene][proc][type][get_time_bucket(dt)]);
 	spin_lock((spinlock_t *)(dfx.raw + 0x8b0));
-	*tot += dt;
-	if (dt > *max)
-		*max = dt;
+	dfx.tot[scene][proc][type] += dt;
+	if (dt > dfx.max[scene][proc][type])
+		dfx.max[scene][proc][type] = dt;
 	spin_unlock((spinlock_t *)(dfx.raw + 0x8b0));
 }
 
@@ -104,7 +101,7 @@ static void cma_alloc_end_handler(void *data, unsigned long long stime, unsigned
 {
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
-	int scene = s < 5 ? (int)s : -1;
+	short scene = s < 5 ? (int)s : -1;
 	struct pool_type_ent *e;
 	struct llm_snap sn;
 	u32 dma9 = 0, dma4 = 0;
@@ -145,7 +142,7 @@ static void dma_heap_buffer_alloc_end_handler(void *data, unsigned long long sti
 {
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
-	int scene = s < 5 ? (int)s : -1;
+	short scene = s < 5 ? (int)s : -1;
 	struct pool_stat_ent *e;
 	struct llm_snap sn;
 	u32 dma9 = 0, dma4 = 0;
@@ -192,7 +189,7 @@ static void mm_direct_reclaim_end_handler(void *data, unsigned int order, u64 st
 	char ver[32] = "1.0.0";
 	char buf[256] = {};
 	unsigned int s = scene_code - 101;
-	int scene = s < 5 ? (int)s : -1;
+	short scene = s < 5 ? (int)s : -1;
 	struct llm_snap sn;
 	const char *app;
 	int proc;
@@ -223,7 +220,7 @@ static void alloc_pages_slowpath_end_handler(void *data, gfp_t *gfp_mask, unsign
 {
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
-	int scene = s < 5 ? (int)s : -1;
+	short scene = s < 5 ? (int)s : -1;
 	struct llm_snap sn;
 	const char *app;
 	u32 tmo, t, p, c;

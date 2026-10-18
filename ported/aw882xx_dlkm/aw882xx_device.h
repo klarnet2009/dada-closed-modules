@@ -384,6 +384,7 @@ struct aw_device {
 	unsigned int f0_min;
 	int voltage_offset_debug;
 	int32_t voltage_offset;
+	bool pll_check_disable;	/* g3r: DT "pll-check-disable", stock byte +0x4c */
 
 	struct device *dev;
 	struct i2c_client *i2c;
@@ -421,7 +422,6 @@ struct aw_device {
 	struct aw_dsmzth_desc dsmzth_desc;
 	struct aw_auth_desc auth_desc;
 	/* g3m: data driven replacements of the per-pid volume/access/num functions */
-	const unsigned char *reg_access;
 	int reg_max;
 	unsigned int vol_reg;
 	unsigned int vol_shift;
@@ -439,16 +439,9 @@ static inline bool aw_dev_reg_rd_access(struct aw_device *aw_dev, int reg)
 	if (reg >= aw_dev->reg_max)
 		return false;
 
-	return !!(aw_dev->reg_access[reg] & AW_REG_RD_ACCESS);
+	return true;	/* g3r: the stock has no access tables, it reads registers 0 .. reg_max - 1 */
 }
 
-unsigned int aw_direct_reg_val_to_db(unsigned int value);
-unsigned int aw_direct_db_val_to_reg(unsigned int value);
-unsigned int aw_6_0P125_reg_val_to_db(unsigned int value);
-unsigned int aw_6_0P125_db_val_to_reg(unsigned int value);
-unsigned int aw_6_0P5_reg_val_to_db(unsigned int value);
-unsigned int aw_6_0P5_db_val_to_reg(unsigned int value);
-unsigned int aw_get_irq_type(struct aw_device *aw_dev, unsigned int value);
 
 
 void aw882xx_dev_deinit(struct aw_device *aw_dev);
@@ -458,8 +451,6 @@ int aw882xx_device_stop(struct aw_device *aw_dev);
 int aw882xx_dev_reg_update(struct aw_device *aw_dev, bool force);
 int aw882xx_dev_irq_reinit(struct aw_device *aw_dev);
 
-extern char ext_dsp_prof_write;
-extern struct mutex g_ext_dsp_prof_wr_lock;
 
 /*re*/
 int aw882xx_dev_get_cali_re(struct aw_device *aw_dev, int32_t *cali_re);

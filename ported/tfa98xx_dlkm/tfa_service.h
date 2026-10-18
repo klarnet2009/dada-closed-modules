@@ -348,7 +348,7 @@ const char *tfa98xx_get_i2c_status_id_string(int status);
  * @param tfa the device struct pointer
  * @param powerdown must be 1 or 0
  */
-enum Tfa98xx_Error tfa98xx_powerdown(struct tfa_device *tfa, int powerdown);
+noinline enum Tfa98xx_Error tfa98xx_powerdown(struct tfa_device *tfa, int powerdown);
 
 /* indicates on which channel of DATAI2 the gain from the IC is set
  * @param tfa the device struct pointer
@@ -452,7 +452,7 @@ enum Tfa98xx_Error tfa98xx_supported_saam(struct tfa_device *tfa,
  *   called after patch load is done
  *   @return error code
  */
-enum Tfa98xx_Error tfa98xx_dsp_write_tables(struct tfa_device *tfa,
+enum Tfa98xx_Error noinline tfa98xx_dsp_write_tables(struct tfa_device *tfa,
 			      int sample_rate);
 
 
@@ -939,6 +939,10 @@ uint16_t tfaContBfEnumAny(const char *name);
 #define TFA_FAM_FW(tfa, fwname) \
 	((tfa->tfa_family == 1) ? TFA1_FW_##fwname :  TFA2_FW_##fwname)
 
+/* g3q: MANSTATE field as selected inside the stock tfaContWriteProfile/tfa_reset (94 N2, 986x, family) */
+#define tfa_manstate_bf(tfa) (tfa_is_94_N2_device(tfa) ? TFA9894N2_BF_MANSTATE : \
+	(((tfa)->rev & 0xFF) == 0x66 ? 0x1203 : TFA_FAM(tfa, MANSTATE)))
+
 /* set/get bit fields to HW register*/
 #define TFA_SET_BF(tfa, fieldname, value) \
 	tfa_set_bf(tfa, TFA_FAM(tfa, fieldname), value)
@@ -1058,7 +1062,7 @@ int tfa_reset(struct tfa_device *tfa);
  * Get profile from a register
  * @param tfa the device struct pointer
  */
-int tfa_dev_get_swprof(struct tfa_device *tfa);
+int noinline tfa_dev_get_swprof(struct tfa_device *tfa);
 
 /**
  * Save profile in a register

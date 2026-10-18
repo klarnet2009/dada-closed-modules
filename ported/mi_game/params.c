@@ -6,6 +6,8 @@
 
 static unsigned int ceiling_from_user;
 unsigned int migt_debug;
+/* G1ai: second, file-local migt_debug of the stock (.bss+8): read by add_work_to_migt, migt_hardwork (3x), migt_prefer_cpu; written by sysctl migt_sched_debug */
+static unsigned int migt_debug_l;
 static __used unsigned int over_thresh_count;
 static __used unsigned int force_cluster_sched_enable;
 static __used unsigned int choose_cluster_disable;
@@ -48,7 +50,7 @@ static __used unsigned int first_lunch_fps = 100;
 static __used unsigned int ceiling_slack_ms = 1000;
 static __used unsigned int high_resolution_enable = 1;
 static unsigned int migt_ms = 50;
-static __used unsigned int perf_mod;
+static __used unsigned int perf_mod = 1;	/* stock .data value (G1ah) */
 static __used unsigned int itask_detect_interval = 5000;
 static unsigned int cpu_boost_cycle = 10;
 static __used unsigned int render_update = 1;
@@ -88,6 +90,7 @@ static __used unsigned int flt_pro_thresh_freq[4] = { 2265600, 2515200, 2515200,
 DEFINE_PER_CPU(struct mi_rq, mi_runqueues);  /* percpu, 184 bytes: layout in btf.txt (struct mi_rq) */
 
 extern unsigned int glk_disable, glk_fbreak_enable, glk_freq_limit_start, glk_freq_limit_walt, glk_maxfreq[4], glk_minfreq[4];
+extern unsigned int migt_thresh __asm__("migt_thresh.llvm.597625021974665233") __attribute__((visibility("hidden")));
 extern unsigned int flt_target_fps, flt_fence_enable, flt_gpu_enable, migt_walt_features;
 
 module_param(perf_mod, uint, 0644);
@@ -97,6 +100,7 @@ module_param(ceiling_from_user, uint, 0644);
 module_param(high_resolution_enable, uint, 0644);
 module_param(migt_debug, uint, 0644);
 module_param(migt_ms, uint, 0644);
+module_param(migt_thresh, uint, 0644);
 module_param(itask_detect_interval, uint, 0644);
 module_param(over_thresh_count, uint, 0644);
 module_param(cpu_boost_cycle, uint, 0644);
@@ -122,6 +126,7 @@ module_param(glk_freq_limit_walt, uint, 0644);
 module_param_array(glk_maxfreq, uint, NULL, 0644);
 module_param_array(glk_minfreq, uint, NULL, 0644);
 module_param(migt_walt_features, int, 0644);
+MODULE_PARM_DESC(migt_walt_features, "migt_walt_features");
 module_param(game_app_select_sf, uint, 0644);
 module_param(task_enqueue_time_toolong, uint, 0644);
 module_param(task_util_thresh, uint, 0644);

@@ -1,0 +1,21 @@
+--- components/cmn_services/policy_mgr/src/wlan_policy_mgr_get_set_utils.c
++++ components/cmn_services/policy_mgr/src/wlan_policy_mgr_get_set_utils.c
+@@ -462,7 +462,5 @@
+ 	cfg->sta_sap_scc_on_dfs_chnl =
+ 		cfg_get(psoc, CFG_STA_SAP_SCC_ON_DFS_CHAN);
+-	if (cfg->sta_sap_scc_on_dfs_chnl ==
+-			PM_STA_SAP_ON_DFS_MASTER_MODE_FLEX &&
+-	    !dfs_master_capable)
++	if (!dfs_master_capable)
+ 		cfg->sta_sap_scc_on_dfs_chnl = 0;
+ 	policy_mgr_debug("sta_sap_scc_on_dfs_chnl %d, dfs_master_capable %d",
+--- components/cmn_services/policy_mgr/src/wlan_policy_mgr_get_set_utils.c
++++ components/cmn_services/policy_mgr/src/wlan_policy_mgr_get_set_utils.c
+@@ -12225,4 +12356,7 @@
+ 	struct wlan_objmgr_vdev *vdev;
+ 
++	if (!wlan_reg_is_dfs_for_freq(pdev, ch_freq))
++		return true;
++
+ 	psoc = wlan_pdev_get_psoc(pdev);
+ 	if (!psoc)

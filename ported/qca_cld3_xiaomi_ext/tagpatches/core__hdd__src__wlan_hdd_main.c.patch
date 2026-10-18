@@ -1,0 +1,37 @@
+--- core/hdd/src/wlan_hdd_main.c
++++ core/hdd/src/wlan_hdd_main.c
+@@ -5731,6 +5785,8 @@
+ 
+ 	errno = osif_vdev_sync_trans_start(net_dev, &vdev_sync);
+-	if (errno)
++	if (errno) {
++		hdd_err("VDEV SYNC TRANS start fails %d", errno);
+ 		return errno;
++	}
+ 
+ 	errno = __hdd_open(net_dev);
+--- core/hdd/src/wlan_hdd_main.c
++++ core/hdd/src/wlan_hdd_main.c
+@@ -13607,4 +13707,22 @@
+ #endif
+ 
++#ifdef WLAN_HAPS_ENABLE
++static inline void wlan_hdd_update_qtime_sync_period(hdd_cb_handle context,
++						     uint32_t sync_interval)
++{
++	struct hdd_context *hdd_ctx = hdd_cb_handle_to_context(context);
++
++	if (wlan_hdd_validate_context(hdd_ctx))
++		return;
++
++	pld_set_tsf_sync_period(hdd_ctx->parent_dev, sync_interval);
++}
++#else
++static inline void wlan_hdd_update_qtime_sync_period(hdd_cb_handle context,
++						     uint32_t sync_interval)
++{
++}
++#endif
++
+ #if defined(WLAN_FEATURE_ROAM_OFFLOAD) && \
+ defined(FEATURE_RX_LINKSPEED_ROAM_TRIGGER)

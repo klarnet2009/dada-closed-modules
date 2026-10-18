@@ -16,7 +16,7 @@
 
 /* imports of sched-walt / glk (defined in mi_game_load.c) */
 extern int core_ctl_set_boost(bool boost);
-extern int get_migt_flag(char *buf, const struct kernel_param *kp);
+static int get_migt_flag(char *buf, const struct kernel_param *kp);
 extern void update_migt_reserve_cpus(void);
 extern void glk_maxfreq_break(bool v);
 extern u8 force_maxfreq_break __asm__("force_maxfreq_break.llvm.963317314573916283") __attribute__((visibility("hidden")));
@@ -270,10 +270,10 @@ unwind:
 }
 
 /* hand a command to the migt worker thread (g_work) */
-static __used noinline void add_work_to_migt(int cmd)
+__used noinline void add_work_to_migt(int cmd)
 {
 	if (READ_ONCE(migt_has_work_todo) || !READ_ONCE(migt_init_sucess)) {
-		if (migt_debug)
+		if (migt_debug_l)
 			printk(KERN_ERR "migt-gtc: %s, %d, %d \n", __func__, 706, cmd);
 		return;
 	}
@@ -282,9 +282,9 @@ static __used noinline void add_work_to_migt(int cmd)
 	wake_up_process(migt_thread);
 }
 
-noinline int exec_buckets_show(struct seq_file *m, void *v);
+static noinline int exec_buckets_show(struct seq_file *m, void *v);
 
-noinline int exec_buckets_open(struct inode *inode, struct file *file)
+static noinline int exec_buckets_open(struct inode *inode, struct file *file)
 {
 	int ret = single_open(file, exec_buckets_show, NULL);
 
@@ -296,7 +296,7 @@ noinline int exec_buckets_open(struct inode *inode, struct file *file)
 #include "migt_c.h"
 
 /* /proc/migt/exec_buckets: per thread of the traced uid the 10 exec-time bucket counters of its mi_game_task + the role tag */
-noinline int exec_buckets_show(struct seq_file *m, void *v)
+static noinline int exec_buckets_show(struct seq_file *m, void *v)
 {
 	int uid = *(int *)m->private;
 	struct task_struct *p, *t;
@@ -338,8 +338,8 @@ noinline int exec_buckets_show(struct seq_file *m, void *v)
 #include <linux/sched/user.h>
 #include <linux/sched/signal.h>
 extern void restore_vip_prio(struct task_struct *p);
-extern void set_render_flag(struct task_struct *p, int idx);
-extern void clean_render_flag(struct task_struct *p, int idx);
+static void set_render_flag(struct task_struct *p, enum MI_RENDER_TYPE idx);
+static void clean_render_flag(struct task_struct *p, enum MI_RENDER_TYPE idx);
 
 /* the two render threads (queue / dequeue) of the traced game: info record with a seqcount for lockless readers */
 struct render_info_s {
@@ -353,7 +353,7 @@ struct render_info_s {
 };
 static struct render_info_s render_info[2];
 
-static __used noinline void reset_render_info(int idx)
+__used noinline void reset_render_info(enum MI_RENDER_TYPE idx)
 {
 	struct render_info_s *ri = &render_info[idx];
 	int old;
@@ -386,7 +386,7 @@ static __used noinline void reset_render_info(int idx)
 	}
 }
 
-static __used noinline void update_render_info(struct task_struct *p, int idx)
+__used noinline void update_render_info(struct task_struct *p, enum MI_RENDER_TYPE idx)
 {
 	struct render_info_s *ri = &render_info[idx];
 	int old;
@@ -426,7 +426,7 @@ extern unsigned int stask_prefer_cluster, render_prefer_cluster, vip_prefer_clus
 extern int migt_enable(void);
 
 /* should this task's wakeup be forced into its prefer cluster (overutilized cpu check bypass) */
-static __used noinline bool game_choose_cpu_overutiled(struct task_struct *p)
+__used noinline bool game_choose_cpu_overutiled(struct task_struct *p)
 {
 	struct plat_task_struct *xr;
 	int en = migt_enable();

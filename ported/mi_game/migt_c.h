@@ -218,7 +218,7 @@ static const struct kernel_param_ops param_ops_game_task = { .set = set_game_tas
 module_param_cb(game_task_list, &param_ops_game_task, NULL, 0644);
 
 /* prefer-cluster / prefer-cpu votes: range checked int params */
-static int set_prefer_cluster_with_check(const char *val, const struct kernel_param *kp)
+int set_prefer_cluster_with_check(const char *val, const struct kernel_param *kp)
 {
 	int v = 0;
 
@@ -231,7 +231,7 @@ static int set_prefer_cluster_with_check(const char *val, const struct kernel_pa
 	return param_set_int(val, kp);
 }
 
-static int set_prefer_cpu_with_check(const char *val, const struct kernel_param *kp)
+int set_prefer_cpu_with_check(const char *val, const struct kernel_param *kp)
 {
 	int v = 0, ret;
 
@@ -248,7 +248,7 @@ static int set_prefer_cpu_with_check(const char *val, const struct kernel_param 
 	return 0;
 }
 
-static int set_prefer_cpu_with_check_and_update(const char *val, const struct kernel_param *kp)
+int set_prefer_cpu_with_check_and_update(const char *val, const struct kernel_param *kp)
 {
 	int v = 0, ret;
 
@@ -285,7 +285,7 @@ PREFER_PARAM(param_ops_refer_cpu_update, render_prefer_cpu);
 PREFER_PARAM(param_ops_refer_cpu_update, vip_prefer_cpu);
 
 /* list helpers used by the ioctl / wrender code: render list max 50 entries, wrender list max 100 */
-static __used struct game_spid *game_add_task(struct hlist_head *head)
+__used struct game_spid *game_add_task(struct hlist_head *head)
 {
 	struct game_spid *e;
 
@@ -308,7 +308,7 @@ static __used struct game_spid *game_add_task(struct hlist_head *head)
 	return e;
 }
 
-static __used void game_delete_spid(struct game_spid *e, struct hlist_head *head)
+__used void game_delete_spid(struct game_spid *e, struct hlist_head *head)
 {
 	if (!e)
 		return;

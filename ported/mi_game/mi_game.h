@@ -24,6 +24,9 @@
 #include <linux/workqueue.h>
 #include <linux/cpufreq.h>
 
+/* vendor enum (stock BTF): its tag name is part of the kCFI type of set/clean/reset/update_render_* */
+enum MI_RENDER_TYPE { MI_RENDER_QUEUE_THREAD = 0, MI_RENDER_DEQUEUE_THREAD = 1, MI_RENDER_TYPES = 2 };
+
 /* ---- imports from sched-walt / mist / plat_common (stub providers carry the stock CRCs) ---- */
 extern unsigned int num_sched_clusters;
 extern unsigned int sched_ravg_window;	/* defined (read_mostly bss) in tiny.c: the stock defines both itself */
@@ -110,6 +113,8 @@ struct mi_rq {		/* BTF of the stock: 184 bytes */
 	u64 vip_tasks[2];
 };
 DECLARE_PER_CPU(struct mi_rq, mi_runqueues);
+/* G1aj: stock bounds-checks the slot index with cmp #0x15 / b.hi (22 entries); a [22] view was tried: adjust 4->7, flt_cal_freq 117->121, update_frame_load 72->65: no net gain, kept 21 */
+#define FLT_ITEM(i)	(global_frame_info.items[(i)])
 #define GFI_U8(off)	(*(u8 *)((u8 *)&global_frame_info + (off)))
 #define GFI_U32(off)	(*(u32 *)((u8 *)&global_frame_info + (off)))
 #define GFI_U64(off)	(*(u64 *)((u8 *)&global_frame_info + (off)))

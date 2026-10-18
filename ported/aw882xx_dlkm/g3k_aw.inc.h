@@ -12,7 +12,8 @@ int mievent_report(unsigned int eventid, const char *value, struct device *dev)
 	struct misight_mievent *mievent;
 	char i2c_info[20] = {0};
 
-	strcpy(i2c_info, dev->kobj.name);
+	/* g3r: the stock calls the plain strcpy (no fortify wrapper) */
+	__builtin_strcpy(i2c_info, dev->kobj.name);
 	dev_info(dev, "%s: reg = %s, KeyWord = %s DFS report\n", __func__, i2c_info, value);
 	mievent = cdev_tevent_alloc(eventid);
 	cdev_tevent_add_str(mievent, "I2cAddress", i2c_info);

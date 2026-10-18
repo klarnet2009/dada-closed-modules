@@ -54,6 +54,21 @@
 #define AW_READ_CHIPID_RETRIES		5	/* 5 times */
 #define AW_READ_CHIPID_RETRY_DELAY	5	/* 5 ms */
 
+/* g3p: the init file is folded into this translation unit; these 13 functions are local in the stock */
+static int aw882xx_get_version(char *buf, int size);
+static int aw882xx_get_dev_num(void);
+static int aw882xx_i2c_write(struct i2c_client *i2c, unsigned char reg_addr, unsigned int reg_data);
+static int aw882xx_i2c_read(struct i2c_client *i2c, unsigned char reg_addr, unsigned int *reg_data);
+static int aw882xx_i2c_write_bits(struct i2c_client *i2c, unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
+static unsigned int aw_direct_reg_val_to_db(unsigned int value);
+static unsigned int aw_direct_db_val_to_reg(unsigned int value);
+static unsigned int aw_6_0P125_reg_val_to_db(unsigned int value);
+static unsigned int aw_6_0P125_db_val_to_reg(unsigned int value);
+static unsigned int aw_6_0P5_reg_val_to_db(unsigned int value);
+static unsigned int aw_6_0P5_db_val_to_reg(unsigned int value);
+static unsigned int aw_get_irq_type(struct aw_device *aw_dev, unsigned int value);
+static unsigned int aw_get_irq_nobst_type(struct aw_device *aw_dev, unsigned int value);
+
 static unsigned int g_aw882xx_dev_cnt = 0;
 static unsigned int g_print_dbg = 0;
 static unsigned int g_algo_rx_en = true;
@@ -127,7 +142,7 @@ static const struct soc_enum spk_mute_ctrl_enum =
  * aw882xx i2c write/read
  *
  ******************************************************/
-int aw882xx_get_version(char *buf, int size)
+static int aw882xx_get_version(char *buf, int size)
 {
 	if (size > strlen(AW882XX_DRIVER_VERSION)) {
 		memcpy(buf, AW882XX_DRIVER_VERSION, strlen(AW882XX_DRIVER_VERSION));
@@ -137,7 +152,7 @@ int aw882xx_get_version(char *buf, int size)
 	}
 }
 
-int aw882xx_get_dev_num(void)
+static int aw882xx_get_dev_num(void)
 {
 	return g_aw882xx_dev_cnt;
 }
@@ -223,7 +238,7 @@ int aw882xx_check_writen_data(struct aw882xx *aw882xx,
 }
 #endif /* CONFIG_OPLUS_FPGA_NOTIFY */
 
-int aw882xx_i2c_write(struct i2c_client *i2c,
+static int aw882xx_i2c_write(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int reg_data)
 {
 	int ret = -1;
@@ -257,7 +272,7 @@ int aw882xx_i2c_write(struct i2c_client *i2c,
 	return ret;
 }
 
-int aw882xx_i2c_read(struct i2c_client *i2c,
+static int aw882xx_i2c_read(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int *reg_data)
 {
 	int ret = -1;
@@ -289,7 +304,7 @@ int aw882xx_i2c_read(struct i2c_client *i2c,
 	return ret;
 }
 
-int aw882xx_i2c_write_bits(struct i2c_client *i2c,
+static int aw882xx_i2c_write_bits(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int mask, unsigned int reg_data)
 {
 	int ret = -1;
@@ -404,6 +419,8 @@ static void aw882xx_shutdown(struct snd_pcm_substream *substream,
 	}
 }
 
+int mievent_report(unsigned int eventid, const char *value, struct device *dev);
+
 static void aw882xx_start_pa(struct aw882xx *aw882xx)
 {
 	int ret;
@@ -436,7 +453,9 @@ static void aw882xx_start_pa(struct aw882xx *aw882xx)
 
 			ret = aw882xx_device_start(aw882xx->aw_pa);
 			if (ret) {
-				aw_dev_err(aw882xx->dev, "start failed, cnt:%d", i);
+				aw_dev_err(aw882xx->dev, "start failed, cnt:%d[TF-NOSOUND][AW]", i);
+				/* g3r: the stock reports a misight event here (mievent_report inlined, event id 0x36007bca) */
+				[[clang::always_inline]] mievent_report(0x36007bca, "PA data exception", aw882xx->dev);
 				continue;
 			} else {
 				if (aw882xx->dc_flag)
@@ -1256,15 +1275,13 @@ static int aw882xx_iv_output_info(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* g3r: the stock keeps the state in a global byte, not in struct aw882xx */
+static bool g_iv_output;
+
 static int aw882xx_iv_output_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
-	aw_snd_soc_codec_t *codec =
-		aw_componet_codec_ops.kcontrol_codec(kcontrol);
-	struct aw882xx *aw882xx =
-		aw_componet_codec_ops.codec_get_drvdata(codec);
-
-	ucontrol->value.integer.value[0] = aw882xx->iv_output;
+	ucontrol->value.integer.value[0] = g_iv_output;
 
 	return 0;
 }
@@ -1277,14 +1294,8 @@ static int aw882xx_iv_output_set(struct snd_kcontrol *kcontrol,
 	struct aw882xx *aw882xx =
 		aw_componet_codec_ops.codec_get_drvdata(codec);
 
-	if (ucontrol->value.integer.value[0])
-		aw882xx->iv_output  = false;
-	else
-		aw882xx->iv_output  = true;
-
-	if (aw882xx->aw_pa->chip_id == PID_2308_ID) {
-		aw882xx_dev_iv_forbidden_output(aw882xx->aw_pa, aw882xx->iv_output);
-	}
+	g_iv_output = !ucontrol->value.integer.value[0];
+	aw882xx_dev_iv_forbidden_output(aw882xx->aw_pa, g_iv_output);
 
 	return 0;
 }
@@ -1897,6 +1908,9 @@ static const struct soc_enum aw882xx_snd_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(aw882xx_spin), aw882xx_spin),
 };
 
+static int aw882xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+static int aw882xx_spksw_gpio_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+
 static struct snd_kcontrol_new aw882xx_controls[] = {
 	SOC_ENUM_EXT("aw882xx_rx_switch", aw882xx_snd_enum[0],
 		aw882xx_get_rx_en, aw882xx_set_rx_en),
@@ -1910,6 +1924,9 @@ static struct snd_kcontrol_new aw882xx_controls[] = {
 		aw882xx_get_fade_out_time, aw882xx_set_fade_out_time),
 	SOC_SINGLE_EXT("aw882xx_hal_monitor_time", 0, 0, 100000, 0,
 		aw882xx_hal_get_monitor_time, aw882xx_hal_set_monitor_time),
+	/* g3p: seventh control of the stock (max 3, SND_SOC_NOPM) */
+	SOC_SINGLE_EXT("aw882xx_spk_sw_gpio_switch", SND_SOC_NOPM, 0, 3, 0,
+		aw882xx_spksw_gpio_get, aw882xx_spksw_gpio_put),
 };
 
 static struct snd_kcontrol_new aw882xx_spin_control[] = {
@@ -2350,6 +2367,7 @@ static int aw882xx_parse_gpio_dt(struct aw882xx *aw882xx,
 	if (!np) {
 		aw882xx->reset_gpio = -1;
 		aw882xx->irq_gpio = -1;
+		aw882xx->spksw_gpio = -1;
 		return -EINVAL;
 	}
 
@@ -2357,7 +2375,7 @@ static int aw882xx_parse_gpio_dt(struct aw882xx *aw882xx,
 	if (aw882xx->reset_gpio < 0)
 		aw_dev_info(aw882xx->dev, "no reset gpio provided, will not HW reset device");
 	else
-		aw_dev_info(aw882xx->dev, "reset gpio provided ok");
+		aw_dev_info(aw882xx->dev, "reset gpio provided ok.");
 
 	aw882xx->irq_gpio = of_get_named_gpio(np, "irq-gpio", 0);
 	if (aw882xx->irq_gpio < 0)
@@ -2365,6 +2383,12 @@ static int aw882xx_parse_gpio_dt(struct aw882xx *aw882xx,
 	else
 		aw_dev_info(aw882xx->dev, "irq gpio provided ok.");
 
+	/* g3r: third gpio of the stock (spk switch) */
+	aw882xx->spksw_gpio = of_get_named_gpio(np, "spksw-gpio", 0);
+	if (aw882xx->spksw_gpio < 0)
+		aw_dev_info(aw882xx->dev, "no spksw gpio provided.");
+	else
+		aw_dev_info(aw882xx->dev, "spksw gpio provided ok.");
 
 	return 0;
 }
@@ -2390,7 +2414,6 @@ static struct aw882xx *aw882xx_malloc_init(struct i2c_client *i2c)
 	aw882xx->dbg_en_prof = true;
 	aw882xx->allow_pw = true;
 	aw882xx->work_queue = NULL;
-	aw882xx->iv_output = false;
 
 	mutex_init(&aw882xx->lock);
 
@@ -2405,7 +2428,7 @@ static int aw882xx_gpio_request(struct aw882xx *aw882xx)
 		ret = devm_gpio_request_one(aw882xx->dev, aw882xx->reset_gpio,
 			GPIOF_OUT_INIT_LOW, "aw882xx_rst");
 		if (ret) {
-			aw_dev_err(aw882xx->dev, "rst request failed");
+			aw_dev_err(aw882xx->dev, "rst request failed, ret %d", ret);
 			return ret;
 		}
 	}
@@ -2414,7 +2437,16 @@ static int aw882xx_gpio_request(struct aw882xx *aw882xx)
 		ret = devm_gpio_request_one(aw882xx->dev, aw882xx->irq_gpio,
 			GPIOF_IN, "aw882xx_int");
 		if (ret) {
-			aw_dev_err(aw882xx->dev, "int request failed");
+			aw_dev_err(aw882xx->dev, "int request failed, ret %d", ret);
+			return ret;
+		}
+	}
+
+	if (gpio_is_valid(aw882xx->spksw_gpio)) {
+		ret = devm_gpio_request_one(aw882xx->dev, aw882xx->spksw_gpio,
+			GPIOF_OUT_INIT_LOW, "aw882xx_spksw");
+		if (ret) {
+			aw_dev_err(aw882xx->dev, "spksw request failed, ret %d", ret);
 			return ret;
 		}
 	}
@@ -2570,6 +2602,7 @@ static int aw882xx_read_chipid(struct aw882xx *aw882xx)
 			aw882xx->aw_pa->chip_id = reg_value;
 			return 0;
 		}
+		case 0x2031:	/* g3p: ids of the stock dispatch (shared "2032 detected" block) */
 		case PID_2032_ID: {
 			aw_dev_info(aw882xx->dev, "aw882xx 2032 detected");
 			aw882xx->aw_pa->chip_id = reg_value;
@@ -2580,6 +2613,8 @@ static int aw882xx_read_chipid(struct aw882xx *aw882xx)
 			aw882xx->aw_pa->chip_id = reg_value;
 			return 0;
 		}
+		case 0x2070:	/* g3p: ids of the stock dispatch (shared "2071 detected" block) */
+		case 0x2115:
 		case PID_2071_ID: {
 			aw_dev_info(aw882xx->dev, "aw882xx 2071 detected");
 			aw882xx->aw_pa->chip_id = reg_value;
@@ -2587,6 +2622,11 @@ static int aw882xx_read_chipid(struct aw882xx *aw882xx)
 		}
 		case PID_2113_ID: {
 			aw_dev_info(aw882xx->dev, "aw882xx 2113 detected");
+			aw882xx->aw_pa->chip_id = reg_value;
+			return 0;
+		}
+		case 0x2116: {	/* g3p: the stock prints "2116 detected" */
+			aw_dev_info(aw882xx->dev, "aw882xx 2116 detected");
 			aw882xx->aw_pa->chip_id = reg_value;
 			return 0;
 		}
@@ -3359,8 +3399,12 @@ static int aw882xx_i2c_probe(struct i2c_client *i2c,
 
 	/*get gpio resource*/
 	ret = aw882xx_gpio_request(aw882xx);
-	if (ret)
-		return ret;
+	if (ret) {
+		/* stock: only -EBUSY aborts the probe (deferred), any other error is reported and ignored */
+		aw_dev_err(&i2c->dev, "aw882xx_gpio_request failed ret=%d, -EBUSY %d", ret, -EBUSY);
+		if (ret == -EBUSY)
+			return -EPROBE_DEFER;
+	}
 
 	/* hardware reset */
 	aw882xx_hw_reset(aw882xx);
@@ -3456,18 +3500,13 @@ err_sysfs:
 	return ret;
 }
 
-#ifdef AW_KERNEL_VER_OVER_6_1_0
 static void aw882xx_i2c_remove(struct i2c_client *i2c)
-#else
-static int aw882xx_i2c_remove(struct i2c_client *i2c)
-#endif
 {
 	struct aw882xx *aw882xx = i2c_get_clientdata(i2c);
 
 	aw_dev_info(aw882xx->dev, "enter");
 
-#ifdef AW_KERNEL_VER_OVER_6_1_0
-#else
+	/* g3r: the stock does the pre-6.1 style cleanup (imports devm_free_irq and gpio_free) */
 	/*rm irq*/
 	if (gpio_to_irq(aw882xx->irq_gpio))
 		devm_free_irq(&i2c->dev,
@@ -3475,11 +3514,12 @@ static int aw882xx_i2c_remove(struct i2c_client *i2c)
 			aw882xx);
 
 	/*free gpio*/
-	if (gpio_is_valid(aw882xx->irq_gpio))
-		devm_gpio_free(&i2c->dev, aw882xx->irq_gpio);
-	if (gpio_is_valid(aw882xx->reset_gpio))
-		devm_gpio_free(&i2c->dev, aw882xx->reset_gpio);
-#endif
+	if (aw882xx->irq_gpio >= 0)
+		gpio_free(aw882xx->irq_gpio);
+	if (aw882xx->reset_gpio >= 0)
+		gpio_free(aw882xx->reset_gpio);
+	if (aw882xx->spksw_gpio >= 0)
+		gpio_free(aw882xx->spksw_gpio);
 
 	/*rm attr node*/
 	sysfs_remove_group(&i2c->dev.kobj, &aw882xx_attribute_group);
@@ -3507,11 +3547,6 @@ static int aw882xx_i2c_remove(struct i2c_client *i2c)
 		fpga_unregister_notifier(&aw882xx->pd_nb);
 	}
 #endif /* CONFIG_OPLUS_FPGA_NOTIFY */
-
-#ifdef AW_KERNEL_VER_OVER_6_1_0
-#else
-	return 0;
-#endif
 
 }
 
@@ -3576,3 +3611,4 @@ MODULE_DESCRIPTION("ASoC AW882XX Smart PA Driver");
 MODULE_LICENSE("GPL v2");
 
 #include "g3k_aw.inc.h"
+#include "aw882xx_init.inc.h"

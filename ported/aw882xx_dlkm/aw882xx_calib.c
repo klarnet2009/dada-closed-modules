@@ -36,7 +36,7 @@ static bool is_single_cali; /*if mutli_dev cali false, single dev true*/
 static const char *cali_str[CALI_STR_MAX] = {"none", "start_cali", "cali_re",
 	"cali_f0", "store_re", "show_re", "show_r0", "show_cali_f0", "show_f0",
 	"show_te", "show_st", "dev_sel", "get_ver", "get_dev_num",
-	"cali_q_f0", "show_q_f0", "get_re_range",  "get_f0_range"
+	"cali_q_f0", "show_q_f0", "get_re_range"
 };
 
 static char *ch_name[AW_DEV_CH_MAX] = {"pri_l", "pri_r", "sec_l", "sec_r",
@@ -275,39 +275,6 @@ static int aw_cali_svc_get_devs_re_range(struct aw_device *aw_dev,
 				local_dev->re_min;
 			data_buf[RE_MAX_FLAG + local_dev->channel * 2] =
 				local_dev->re_max;
-			cnt++;
-		} else {
-			aw_dev_err(local_dev->dev, "channel num[%d] overflow buf num[%d]",
-						local_dev->channel, num);
-			return -EINVAL;
-		}
-	}
-
-	return cnt;
-}
-
-static int aw_cali_svc_get_devs_f0_range(struct aw_device *aw_dev,
-						uint32_t *data_buf, int num)
-{
-	int ret, cnt = 0;
-	struct list_head *dev_list = NULL;
-	struct list_head *pos = NULL;
-	struct aw_device *local_dev = NULL;
-	/*get dev list*/
-	ret = aw882xx_dev_get_list_head(&dev_list);
-	if (ret) {
-		aw_dev_err(aw_dev->dev, "get dev list failed");
-		return ret;
-	}
-
-	list_for_each(pos, dev_list) {
-		local_dev = container_of(pos, struct aw_device, list_node);
-		if (local_dev->channel < num) {
-			/*buf[0]:pri_l_f0_min, buf[1]:pri_l_f0_min, buf[2]:pri_r_f0_min, buf[3]:pri_r_f0_min*/
-			data_buf[F0_MIN_FLAG + local_dev->channel * 2] =
-				local_dev->f0_min;
-			data_buf[F0_MAX_FLAG + local_dev->channel * 2] =
-				local_dev->f0_max;
 			cnt++;
 		} else {
 			aw_dev_err(local_dev->dev, "channel num[%d] overflow buf num[%d]",
@@ -2078,7 +2045,6 @@ static ssize_t aw_cali_misc_read(struct file *filp, char __user *buf, size_t siz
 	int32_t temp_data[AW_DEV_CH_MAX << 1] = {0};
 	int32_t temp_data1[AW_DEV_CH_MAX << 1] = {0};
 	uint32_t re_value[AW_DEV_RE_RANGE] = { 0 };
-	uint32_t f0_value[AW_DEV_F0_RANGE] = { 0 };
 
 	aw_dev_info(aw_dev->dev, "enter");
 
@@ -2217,21 +2183,6 @@ static ssize_t aw_cali_misc_read(struct file *filp, char __user *buf, size_t siz
 		len += snprintf(local_buf + len, sizeof(local_buf) - len, "\n");
 
 	} break;
-	case CALI_STR_SHOW_F0_RANGE: {
-		ret = aw_cali_svc_get_devs_f0_range(aw_dev, f0_value, AW_DEV_CH_MAX);
-		if (ret <= 0) {
-			aw_dev_err(aw_dev->dev, "get f0 range failed");
-			return -EINVAL;
-		}
-		for (i = 0; i < ret; i++)
-			len += snprintf(local_buf + len, sizeof(local_buf) - len,
-				"%s:f0_min:%d f0_max:%d ",
-				ch_name[i], f0_value[F0_MIN_FLAG + i * F0_RANGE_NUM],
-				f0_value[F0_MAX_FLAG + i * F0_RANGE_NUM]);
-
-		len += snprintf(local_buf + len, sizeof(local_buf) - len, "\n");
-
-	} break;
 	default: {
 		if (g_msic_wr_flag == CALI_STR_NONE) {
 			aw_dev_info(aw_dev->dev, "please write cmd first");
@@ -2362,8 +2313,7 @@ static ssize_t aw_cali_misc_write(struct file *filp, const char __user *buf, siz
 	case CALI_STR_VER:
 	case CALI_STR_DEV_NUM:
 	case CALI_STR_SHOW_F0_Q:
-	case CALI_STR_SHOW_RE_RANGE:
-	case CALI_STR_SHOW_F0_RANGE:{
+	case CALI_STR_SHOW_RE_RANGE:{
 		g_msic_wr_flag = ret;
 		ret = 0;
 	} break;

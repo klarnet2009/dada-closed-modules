@@ -17,7 +17,7 @@ extern void mist_frame_load_reset(void);
 extern void mist_frame_load_history_update(int trigger_source);
 
 static unsigned long ceiling_next_update;
-static unsigned int render_pid;
+static unsigned int render_pid = -1U;	/* stock .data value 0xffffffff (G1ah) */
 
 /* cmd 1: the game signals a frame ("boost coming") */
 static __always_inline void migt_ioctl_boost(void)
@@ -100,7 +100,7 @@ after_add:
 	}
 	mist_frame_load_history_update(1);
 	if (mark_rule2_enable)
-		migt_item_index = atomic_inc_return((atomic_t *)&migt_item_index) % 10;
+		migt_item_index = (u32)atomic_inc_return((atomic_t *)&migt_item_index) % 10;
 }
 
 /* cmd 4: remember the traced uid in the 10-entry ceiling user list (oldest dropped) */
@@ -110,17 +110,29 @@ static __always_inline void migt_ioctl_ceiling_user(void)
 
 	if (unlikely(migt_debug)) {
 		printk(KERN_INFO "--------ceiling_user list--------\n");
-		for (i = 0; i < n && i < 10; i++)
-			printk(KERN_INFO "%d ", ceiling_users[i]);
+		/* the stock has the 10 prints unrolled with an exit test after each */
+#define CU_PRINT(k) do { if ((k) < n) printk(KERN_INFO "%d ", ceiling_users[k]); else goto printed; } while (0)
+		CU_PRINT(0); CU_PRINT(1); CU_PRINT(2); CU_PRINT(3); CU_PRINT(4);
+		CU_PRINT(5); CU_PRINT(6); CU_PRINT(7); CU_PRINT(8); CU_PRINT(9);
+#undef CU_PRINT
 	}
+printed:
 	for (i = 0; i < cnt; i++)
 		if (ceiling_users[i] == uid)
 			return;
 	if (unlikely(migt_debug))
 		printk(KERN_INFO "\nadd uid %d to ceiling users\n", uid);
 	if (n >= 10) {
-		for (i = 0; i + 1 < cnt; i++)
-			ceiling_users[i] = ceiling_users[i + 1];
+		unsigned int m = n - 1;
+
+		/* the stock shifts the list down with an unrolled copy that stops after m entries */
+#define CU_SHIFT(k) do { ceiling_users[k] = ceiling_users[(k) + 1]; if (m == (k) + 1) goto shifted; } while (0)
+		if (n >= 2) {
+			CU_SHIFT(0); CU_SHIFT(1); CU_SHIFT(2); CU_SHIFT(3); CU_SHIFT(4); CU_SHIFT(5); CU_SHIFT(6); CU_SHIFT(7);
+			ceiling_users[8] = ceiling_users[9];
+		}
+#undef CU_SHIFT
+shifted:
 		ceiling_users[9] = uid;
 		return;
 	}
@@ -421,7 +433,7 @@ delay:
 						m_exec = user_array[found].gt->fps_exec_est;
 						goto picked;
 					}
-					if (migt_debug)
+					if (migt_debug_l)
 						printk(KERN_INFO "migt-gtc: user stask %.*s not found in wake_array!\n",
 						       (int)strcspn(user_stask, "\n"), user_stask);
 				}
@@ -438,7 +450,7 @@ delay:
 					}
 				}
 picked:
-				if (migt_debug)
+				if (migt_debug_l)
 					printk(KERN_INFO "migt-gtc: max %d mindex %d, max_r %llu, m_exec %llu, V: %d\n",
 					       max_i, mindex, max_r, m_exec, 50);
 				sel = max_r >= 50 ? max_i : mindex;
@@ -452,7 +464,7 @@ picked:
 					printk(KERN_ERR "migt-gtc: %d: task is NULL\n", i);
 					continue;
 				}
-				if (i < 20 && migt_debug)
+				if (i < 20 && migt_debug_l)
 					printk(KERN_ERR "migt-gtc: %3d:comm %16s pid %6d key:%llu load %llu est %llu sup:%d\n",
 					       i, user_array[i].gt->task->comm, user_array[i].gt->task->pid,
 					       user_array[i].key, user_array[i].gt->fps_mexec,

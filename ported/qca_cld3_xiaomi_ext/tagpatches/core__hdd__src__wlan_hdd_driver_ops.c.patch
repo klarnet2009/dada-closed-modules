@@ -1,0 +1,8 @@
+--- core/hdd/src/wlan_hdd_driver_ops.c
++++ core/hdd/src/wlan_hdd_driver_ops.c
+@@ -830,5 +830,4 @@
+ 	cds_set_driver_loaded(true);
+ 	cds_set_load_in_progress(false);
+-	hdd_start_complete(0);
+ 	hdd_thermal_mitigation_register(hdd_ctx, dev);
+ 	hdd_ddr_bw_mitigation_register(hdd_ctx, dev);

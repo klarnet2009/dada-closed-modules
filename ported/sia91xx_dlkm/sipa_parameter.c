@@ -32,7 +32,7 @@ static SIPA_PARAM *sipa_parameters;
 static uint32_t sipa_fw_loaded;
 static struct mutex sipa_fw_load_lock;
 
-void sipa_fw_load_work_delay(struct work_struct *work)
+static void sipa_fw_load_work_delay(struct work_struct *work)
 {
 	int ret = 0;
 	uint32_t sz = 0;
@@ -128,7 +128,7 @@ void sipa_param_load_fw(struct device *dev, char *name)
 	sipa_dev_t *si_pa = dev_get_drvdata(dev);
 
 	if (NULL == si_pa) {
-		pr_err("[  err][%s] %s: NULL == si_pa \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: NULL == si_pa \n", LOG_FLAG, __func__);
 		return;
 	}
 
@@ -162,24 +162,24 @@ void *sipa_param_read_chip_cfg(
 	SIPA_CHIP_CFG *chips_cfg = NULL;
 
 	if (1 != sipa_fw_loaded || NULL == sipa_parameters) {
-		pr_warn("[ warn][%s] %s: firmware unload \r\n", LOG_FLAG, __func__);
+		pr_warn("[ warn][%s] %s: firmware unload \n", LOG_FLAG, __func__);
 		return NULL;
 	}
 
 	if (ch >= SIPA_CHANNEL_NUM) {
-		pr_err("[  err][%s] %s: ch(%u) >= SIPA_CHANNEL_NUM(%u) \r\n",
+		pr_err("[  err][%s] %s: ch(%u) >= SIPA_CHANNEL_NUM(%u) \n",
 			LOG_FLAG, __func__, ch, SIPA_CHANNEL_NUM);
 		return NULL;
 	}
 
 	if (1 != sipa_parameters->fw.ch_en[ch]) {
-		pr_err("[  err][%s] %s: 1 != sipa_parameters.fw.ch_en[%u](%u) \r\n",
+		pr_err("[  err][%s] %s: 1 != sipa_parameters.fw.ch_en[%u](%u) \n",
 			LOG_FLAG, __func__, ch, sipa_parameters->fw.ch_en[ch]);
 		return NULL;
 	}
 
 	if (NULL == cfg) {
-		pr_err("[  err][%s] %s: NULL == cfg \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: NULL == cfg \n", LOG_FLAG, __func__);
 		return NULL;
 	}
 
@@ -199,7 +199,7 @@ void *sipa_param_read_chip_cfg(
 	}
 
 	if (i >= chip_cfg_list->num) {
-		pr_err("[  err][%s] %s: chip_type(%u) mismatch chip_cfg_list->num = %d version = %x\r\n",
+		pr_err("[  err][%s] %s: chip_type(%u) mismatch chip_cfg_list->num = %d version = %x\n",
 			LOG_FLAG, __func__, chip_type, chip_cfg_list->num, sipa_parameters->fw.version);
 		return NULL;
 	}
@@ -212,24 +212,24 @@ int sipa_param_read_extra_cfg(
 	SIPA_EXTRA_CFG *cfg)
 {
 	if (1 != sipa_fw_loaded || NULL == sipa_parameters) {
-		pr_err("[  err][%s] %s: firmware unload \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: firmware unload \n", LOG_FLAG, __func__);
 		return -EINVAL;
 	}
 
 	if (ch >= SIPA_CHANNEL_NUM) {
-		pr_err("[  err][%s] %s: ch(%u) >= SIPA_CHANNEL_NUM(%u) \r\n",
+		pr_err("[  err][%s] %s: ch(%u) >= SIPA_CHANNEL_NUM(%u) \n",
 			LOG_FLAG, __func__, ch, SIPA_CHANNEL_NUM);
 		return -EINVAL;
 	}
 
 	if (1 != sipa_parameters->fw.ch_en[ch]) {
-		pr_err("[  err][%s] %s: 1 != sipa_parameters.fw.ch_en[%u](%u) \r\n",
+		pr_err("[  err][%s] %s: 1 != sipa_parameters.fw.ch_en[%u](%u) \n",
 			LOG_FLAG, __func__, ch, sipa_parameters->fw.ch_en[ch]);
 		return -EINVAL;
 	}
 
 	if (NULL == cfg) {
-		pr_err("[  err][%s] %s: NULL == cfg \r\n", LOG_FLAG, __func__);
+		pr_err("[  err][%s] %s: NULL == cfg \n", LOG_FLAG, __func__);
 		return -EINVAL;
 	}
 

@@ -1,0 +1,719 @@
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -3,6 +3,6 @@
+ exports_files(glob(["configs/*"]))
+ g4_module("qca6750", ["CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_QCOM_RPROC_COMMON=1"])
+ g4_module("wcn7750", ["CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_QCOM_RPROC_COMMON=1"])
+-g4_module("peach", ["CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_CNSS_HW_SECURE_DISABLE=1", "CONFIG_QCOM_RPROC_COMMON=1"])
+-g4_module("peach-v2", ["CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_CNSS_HW_SECURE_DISABLE=1", "CONFIG_QCOM_RPROC_COMMON=1"])
++g4_module("peach", ["XM_P2P_MODE_NEED_RUNNING=1", "CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_CNSS_HW_SECURE_DISABLE=1", "CONFIG_QCOM_RPROC_COMMON=1"])
++g4_module("peach-v2", ["XM_P2P_MODE_NEED_RUNNING=1", "CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_CNSS_HW_SECURE_DISABLE=1", "CONFIG_QCOM_RPROC_COMMON=1"])
+ g4_module("kiwi-v2", ["CONFIG_IPA3=1", "CONFIG_QCOM_VA_MINIDUMP=1", "CONFIG_QCOM_MINIDUMP=1", "CONFIG_SCHED_WALT=1", "CONFIG_QCOM_IOMMU_UTIL=1", "__ANDROID_COMMON_KERNEL__=1", "CONFIG_CNSS_HW_SECURE_DISABLE=1", "CONFIG_QCOM_RPROC_COMMON=1"])
+--- a/cmn/target_if/direct_buf_rx/src/target_if_direct_buf_rx_main.c
++++ b/cmn/target_if/direct_buf_rx/src/target_if_direct_buf_rx_main.c
+@@ -2340,14 +2340,11 @@
+ 			    dbr_ring_cfg, dbr_ring_cap, dbr_buf_pool);
+ 
+ 	for (idx = 0; idx < dbr_ring_cfg->num_ptr - 1; idx++) {
+-		if (dbr_buf_pool[idx].paddr) {
+-			qdf_mem_unmap_nbytes_single(
+-				dbr_psoc_obj->osdev,
+-				(qdf_dma_addr_t)dbr_buf_pool[idx].paddr,
+-				QDF_DMA_FROM_DEVICE,
+-				dbr_ring_cap->min_buf_size);
+-			dbr_buf_pool[idx].paddr = 0;
+-		}
++		qdf_mem_unmap_nbytes_single(
++			dbr_psoc_obj->osdev,
++			(qdf_dma_addr_t)dbr_buf_pool[idx].paddr,
++			QDF_DMA_FROM_DEVICE,
++			dbr_ring_cap->min_buf_size);
+ 		target_if_dbr_mem_put(pdev, dbr_ring_cap->min_buf_size,
+ 				      dbr_buf_pool[idx].vaddr,
+ 				      dbr_buf_pool[idx].offset,
+@@ -2393,7 +2390,6 @@
+ 					dbr_ring_cfg->ring_alloc_size,
+ 					dbr_ring_cfg->base_vaddr_unaligned,
+ 			(qdf_dma_addr_t)dbr_ring_cfg->base_paddr_unaligned, 0);
+-		dbr_ring_cfg->srng = NULL;
+ 	}
+ 
+ 	return QDF_STATUS_SUCCESS;
+@@ -2411,7 +2407,8 @@
+ 	direct_buf_rx_debug("dbr buf pool %pK", dbr_buf_pool);
+ 	target_if_dbr_deinit_ring(pdev, mod_param);
+ 
+-	qdf_mem_free(dbr_buf_pool);
++	if (mod_param->dbr_buf_pool)
++		qdf_mem_free(dbr_buf_pool);
+ 	mod_param->dbr_buf_pool = NULL;
+ 
+ 	return QDF_STATUS_SUCCESS;
+@@ -2441,10 +2438,12 @@
+ 
+ 	target_if_dbr_deinit_srng(pdev, mod_param);
+ 
+-	qdf_mem_free(mod_param->dbr_ring_cap);
++	if (mod_param->dbr_ring_cap)
++		qdf_mem_free(mod_param->dbr_ring_cap);
+ 	mod_param->dbr_ring_cap = NULL;
+ 
+-	qdf_mem_free(mod_param->dbr_ring_cfg);
++	if (mod_param->dbr_ring_cfg)
++		qdf_mem_free(mod_param->dbr_ring_cfg);
+ 	mod_param->dbr_ring_cfg = NULL;
+ 
+ 	mod_param->srng_initialized = false;
+--- a/components/cmn_services/policy_mgr/inc/cfg_policy_mgr.h
++++ b/components/cmn_services/policy_mgr/inc/cfg_policy_mgr.h
+@@ -748,7 +748,7 @@
+  * </ini>
+  */
+ #define CFG_MI_SAP_ONLY_ALLOW_STA_DFS_INDOOR_CHAN \
+-CFG_INI_UINT("mi_sap_only_allow_sta_dfs_indoor_chan", 0, 1, 0, CFG_VALUE_OR_DEFAULT, \
++CFG_INI_UINT("mi_sap_only_allow_sta_dfs_indoor_chan", 0, 1, 1, CFG_VALUE_OR_DEFAULT, \
+ 	     "Allow SAP only on STA DFS/indoor channel (Xiaomi)")
+ 
+ #define CFG_MOVE_SAP_GO_1ST_ON_DFS_STA_CSA \
+--- a/components/cmn_services/policy_mgr/src/wlan_policy_mgr_core.c
++++ b/components/cmn_services/policy_mgr/src/wlan_policy_mgr_core.c
+@@ -4238,8 +4238,8 @@
+ 	} else if (policy_mgr_3_freq_always_on_same_mac(psoc, ch_freq,
+ 					pm_conc_connection_list[0].freq,
+ 					pm_conc_connection_list[1].freq)) {
+-			policy_mgr_rl_debug("don't allow 3rd home channel on same MAC");
+-			allow = false;
++			/* stock: message only, the connection stays allowed */
++			policy_mgr_rl_debug("3rd home channel on same MAC");
+ 	}
+ 
+ 	return allow;
+--- a/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_2x2_dbs_i.h
++++ b/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_2x2_dbs_i.h
+@@ -246,6 +246,19 @@
+ 			      PM_MAX_PCL_TYPE},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][2] = PM_5G_SCC_CH,
+ };
+ 
+ /*
+@@ -2270,6 +2283,49 @@
+ 	[PM_P2P_GO_MODE] = {PM_5G_24G, PM_5G_24G, PM_5G_24G},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
+ };
+ #else
+ /*
+@@ -2495,6 +2551,19 @@
+ 			      PM_MAX_PCL_TYPE},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_CLI_5_2x2][PM_P2P_GO_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][0] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][1] = PM_5G_SCC_CH,
++	[PM_P2P_GO_5_2x2][PM_P2P_GO_MODE][2] = PM_5G_SCC_CH,
+ };
+ 
+ /*
+@@ -4499,6 +4568,49 @@
+ 	[PM_P2P_GO_MODE] = {PM_5G_24G, PM_5G_24G, PM_5G_24G},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_GO_MCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_STA_P2P_CLI_MCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_GO_P2P_GO_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH_5G,
++	[PM_P2P_CLI_P2P_CLI_SCC_5_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
+ };
+ #endif
+ 
+@@ -4761,6 +4873,31 @@
+ 	[PM_SAP_MODE] = {PM_SCC_ON_24_SCC_ON_5_24G, PM_SCC_ON_24_SCC_ON_5_24G,
+ 			PM_SCC_ON_24_SCC_ON_5_24G},
+ 	[PM_NAN_DISC_MODE] = { PM_NONE, PM_NONE, PM_NONE } },
++	/* g4t: values of the OS4 stock table */
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][0] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][1] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][2] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][0] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][1] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][2] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][2] = PM_SCC_CH,
+ };
+ #elif defined(MDM_PLATFORM)
+ /*
+@@ -4839,6 +4976,31 @@
+ 	[PM_SAP_MODE] = {PM_SCC_ON_24_SCC_ON_5_24G, PM_SCC_ON_24_SCC_ON_5_24G,
+ 			PM_SCC_ON_24_SCC_ON_5_24G},
+ 	[PM_NAN_DISC_MODE] = { PM_NONE, PM_NONE, PM_NONE } },
++	/* g4t: values of the OS4 stock table */
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][0] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][1] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][2] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][0] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][1] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][2] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][2] = PM_SCC_CH,
+ };
+ #else
+ /*
+@@ -5091,6 +5253,31 @@
+ 	[PM_SAP_MODE] = {PM_SCC_ON_24_SCC_ON_5_24G, PM_SCC_ON_24_SCC_ON_5_24G,
+ 			PM_SCC_ON_24_SCC_ON_5_24G},
+ 	[PM_NAN_DISC_MODE] = { PM_NONE, PM_NONE, PM_NONE } },
++	/* g4t: values of the OS4 stock table */
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][0] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][1] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_SAP_MODE][2] = PM_SBS_CH_2G,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_SAP_SCC_5_SMM][PM_P2P_GO_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_STA_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][0] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][1] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_SAP_MODE][2] = PM_24G,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_CLIENT_MODE][2] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_SAP_SAP_STA_SCC_5_DBS][PM_P2P_GO_MODE][2] = PM_SCC_CH,
+ };
+ #endif
+ #endif
+--- a/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_2x2_dbs_sbs_i.h
++++ b/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_2x2_dbs_sbs_i.h
+@@ -248,6 +248,13 @@
+ 			      PM_MAX_PCL_TYPE},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_STA_5_1x1][PM_SAP_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_1x1][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_1x1][PM_P2P_GO_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_SAP_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_24G,
+ };
+ 
+ /*
+@@ -2389,6 +2396,13 @@
+ 			      PM_MAX_PCL_TYPE},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_STA_5_1x1][PM_SAP_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_1x1][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_1x1][PM_P2P_GO_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_SAP_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_P2P_CLIENT_MODE][0] = PM_SCC_CH_24G,
++	[PM_STA_5_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH_24G,
+ };
+ 
+ /*
+--- a/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_no_dbs_i.h
++++ b/components/cmn_services/policy_mgr/src/wlan_policy_mgr_tables_no_dbs_i.h
+@@ -225,6 +225,13 @@
+ 			      PM_MAX_PCL_TYPE},
+ 	[PM_LL_LT_SAP_MODE] = {PM_MAX_PCL_TYPE, PM_MAX_PCL_TYPE,
+ 			       PM_MAX_PCL_TYPE} },
++	/* g4t: values of the OS4 stock table */
++	[PM_STA_24_1x1][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_STA_24_1x1][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_STA_24_1x1][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
++	[PM_STA_24_2x2][PM_P2P_GO_MODE][0] = PM_SCC_CH,
++	[PM_STA_24_2x2][PM_P2P_GO_MODE][1] = PM_SCC_CH,
++	[PM_STA_24_2x2][PM_P2P_GO_MODE][2] = PM_SCC_CH_5G,
+ };
+ 
+ /*
+--- a/core/hdd/inc/wlan_hdd_p2p.h
++++ b/core/hdd/inc/wlan_hdd_p2p.h
+@@ -240,13 +240,21 @@
+ extern const struct nla_policy
+ p2p_wfdr2_attr_policy[QCA_WLAN_VENDOR_ATTR_SET_P2P_MODE_MAX + 1];
+ 
++/* stock: peach / peach-v2 register the command with NEED_RUNNING, the other chips without (macro set by BUILD.bazel) */
++#ifdef XM_P2P_MODE_NEED_RUNNING
++#define XM_P2P_MODE_EXTRA_FLAGS WIPHY_VENDOR_CMD_NEED_RUNNING
++#else
++#define XM_P2P_MODE_EXTRA_FLAGS 0
++#endif
++
+ #define FEATURE_P2P_SET_MODE_VENDOR_COMMANDS			\
+ {								\
+ 	.info.vendor_id = QCA_NL80211_VENDOR_ID,		\
+ 	.info.subcmd =						\
+ 		QCA_NL80211_VENDOR_SUBCMD_SET_P2P_MODE,		\
+ 	.flags = WIPHY_VENDOR_CMD_NEED_WDEV |			\
+-			WIPHY_VENDOR_CMD_NEED_NETDEV,		\
++			WIPHY_VENDOR_CMD_NEED_NETDEV |		\
++			XM_P2P_MODE_EXTRA_FLAGS,		\
+ 	.doit = wlan_hdd_cfg80211_p2p_parse_wfd_params,	\
+ 	vendor_command_policy(p2p_wfdr2_attr_policy,		\
+ 			      QCA_WLAN_VENDOR_ATTR_SET_P2P_MODE_MAX)	\
+--- a/core/hdd/src/wlan_hdd_cfg80211.c
++++ b/core/hdd/src/wlan_hdd_cfg80211.c
+@@ -751,7 +751,7 @@
+ 		/* Support for two identical (GO + GO or CLI + CLI)
+ 		 * or dissimilar (GO + CLI) P2P interfaces
+ 		 */
+-		.max = 2,
++		.max = 3,
+ 		.types = BIT(NL80211_IFTYPE_P2P_GO) | BIT(NL80211_IFTYPE_P2P_CLIENT),
+ 	},
+ };
+@@ -950,8 +950,8 @@
+ 	/* STA + P2P + P2P */
+ 	{
+ 		.limits = wlan_hdd_sta_p2p_p2p_iface_limit,
+-		.num_different_channels = 2,
+-		.max_interfaces = 3,
++		.num_different_channels = 3,
++		.max_interfaces = 4,
+ 		.n_limits = ARRAY_SIZE(wlan_hdd_sta_p2p_p2p_iface_limit),
+ 		.beacon_int_infra_match = true,
+ 	},
+@@ -2115,6 +2115,11 @@
+ 		.vendor_id = QCA_NL80211_VENDOR_ID,
+ 		.subcmd = QCA_NL80211_VENDOR_SUBCMD_IDLE_SHUTDOWN,
+ 	},
++	/* stock: 76th advertised event, the Xiaomi vendor subcommand 240 (add scan entry) */
++	[QCA_NL80211_VENDOR_SUBCMD_IDLE_SHUTDOWN_INDEX + 1] = {
++		.vendor_id = QCA_NL80211_VENDOR_ID,
++		.subcmd = 240,
++	},
+ };
+ 
+ /**
+@@ -14811,6 +14816,7 @@
+ 	hdd_set_channel_width,
+ 	hdd_config_peer_ampdu,
+ 	hdd_set_ul_mu_config,
++	hdd_config_data_stall_param,
+ 	hdd_config_tx_rx_nss_per_band,
+ 	hdd_config_vdev_chains_per_band,
+ 	hdd_config_data_stall_param,
+@@ -25442,8 +25448,10 @@
+ 		wlan_hdd_set_nan_if_mode(wiphy);
+ 
+ 	for (i = 0; i < num; i++) {
++		bool fw_supports_dbs = ucfg_policy_mgr_is_fw_supports_dbs(psoc);
++
+ 		/* Filter for non-DBS targets */
+-		if (!ucfg_policy_mgr_is_fw_supports_dbs(psoc) &&
++		if (!fw_supports_dbs &&
+ 		    (wlan_hdd_iface_combination[i].max_interfaces > 2 ||
+ 		     wlan_hdd_is_iface_sta_sta(i) ||
+ 		     wlan_hdd_is_iface_sap_sap(i) ||
+@@ -25488,8 +25496,7 @@
+ 		 * Below check is to prevent removing STA + NAN and SAP + NAN
+ 		 * if non-DBS is present.
+ 		 */
+-		if (sap_sta_nan_concurrency &&
+-		    ucfg_policy_mgr_is_fw_supports_dbs(psoc)) {
++		if (sap_sta_nan_concurrency && fw_supports_dbs) {
+ 			/* remove STA NAN concurrency */
+ 			if (wlan_hdd_is_sta_nan_concurrency_present(
+ 					wlan_hdd_iface_combination, i))
+--- a/core/hdd/src/wlan_hdd_cm_connect.c
++++ b/core/hdd/src/wlan_hdd_cm_connect.c
+@@ -832,7 +832,7 @@
+ 
+ 	ret = hdd_softap_set_channel_change(ap_adapter->deflink, ch_freq, 0,
+ 					    ch_bw, NO_SCHANS_PUNC, false, true);
+-	if (ret && qdf_atomic_read(&hdd_ap_ctx->ch_switch_in_progress) <= 1) {
++	if (ret) {
+ 		hdd_err("Set channel with CSA IE failed, can't allow STA");
+ 		return false;
+ 	}
+--- a/core/hdd/src/wlan_hdd_ioctl.c
++++ b/core/hdd/src/wlan_hdd_ioctl.c
+@@ -7538,13 +7538,13 @@
+ 	/* Deprecated commands */
+ 	{"RXFILTER-START",            drv_cmd_dummy, false},
+ 	{"RXFILTER-STOP",             drv_cmd_dummy, false},
+-	{"SetScanExtFlag",            driver_cmd_set_scan_ext_flag, true},
+ 	{"BTCOEXSCAN-START",          drv_cmd_dummy, false},
+ 	{"BTCOEXSCAN-STOP",           drv_cmd_dummy, false},
+ 	{"GET_SOFTAP_LINK_SPEED",     drv_cmd_get_sap_go_linkspeed, true},
+ #ifdef CONFIG_BAND_6GHZ
+ 	{"GET_WIFI6E_CHANNELS",       drv_cmd_get_wifi6e_channels, true},
+ #endif
++	{"SetScanExtFlag",            driver_cmd_set_scan_ext_flag, true},
+ };
+ 
+ /**
+--- a/core/hdd/src/wlan_hdd_scan.c
++++ b/core/hdd/src/wlan_hdd_scan.c
+@@ -301,7 +301,7 @@
+ 						   adapter->deflink->vdev_id,
+ 						   adapter->latency_level, 0, 0);
+ 		if (QDF_IS_STATUS_ERROR(status))
+-			hdd_err("Re-enter low latency mode failed after scan");
++			hdd_debug("Re-enter low latency mode failed after scan");
+ 	}
+ }
+ 
+--- a/core/hdd/src/wlan_hdd_stats.c
++++ b/core/hdd/src/wlan_hdd_stats.c
+@@ -206,11 +206,8 @@
+ 	/* 40 */
+ 	{-79, -76, -74, -71, -67, -63, -62, -61, -56, -54, -49, -45, -43, -39},
+ 	/* 80 */
+-	{-76, -73, -71, -68, -64, -60, -59, -58, -53, -51, -46, -42, -46, -36},
+-	/* 160 */
+-	{-73, -70, -68, -65, -61, -57, -56, -55, -50, -48, -43, -39, -43, -33},
+-	/* 320 */
+-	{-70, -67, -65, -62, -58, -54, -53, -52, -47, -45, -40, -36, -40, -30}
++	{-76, -73, -71, -68, -64, -60, -59, -58, -53, -51, -46, -42, -46, -36}
++	/* the stock table has no 160/320 MHz rows */
+ };
+ 
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+@@ -6572,6 +6569,7 @@
+ 	sinfo->tx_failed = stats->tx_failed;
+ 	sinfo->filled |= HDD_INFO_TX_FAILED;
+ 	sinfo->tx_retries = stats->tx_retries;
++	sinfo->filled |= HDD_INFO_TX_RETRIES;
+ 
+ 	/* sta flags */
+ 	hdd_fill_sta_flags(sinfo, stainfo);
+--- a/core/hdd/src/wlan_hdd_tx_rx.c
++++ b/core/hdd/src/wlan_hdd_tx_rx.c
+@@ -969,7 +969,9 @@
+ 	unsigned int i = 0;
+ 	struct netdev_queue *txq = NULL;
+ 
+-	for (i = 0; i < dev->num_tx_queues; i++) {
++	unsigned int n = min_t(unsigned int, dev->num_tx_queues, NUM_TX_QUEUES);
++
++	for (i = 0; i < n; i++) {
+ 		txq = netdev_get_tx_queue(dev, i);
+ 		q_hist->tx_q_state[i] = txq->state;
+ 	}
+--- a/core/mac/src/pe/sch/sch_beacon_process.c
++++ b/core/mac/src/pe/sch/sch_beacon_process.c
+@@ -311,7 +311,7 @@
+ 	bi = session->beaconParams.beaconInterval;
+ 	if (bi != bcn->beaconInterval) {
+ 		pe_debug("Beacon interval changed from %d to %d",
+-		       bcn->beaconInterval, bi);
++		       bi, bcn->beaconInterval);
+ 
+ 		bi = bcn->beaconInterval;
+ 		session->beaconParams.beaconInterval = (uint16_t) bi;
+--- a/xiaomi_ext/dlhc.c
++++ b/xiaomi_ext/dlhc.c
+@@ -103,7 +103,7 @@
+ {
+ 	struct dlhc *comp;
+ 
+-	if ((unsigned int)(rslots | tslots) > 255)
++	if (rslots > 255 || rslots < 0 || tslots > 255 || tslots < 0)
+ 		return ERR_PTR(-EINVAL);
+ 
+ 	comp = kzalloc(sizeof(*comp), GFP_KERNEL);
+@@ -434,16 +434,15 @@
+ 			comp->sls_i_tossed++;
+ 			return 0;
+ 		}
+-		x = comp->recv_current;
+ 	}
+-	cs = &comp->rstate[x];
++	cs = &comp->rstate[comp->recv_current];
+ 
+ 	cs->cs_ip.id = get_unaligned((__be16 *)cp);
+ 	cs->cs_tcp.seq = get_unaligned((__be32 *)(cp + 2));
+ 	cs->cs_tcp.ack_seq = get_unaligned((__be32 *)(cp + 6));
+-	cs->cs_tcp.psh = (changes & DL_PUSH) ? 1 : 0;
+ 	cs->cs_tcp.window = get_unaligned((__be16 *)(cp + 10));
+ 	cs->cs_tcp.check = get_unaligned((__be16 *)(cp + 12));
++	cs->cs_tcp.psh = (changes & DL_PUSH) ? 1 : 0;
+ 	cp += 14;
+ 
+ 	len = isize - (cp - icp);
+@@ -505,9 +504,8 @@
+ 			comp->sls_i_tossed++;
+ 			return 0;
+ 		}
+-		x = comp->recv_current;
+ 	}
+-	cs = &comp->rstate[x];
++	cs = &comp->rstate[comp->recv_current];
+ 
+ 	cs->cs_ip.id = get_unaligned((__be16 *)cp);
+ 	cs->cs_udp.len = get_unaligned((__be16 *)(cp + 2));
+@@ -564,7 +562,11 @@
+ 	unsigned char index;
+ 	unsigned int ihl = icp[0] & 0xf;
+ 
+-	if (isize < (int)sizeof(struct iphdr) || ihl < 5) {
++	if (isize < 20) {
++		comp->sls_i_runt++;
++		return dlhc_toss_one(comp);
++	}
++	if (ihl < 5) {
+ 		comp->sls_i_runt++;
+ 		return dlhc_toss_one(comp);
+ 	}
+@@ -603,7 +605,11 @@
+ 	unsigned char index;
+ 	unsigned int ihl = icp[0] & 0xf;
+ 
+-	if (isize < (int)sizeof(struct iphdr) || ihl < 5) {
++	if (isize < 20) {
++		comp->sls_i_runt++;
++		return dlhc_toss_one(comp);
++	}
++	if (ihl < 5) {
+ 		comp->sls_i_runt++;
+ 		return dlhc_toss_one(comp);
+ 	}
+--- a/xiaomi_ext/p2phc_core.c
++++ b/xiaomi_ext/p2phc_core.c
+@@ -31,8 +31,8 @@
+ 	{
+ 		.hook = rx_inet_hook,
+ 		.priv = &g_p2phc,
+-		.pf = NFPROTO_IPV4,
+-		.hooknum = NF_NETDEV_INGRESS,
++		.pf = NFPROTO_INET,
++		.hooknum = NF_INET_INGRESS,
+ 		.priority = NF_IP_PRI_FIRST,
+ 	},
+ };
+@@ -171,14 +171,12 @@
+ 	return __rx_inet_hook(priv, skb);
+ }
+ 
+-static __always_inline void p2phc_p2px_event(struct net_device *dev, unsigned long event)
++static __always_inline void p2phc_p2px_event(struct net_device *dev, unsigned int event)
+ {
+ 	bool hooked = g_p2phc.hooked;
+ 	int ret;
+ 
+-	if (event == NETDEV_REGISTER) {
+-		if (hooked)
+-			return;
++	if (event == NETDEV_REGISTER && !hooked) {
+ 		p2phc_hooks[0].dev = dev;
+ 		ret = nf_register_net_hooks(&init_net, p2phc_hooks, 1);
+ 		if (ret) {
+@@ -187,9 +185,7 @@
+ 		}
+ 		g_p2phc.hooked = true;
+ 		p2phc_info("%s nf_register_net_hooks", __func__);
+-	} else if (event == NETDEV_UNREGISTER) {
+-		if (!hooked)
+-			return;
++	} else if (event == NETDEV_UNREGISTER && hooked) {
+ 		nf_unregister_net_hooks(&init_net, p2phc_hooks, 1);
+ 		g_p2phc.hooked = false;
+ 		p2phc_info("%s nf_unregister_net_hooks", __func__);
+@@ -204,12 +200,17 @@
+ 	if (strncmp(dev->name, "p2p", 3))
+ 		return NOTIFY_DONE;
+ 
+-	if (event - NETDEV_REGISTER < 2) {
+-		p2phc_p2px_event(dev, event);
+-	} else {
+-		hc = g_p2phc.hc;
+-		if ((event == NETDEV_UP || event == NETDEV_CHANGE) && netif_oper_up(dev))
++	hc = g_p2phc.hc;
++	switch (event) {
++	case NETDEV_UP:
++	case NETDEV_CHANGE:
++		if (netif_oper_up(dev))
+ 			dlhc_reset(hc);
++		break;
++	case NETDEV_REGISTER:
++	case NETDEV_UNREGISTER:
++		p2phc_p2px_event(dev, event);
++		break;
+ 	}
+ 	return NOTIFY_DONE;
+ }
+--- a/xiaomi_ext/xiaomi_ext.c
++++ b/xiaomi_ext/xiaomi_ext.c
+@@ -365,7 +365,7 @@
+ 	if (!mlme_psoc_ext)
+ 		return QDF_STATUS_E_INVAL;
+ 
+-	qdf_timer_mod(&mlme_psoc_ext->miracast_opt_timer, 5000);
++	qdf_timer_mod(&mlme_psoc_ext->miracast_opt_timer, 20000);
+ 	qdf_wake_lock_timeout_acquire(&mlme_psoc_ext->miracast_opt_wl, 20000);
+ 	return QDF_STATUS_SUCCESS;
+ }
+@@ -550,14 +550,20 @@
+ 		goto out;
+ 	}
+ 	bw = nla_get_u32(tb[MI_SCAN_ENTRY_BANDWIDTH]);
+-	if (bw == 2)
+-		ch_params.ch_width = 3;
+-	else if (bw == 1)
+-		ch_params.ch_width = 2;
+-	else if (bw == 0)
++	switch (bw) {
++	case 0:
+ 		ch_params.ch_width = 1;
+-	else
++		break;
++	case 1:
++		ch_params.ch_width = 2;
++		break;
++	case 2:
++		ch_params.ch_width = 3;
++		break;
++	default:
+ 		ch_params.ch_width = wlan_reg_is_24ghz_ch_freq(freq) ? 1 : 2;
++		break;
++	}
+ 	wlan_reg_set_channel_params_for_pwrmode(hdd_ctx->pdev, freq, 0, &ch_params,
+ 						REG_CURRENT_PWR_MODE);
+ 

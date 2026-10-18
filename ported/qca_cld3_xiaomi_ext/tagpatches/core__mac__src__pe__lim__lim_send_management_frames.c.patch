@@ -1,0 +1,51 @@
+--- core/mac/src/pe/lim/lim_send_management_frames.c
++++ core/mac/src/pe/lim/lim_send_management_frames.c
+@@ -367,5 +367,6 @@
+ 
+ 	/* Populate Non-AP STA Regulatory connectivity element */
+-	populate_dot11f_reg_connectivity(mac_ctx, &pr->reg_connect);
++	if (IS_DOT11_MODE_HE(dot11mode))
++		populate_dot11f_reg_connectivity(mac_ctx, &pr->reg_connect);
+ 
+ 	if (addn_ielen && additional_ie) {
+--- core/mac/src/pe/lim/lim_send_management_frames.c
++++ core/mac/src/pe/lim/lim_send_management_frames.c
+@@ -3295,5 +3295,6 @@
+ 
+ 	/* Populate Non-AP STA Regulatory connectivity element */
+-	populate_dot11f_reg_connectivity(mac_ctx, &frm->reg_connect);
++	if (IS_DOT11_MODE_HE(pe_session->dot11mode))
++		populate_dot11f_reg_connectivity(mac_ctx, &frm->reg_connect);
+ 
+ 	if (pe_session->is11Rconnection) {
+--- core/mac/src/pe/lim/lim_send_management_frames.c
++++ core/mac/src/pe/lim/lim_send_management_frames.c
+@@ -3629,6 +3642,6 @@
+ 
+ 	bytes = payload + sizeof(tSirMacMgmtHdr) + aes_block_size_len +
+-		rsnx_ie_len + mbo_ie_len + adaptive_11r_ie_len +
+-		mscs_ext_ie_len + vendor_ie_len + mlo_ie_len + fils_hlp_ie_len +
++		mbo_ie_len + adaptive_11r_ie_len +
++		vendor_ie_len + mlo_ie_len + fils_hlp_ie_len +
+ 		eht_cap_ie_len + rsn_sel_ie_len;
+ 
+--- core/mac/src/pe/lim/lim_send_management_frames.c
++++ core/mac/src/pe/lim/lim_send_management_frames.c
+@@ -3683,16 +3707,5 @@
+ 	}
+ 
+-	if (rsnx_ie && rsnx_ie_len) {
+-		qdf_mem_copy(frame + sizeof(tSirMacMgmtHdr) + payload,
+-			     rsnx_ie, rsnx_ie_len);
+-		payload = payload + rsnx_ie_len;
+-	}
+-
+-	if (mscs_ext_ie && mscs_ext_ie_len) {
+-		qdf_mem_copy(frame + sizeof(tSirMacMgmtHdr) + payload,
+-			     mscs_ext_ie, mscs_ext_ie_len);
+-		payload = payload + mscs_ext_ie_len;
+-	}
+-
++	/* Need to put all the vendor specific IE to the nd of frame*/
+ 	if (rsn_sel_ie_len) {
+ 		qdf_mem_copy(frame + sizeof(tSirMacMgmtHdr) + payload,

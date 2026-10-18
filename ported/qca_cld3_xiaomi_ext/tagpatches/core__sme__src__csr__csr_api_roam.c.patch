@@ -1,0 +1,44 @@
+--- core/sme/src/csr/csr_api_roam.c
++++ core/sme/src/csr/csr_api_roam.c
+@@ -5905,4 +5938,10 @@
+ 	}
+ 
++	if (cm_csr_is_ss_wait_for_key(vdev_id)) {
++		mlme_debug("Stop Wait for key timer");
++		cm_stop_wait_for_key_timer(mac_ctx->psoc, vdev_id);
++		cm_csr_set_ss_none(vdev_id);
++	}
++
+ 	cm_csr_set_joining(vdev_id);
+ 
+--- core/sme/src/csr/csr_api_roam.c
++++ core/sme/src/csr/csr_api_roam.c
+@@ -6915,10 +6976,4 @@
+ 		cmd->cmd_timeout_duration = SME_CMD_PEER_DISCONNECT_TIMEOUT;
+ 		break;
+-	case WLAN_SER_CMD_VDEV_START_BSS:
+-		cmd->cmd_timeout_duration = SME_CMD_VDEV_START_BSS_TIMEOUT;
+-		break;
+-	case WLAN_SER_CMD_VDEV_STOP_BSS:
+-		cmd->cmd_timeout_duration = SME_CMD_STOP_BSS_CMD_TIMEOUT;
+-		break;
+ 	case WLAN_SER_CMD_FORCE_DISASSOC_STA:
+ 	case WLAN_SER_CMD_FORCE_DEAUTH_STA:
+--- core/sme/src/csr/csr_api_roam.c
++++ core/sme/src/csr/csr_api_roam.c
+@@ -8081,5 +8136,5 @@
+ 	cmd.umac_cmd = start_bss_cfg;
+ 	cmd.vdev = vdev;
+-	csr_fill_cmd_timeout(&cmd);
++	cmd.cmd_timeout_duration = SME_CMD_VDEV_START_BSS_TIMEOUT;
+ 
+ 	status = wlan_vdev_mlme_ser_start_bss(&cmd);
+--- core/sme/src/csr/csr_api_roam.c
++++ core/sme/src/csr/csr_api_roam.c
+@@ -8137,5 +8192,5 @@
+ 	cmd.umac_cmd = stop_bss_req;
+ 	cmd.vdev = vdev;
+-	csr_fill_cmd_timeout(&cmd);
++	cmd.cmd_timeout_duration = SME_CMD_STOP_BSS_CMD_TIMEOUT;
+ 
+ 	status = wlan_vdev_mlme_ser_stop_bss(&cmd);

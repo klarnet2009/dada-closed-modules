@@ -1,0 +1,39 @@
+load("/<build-dir>", "ddk_headers", "ddk_module")
+
+# mitee_dlkm (Xiaomi MiTEE client driver, OS4 vendor_dlkm). Template: Xiaomi XRING `drivers/tee/mitee` (MiCode dijun-v-oss, GPL-2.0)
+# + own Gunyah msgq transport (mitee_msgq.c, recovered from the stock binary). ThinLTO like the stock (defconfig).
+# Providers: forged OS4 stubs (exact stock export CRCs) of gh_rm_drv / gh_msgq / secure_buffer / qcom-scm / minidump: the stub .ko files must NEVER be shipped.
+# STATUS: see STATUS.md. Module stays DO NOT LOAD.
+ddk_headers(
+    name = "mitee_headers",
+    hdrs = glob(["*.h"]),
+    includes = ["."],
+)
+
+ddk_module(
+    name = "mitee_dlkm",
+    srcs = glob(["*.c"]) + glob(["*.h"]),
+    out = "mitee_dlkm.ko",
+    defconfig = "mitee_dlkm_defconfig",
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_GH_MSGQ=1",
+        "CONFIG_GH_RM_DRV=1",
+        "CONFIG_QCOM_SECURE_BUFFER=1",
+        "CONFIG_QCOM_MINIDUMP=1",
+        "CONFIG_QCOM_SCM=1",
+        "CONFIG_XRING_OPTEE_SHM_NUM_PRIV_PAGES=1",
+        "CONFIG_XRING_OPTEE_BENCHMARK=1",
+    ],
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-implicit-fallthrough", "-Wno-unused-variable", "-Wno-unused-function", "-Wno-unused-const-variable"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        ":mitee_headers",
+        "//re/stubs_g3g:os4_gh_rm_drv",
+        "//re/stubs_g12:os4_gh_msgq",
+        "//re/stubs_g12:os4_secure_buffer",
+        "//re/stubs_g12:os4_qcom-scm",
+        "//re/stubs_g12:os4_minidump",
+        "//common:all_headers_aarch64",
+    ],
+)

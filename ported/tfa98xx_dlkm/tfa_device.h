@@ -379,7 +379,6 @@ void tfa9865_ops(struct tfa_device_ops *ops);
 void tfa986x_ops(struct tfa_device_ops *ops);
 void tfa9875_ops(struct tfa_device_ops *ops);
 void tfa9878_ops(struct tfa_device_ops *ops);
-int tfa_set_bitfield(struct tfa_device *tfa, uint16_t bf, uint16_t value);
 enum Tfa98xx_Error tfa_dsp_msg_rpc(struct tfa_device *tfa, int length, const char *buf);
 enum Tfa98xx_Error tfa_dsp_msg_read_rpc(struct tfa_device *tfa, int length, unsigned char *bytes);
 int tfa_wait4manstate(struct tfa_device *tfa, uint16_t bf, uint16_t value, int tries);

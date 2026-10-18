@@ -69,7 +69,7 @@ noinline __used int get_scene(int code)
 
 	return i < 5 ? i : -1;
 }
-noinline __used bool check_report_limit(void)
+__used bool check_report_limit(void)
 {
 	static struct ratelimit_state hour_limit = RATELIMIT_STATE_INIT("hour_limit", 3600 * HZ, 5);
 	static struct ratelimit_state day_limit = RATELIMIT_STATE_INIT("day_limit", 86400 * HZ, 25);
@@ -78,7 +78,7 @@ noinline __used bool check_report_limit(void)
 		return !___ratelimit(&day_limit, "check_report_limit");
 	return true;
 }
-noinline __used int get_time_bucket(u64 ns)
+__used int get_time_bucket(u64 ns)
 {
 	int bucket = 0;
 
@@ -262,37 +262,41 @@ noinline __used void dfx_enable_control(int enable)
 }
 /* dfx statistics: u32 bucket counters at 0x12c [scene 0xf0][proc 0x50][type 0x14][bucket 4], u64 totals at 0x5e0 [0x60][0x20][8],
  * u32 max latency (ns) at 0x7c0 [0x30][0x10][4]; names: alloc types at dfx+0 (20 bytes each), process types at dfx+0xf0 */
-static noinline __used ssize_t scene_alloc_info_show_common(char *buf, int scene)
+static noinline __used ssize_t scene_alloc_info_show_common(char *buf, unsigned int scene)
 {
 	int total[3][4] = {};
 	u64 avg[3][4] = {};
-	int proc, t, len = 0;
+	int proc, t;
+	ssize_t len = 0;
 
 	for (proc = 0; proc < 3; proc++) {
+#pragma clang loop unroll(disable)
 		for (t = 0; t < 4; t++) {
 			int cnt = 0, b;
 
+			/* the stock reads the counters with acquire loads (ldar) */
 			for (b = 0; b < 5; b++)
-				cnt += atomic_read(DFX_ATOMIC(0x12c + scene * 0xf0 + proc * 0x50 + t * 0x14 + b * 4));
+				cnt += smp_load_acquire(&dfx.cnt[scene][proc][t][b]);
 			total[proc][t] = cnt;
 			if (cnt >= 1)
-				avg[proc][t] = DFX_U64_AT(0x5e0 + scene * 0x60 + proc * 0x20 + t * 8) / cnt / 1000000;
+				avg[proc][t] = dfx.tot[scene][proc][t] / cnt / 1000000;
 		}
 	}
 	for (proc = 0; proc < 3; proc++) {
 		len += sysfs_emit_at(buf, len, "===proc_type: %s===\n", (char *)dfx.raw + 0xf0 + proc * 20);
+#pragma clang loop unroll(disable)
 		for (t = 0; t < 4; t++) {
 			char *name = (char *)dfx.raw + t * 20;
-			int *c = (int *)(dfx.raw + 0x12c + scene * 0xf0 + proc * 0x50 + t * 0x14);
+			u32 *c = dfx.cnt[scene][proc][t];
 
 			len += sysfs_emit_at(buf, len, "%s total:%d\n", name, total[proc][t]);
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 0ULL, 8ULL, atomic_read((atomic_t *)&c[0]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 8ULL, 64ULL, atomic_read((atomic_t *)&c[1]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 64ULL, 256ULL, atomic_read((atomic_t *)&c[2]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 256ULL, 1024ULL, atomic_read((atomic_t *)&c[3]));
-			len += sysfs_emit_at(buf, len, "%s_1024_INF  %d\n", name, atomic_read((atomic_t *)&c[4]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 0ULL, 8ULL, smp_load_acquire(&c[0]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 8ULL, 64ULL, smp_load_acquire(&c[1]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 64ULL, 256ULL, smp_load_acquire(&c[2]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 256ULL, 1024ULL, smp_load_acquire(&c[3]));
+			len += sysfs_emit_at(buf, len, "%s_1024_INF  %d\n", name, smp_load_acquire(&c[4]));
 			len += sysfs_emit_at(buf, len, "avg_ms: %llu\n", avg[proc][t]);
-			len += sysfs_emit_at(buf, len, "max_ms: %ld\n\n", (long)(DFX_U32(0x7c0 + scene * 0x30 + proc * 0x10 + t * 4) / 1000000));
+			len += sysfs_emit_at(buf, len, "max_ms: %ld\n\n", (long)(dfx.max[scene][proc][t] / 1000000));
 		}
 	}
 	return len;
@@ -393,7 +397,44 @@ noinline __used int mi_dfx_init(void)
 	DFX_NAME(0x104, "main_thread");
 	DFX_NAME(0x118, "background");
 	dfx.raw[0xe0] = 0;
-	memset(dfx.raw + 0x12c, 0, 0x978 - 0x12c);
+	/* G1ai: the stock clears the typed arrays [scene 5][proc 3][type 4][bucket 5] with loops (t, k not unrolled), the spinlock at +0x8b0 and then
+	   field by field (no memset); the gap +0x8f4..+0x91f and the cma pool counters are NOT touched here (they are only cleared by dfx_info_reset) */
+	{
+		int t, k, j, i;
+
+		spin_lock_init((spinlock_t *)(dfx.raw + 0x8b0));
+		for (t = 0; t < 5; t++)
+#pragma clang loop unroll(disable)
+			for (k = 0; k < 3; k++)
+#pragma clang loop unroll(full)
+				for (j = 0; j < 4; j++) {
+#pragma clang loop unroll(full)
+					for (i = 0; i < 5; i++)
+						WRITE_ONCE(dfx.cnt[t][k][j][i], 0);
+					WRITE_ONCE(dfx.tot[t][k][j], 0);
+					WRITE_ONCE(dfx.max[t][k][j], 0);
+				}
+		for (i = 0; i < 5; i++) {
+			WRITE_ONCE(DFX_U32(0x8b4 + i * 4), 0);
+			WRITE_ONCE(DFX_U32(0x8b4 + 0x20 + i * 4), 0);
+		}
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x14), 0);
+		WRITE_ONCE(DFX_U32(0x8b4 + 0x1c), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x34), 0);
+		WRITE_ONCE(DFX_U32(0x8b4 + 0x3c), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x6c), 0);
+		WRITE_ONCE(DFX_U32(0x8b4 + 0x74), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x7c), 0);
+		WRITE_ONCE(DFX_U32(0x8b4 + 0x84), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x8c), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x94), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0x9c), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0xa4), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0xac), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0xb4), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0xbc), 0);
+		WRITE_ONCE(DFX_U64(0x8b4 + 0xc4), 0);
+	}
 	DFX_U32(0x980) = 100;
 	DFX_U32(0x984) = 200;
 	DFX_U32(0x988) = 600;
@@ -445,14 +486,14 @@ noinline __used void fill_pre_compact_fault_data(struct pre_compact_fault_data *
 		f->frag_before = frag_before;
 		f->frag_after = frag_after;
 		f->compact_times = compact_times;
-		cnt = MCI_U32(0x8e8);
+		cnt = mci.hist_cnt;
 		if (cnt) {
-			u8 *rec = (u8 *)((struct mci_slot *)mci.raw + (cnt - 1) % 30);
+			struct pc_rec *rec = &mci.hist[(cnt - 1) % 30];
 
-			f->target_count_4 = *(u32 *)(rec + 0x90);
-			f->compact_count_4 = *(u32 *)(rec + 0xa0);
-			f->target_count_ext = *(u32 *)(rec + 0x94);
-			f->compact_count_ext = *(u32 *)(rec + 0xa4);
+			f->target_count_4 = rec->t4;
+			f->compact_count_4 = rec->n4;
+			f->target_count_ext = rec->t9;
+			f->compact_count_ext = rec->n9;
 		}
 	}
 	fill_sys_mem_info(&f->sys_info);
@@ -474,15 +515,15 @@ noinline __used void fill_mem_alloc_fault_data(struct mem_alloc_fault_data *f, u
 		strscpy(f->app_name, app_name, sizeof(f->app_name));
 	if (app_ver)
 		strscpy(f->app_ver, app_ver, sizeof(f->app_ver));
-	cnt = MCI_U32(0x8e8);
+	cnt = mci.hist_cnt;
 	if (cnt) {
-		u8 *rec = (u8 *)((struct mci_slot *)mci.raw + (cnt - 1) % 30);
+		struct pc_rec *rec = &mci.hist[(cnt - 1) % 30];
 
-		f->target_count_4 = *(u32 *)(rec + 0x90);
-		f->compact_count_4 = *(u32 *)(rec + 0xa0);
+		f->target_count_4 = rec->t4;
+		f->compact_count_4 = rec->n4;
 		f->curr_count_4 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
-		f->target_count_ext = *(u32 *)(rec + 0x94);
-		f->compact_count_ext = *(u32 *)(rec + 0xa4);
+		f->target_count_ext = rec->t9;
+		f->compact_count_ext = rec->n9;
 		f->curr_count_ext = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
 	}
 	if (type <= 1) {

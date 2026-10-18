@@ -85,3 +85,6 @@ imports the correct stock CRCs.
 
 ## Remaining differences
 None.
+
+## G13d (18.10.2026): enum names corrected to the stock BTF
+Source names of MCA_EVENT_CP_{VBUS_OVP,IBUS_OCP,VUSB_OVP}, CHARGE_DFX_CP_{VBUS_OVP,IBUS_OCP,VAC_OVP}, the G2 spellings (CP_REVERT_CHANGE, DEBUG_*, HANDLE_STATE, SET_REVCHG_BCL) and the literals 0x2f/0x53/0x2d/0x39 replaced by the stock names; BUILD now uses //re/stubs_g13d_g5 (stock BTF enums). Result: disassembly + relocations + sections identical to the previous Kleaf build (only the build-id differs); compare_ko_v2 unchanged (41/45 identical). Details: work/a17/review/charging_enum_audit.md. Still community-only, never flash.

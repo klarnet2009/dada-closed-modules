@@ -448,19 +448,19 @@ int qi_vh_binder_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_binder_set_priority(android_vh_binder_set_priority, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_binder_restore_priority(android_vh_binder_restore_priority, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_binder_proc_transaction(android_vh_binder_proc_transaction, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_free_oem_binder_struct(android_vh_free_binder_transaction, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_binder_buffer_release(android_vh_binder_buffer_release, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_binder: register hooks failed, ret %d\n", ret);
@@ -633,7 +633,7 @@ int qi_vh_fuse_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_fuse_request_end_ext(android_vh_fuse_request_end, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_fuse: register hooks failed, ret %d\n", ret);
@@ -885,16 +885,16 @@ int qi_vh_futex_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_futex_wait_queue_start(android_vh_futex_wait_queue_start, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_futex_wait_end(android_vh_futex_wait_end, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_futex_wake_traverse_plist(android_vh_futex_wake_traverse_plist, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_futex_wake_up_q_finish(android_vh_futex_wake_up_q, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_futex: register hooks failed, ret %d\n", ret);
@@ -1138,26 +1138,25 @@ int qi_vh_mutex_register(void)
 {
 	int ret = 0, err;
 
-	err = register_trace_android_vh_record_mutex_lock_starttime(android_vh_mutex_lock_released, NULL);
+	/* the stock ignores the result of the first hook */
+	register_trace_android_vh_record_mutex_lock_starttime(android_vh_mutex_lock_released, NULL);
+	err = register_trace_android_vh_mutex_unlock_slowpath(android_vh_mutex_unlock_slowpath, NULL);
 	if (err < 0)
 		ret = err;
-	err = register_trace_android_vh_mutex_unlock_slowpath(android_vh_mutex_unlock_slowpath, NULL);
-	if (!ret && err < 0)
-		ret = err;
 	err = register_trace_android_vh_mutex_wait_start(android_vh_mutex_wait_start, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mutex_wait_finish(android_vh_mutex_wait_finish, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mutex_opt_spin_start(android_vh_mutex_opt_spin_start, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mutex_opt_spin_finish(android_vh_mutex_opt_spin_finish, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mutex_can_spin_on_owner(android_vh_mutex_can_spin_on_owner, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_mutex: register hooks failed, ret %d\n", ret);
@@ -1308,7 +1307,7 @@ int qi_vh_percpu_rwsem_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_percpu_rwsem_wq_add(android_vh_percpu_rwsem_wq_add, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_percpu_rwsem: register hooks failed, ret %d\n", ret);
@@ -1666,13 +1665,13 @@ static void android_vh_percpu_rwsem_wq_add(void *unused, struct percpu_rw_semaph
 
 	if (!is_qi_feat_enabled(6))
 		return;
-	head = &sem->waiters.head;
-	own = head->prev;
+	own = sem->waiters.head.prev;
 	w = list_entry(own, struct wait_queue_entry, entry);
-	if (w->private != cur)
+	if (unlikely(w->private != cur))
 		return;
 	wflags = w->flags;
-	pos = head->next;
+	pos = sem->waiters.head.next;
+	head = &sem->waiters.head;
 	if (wflags & WQ_FLAG_CUSTOM) {
 		if (pos == head)
 			return;
@@ -2239,8 +2238,13 @@ static void android_vh_rwsem_read_trylock_failed(void *unused, struct rw_semapho
 retry:
 	raw_spin_unlock_irq(&sem->wait_lock);
 	if (!cntp) {
+		int ntry;
+
+		/* the stock retries the cmpxchg at most 3 times (fully unrolled, the 3rd failure just leaves) */
 		count = atomic_long_read(&sem->count);
-		while (!(count & RWSEM_READFAIL_MASK)) {
+		for (ntry = 0; ntry < 3; ntry++) {
+			if (count & RWSEM_READFAIL_MASK)
+				break;
 			if (atomic_long_try_cmpxchg_acquire(&sem->count, &count, count + RWSEM_READER_BIAS)) {
 				*ret = 1;
 				break;
@@ -2334,37 +2338,37 @@ int qi_vh_rwsem_register(void)
 	if (err < 0)
 		ret = err;
 	err = register_trace_android_vh_clear_rwsem_writer_owned(android_vh_clear_rwsem_writer_owned, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_clear_rwsem_reader_owned(android_vh_clear_rwsem_reader_owned, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_direct_rsteal(android_vh_rwsem_direct_rsteal, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_optimistic_rspin(android_vh_rwsem_opt_rspin, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_write_wait_finish(android_vh_rwsem_write_wait_finish, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_read_wait_finish(android_vh_rwsem_read_wait_finish, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_read_trylock_failed(android_vh_rwsem_read_trylock_failed, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_record_rwsem_lock_starttime(android_vh_record_rwsem_lock_starttime, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mmap_lock_init(android_vh_mmap_lock_init, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_mmap_lock_free(android_vh_mmap_lock_free, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	err = register_trace_android_vh_rwsem_init(android_vh_rwsem_init, NULL);
-	if (!ret && err < 0)
+	if ((err < 0) & !ret)
 		ret = err;
 	if (ret < 0)
 		printk(KERN_ERR "qi_rwsem: register hooks failed, ret %d\n", ret);

@@ -36,7 +36,7 @@ noinline struct mi_game_task *get_gt_task(struct task_struct *p)
 	return NULL;
 }
 
-noinline void set_render_flag(struct task_struct *p, int idx)
+static noinline void set_render_flag(struct task_struct *p, enum MI_RENDER_TYPE idx)
 {
 	struct plat_task_struct *t = get_xr_task_struct(p);
 
@@ -46,7 +46,7 @@ noinline void set_render_flag(struct task_struct *p, int idx)
 	}
 }
 
-noinline void clean_render_flag(struct task_struct *p, int idx)
+static noinline void clean_render_flag(struct task_struct *p, enum MI_RENDER_TYPE idx)
 {
 	struct plat_task_struct *t = get_xr_task_struct(p);
 
@@ -56,7 +56,8 @@ noinline void clean_render_flag(struct task_struct *p, int idx)
 	}
 }
 
-void clear_vip_task_type(struct task_struct *p, struct mi_game_task *g)
+/* stock BTF: (task, game task, char *, int rule_type); the last two are unused (kCFI hash 0x3155a5ab needs them) */
+void clear_vip_task_type(struct task_struct *p, struct mi_game_task *g, char *unused_name, int rule_type)
 {
 	if (p && g && (g->type & 0x810)) {
 		g->type &= ~0x810;
@@ -64,22 +65,22 @@ void clear_vip_task_type(struct task_struct *p, struct mi_game_task *g)
 	}
 }
 
-int migt_mmap(struct file *file, struct vm_area_struct *vma)
+static int migt_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	return 0;
 }
 
-int migt_open(struct inode *inode, struct file *file)
+static int migt_open(struct inode *inode, struct file *file)
 {
 	return 0;
 }
 
-int migt_release(struct inode *inode, struct file *file)
+static int migt_release(struct inode *inode, struct file *file)
 {
 	return 0;
 }
 
-int migt_reset_open(struct inode *inode, struct file *file)
+static int migt_reset_open(struct inode *inode, struct file *file)
 {
 	return 0;
 }
@@ -268,7 +269,7 @@ noinline void set_vip_flag(struct task_struct *p)
 	mi_set_sf_flag(current, p, 1);
 }
 
-void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p)
+static void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p)
 {
 	set_vip_flag(p);
 }
@@ -279,7 +280,7 @@ noinline int migt_enable(void)
 	return migt_boost_policy;
 }
 
-bool migt_enable_gpsync(void)
+static bool migt_enable_gpsync(void)
 {
 	debugfs_walt_features = (debugfs_walt_features & ~1) | !!migt_walt_features;
 	return migt_boost_policy && migt_gpsync;
@@ -321,7 +322,7 @@ int get_cur_render_uid(void)
 	return last_traced_uid;
 }
 
-int get_migt_flag(char *buf, const struct kernel_param *kp)
+static int get_migt_flag(char *buf, const struct kernel_param *kp)
 {
 	return 0;
 }
@@ -365,7 +366,7 @@ noinline void migt_choose_exclusive_cpu_reset(void)
 	update_migt_reserve_cpus();
 }
 
-int migt_reset(struct inode *inode, struct file *file)
+static int migt_reset(struct inode *inode, struct file *file)
 {
 	migt_boost_policy = 0;
 	migt_choose_exclusive_cpu_reset();
@@ -417,7 +418,7 @@ noinline void wake_render(struct task_struct *p)
 	}
 }
 
-void xr_game_find_energy_hook(struct task_struct *p, bool *need_idle)
+static void xr_game_find_energy_hook(struct task_struct *p, bool *need_idle)
 {
 	wake_render(p);
 	*need_idle = *need_idle ? true : game_vip_task(p) != 0;
@@ -634,7 +635,7 @@ bool game_lb_control(struct task_struct *p, int src, int dst, int unused)
 	if (!migt_enable() || !p || !gt || !force_forbidden_walt_lb)
 		return 0;
 	now = sched_clock();
-	if (gt->enqueue_tm && p->on_rq && now - gt->enqueue_tm > (u64)task_enqueue_time_toolong * 1000000)
+	if (gt->enqueue_tm && p->se.on_rq && now - gt->enqueue_tm > (u64)task_enqueue_time_toolong * 1000000)
 		return 0;
 	super_t = game_super_task(p);
 	if (dst == 31 && !super_t && stask_prefer_cluster == 3)

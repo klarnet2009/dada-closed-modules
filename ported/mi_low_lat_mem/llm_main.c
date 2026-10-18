@@ -26,7 +26,7 @@ struct mutex pending_lock;
 struct mutex dmabuf_lock;
 struct mutex largemem_lock;
 struct mem_cgroup *current_write_memcg;
-struct kprobe llm_kallsym_kp;
+struct kprobe llm_kallsym_kp = { .symbol_name = "kallsyms_lookup_name" };	/* .data with the pointer reloc in the stock */
 unsigned long (*llm_ksym_lookup_name)(const char *name);
 unsigned long try_to_free_pages_symbol;
 struct sys_mem_slot sys_mem_data[4];
@@ -280,7 +280,7 @@ void mi_memcg_free(void *data, struct mem_cgroup *memcg)
 }
 /* ---- scene_* show: per (process type, alloc type) latency histogram of one scene ---- */
 LIST_HEAD(mi_smart_refill_pools);
-EXPORT_SYMBOL(mi_smart_refill_pools);
+EXPORT_SYMBOL_GPL(mi_smart_refill_pools);
 /* ---- memcg control files (cgroup v1/v2 cftypes) ---- */
 static int memcg_read_appname(struct seq_file *sf, void *v)
 {
@@ -368,7 +368,7 @@ static void mi_folio_set_order(struct folio *folio, unsigned int order)
 }
 /* the symbol keeps the stock name; mm.h already declares a global prep_compound_page() */
 __used void llm_prep_compound_page(struct page *page, unsigned int order) __asm__("prep_compound_page");
-__used void llm_prep_compound_page(struct page *page, unsigned int order)
+static __always_inline void prep_compound_body(struct page *page, unsigned int order)
 {
 	int i;
 	int nr_pages = 1 << order;
@@ -381,7 +381,11 @@ __used void llm_prep_compound_page(struct page *page, unsigned int order)
 	atomic_set(&((struct folio *)page)->_nr_pages_mapped, 0);
 	atomic_set(&((struct folio *)page)->_pincount, 0);
 }
-static noinline __used struct page *pre_compact_pool_remove(struct pre_compact_pool *pool)
+__used void llm_prep_compound_page(struct page *page, unsigned int order)
+{
+	prep_compound_body(page, order);
+}
+static __always_inline struct page *pool_remove_body(struct pre_compact_pool *pool)
 {
 	struct page *page;
 	unsigned long flags;
@@ -395,6 +399,10 @@ static noinline __used struct page *pre_compact_pool_remove(struct pre_compact_p
 	}
 	spin_unlock_irqrestore(&pool->lock, flags);
 	return page;
+}
+static noinline __used struct page *pre_compact_pool_remove(struct pre_compact_pool *pool)
+{
+	return pool_remove_body(pool);
 }
 noinline __used struct page *alloc_pre_compact_page(gfp_t gfp, int order)
 {
@@ -410,7 +418,7 @@ noinline __used struct page *alloc_pre_compact_page(gfp_t gfp, int order)
 	}
 	return page;
 }
-static noinline __used void pre_compact_pools_exit(void)
+static __always_inline void pools_exit_body(void)
 {
 	struct pre_compact_pool *pool;
 	struct page *page;
@@ -429,6 +437,10 @@ static noinline __used void pre_compact_pools_exit(void)
 		kfree(pool);
 		MCI_PTR(0x58) = NULL;
 	}
+}
+static noinline __used void pre_compact_pools_exit(void)
+{
+	pools_exit_body();
 }
 static noinline __used void collect_pages(int order, unsigned int count);
 static void do_compact_mem_collect(void *data, struct compact_control *cc, bool *bypass)
@@ -468,17 +480,20 @@ static void do_alloc_pages_big_order(void *data, gfp_t gfp_mask, int order, int 
 		return;
 	if (*page)
 		return;
-	if (order == 4)
+	if (order == 4) {
 		DFX_U64(0x948)++;
-	else
+		barrier();	/* keep the two increments apart like the stock */
+	} else {
 		DFX_U64(0x958)++;
+		barrier();
+	}
 	p = pre_compact_pool_remove(((struct pre_compact_pool **)(mci.raw + 0x10))[order]);
 	if (!p) {
 		*page = NULL;
 		return;
 	}
 	if (gfp_mask & __GFP_COMP)
-		llm_prep_compound_page(p, order);
+		prep_compound_body(p, order);
 	*page = p;
 	if (order == 4)
 		DFX_U64(0x940)++;
@@ -494,38 +509,38 @@ static ssize_t stats_history_show(struct kobject *kobj, struct kobj_attribute *a
 	ssize_t len;
 	unsigned int n, cnt = 0, i, j, k;
 
-	if (!MCI_U32(0x8e8))
+	if (!mci.hist_cnt)
 		return sysfs_emit(buf, "No statistics data available\n");
 	len = sysfs_emit_at(buf, 0,
 			    "Index         Time           Mem(MB)    Frag4    Frag%d    T4    A4    T%d    A%d    Rate4 Rate%d Remain4  Remain%d  Dur(us)  Success\n",
 			    9, 9, 9, 9, 9);
-	n = MCI_U32(0x8e8) < 30 ? MCI_U32(0x8e8) : 30;
+	n = mci.hist_cnt < 30 ? mci.hist_cnt : 30;
 	for (i = 0; i < n; i++)
-		if (*(u64 *)(mci.raw + 0xb0 + i * 0x48))
+		if (mci.hist[i].time)
 			idx[cnt++] = i;
 	if (!cnt)
 		return len;
 	for (i = 0; i + 1 < cnt; i++)
 		for (j = 0; j < cnt - 1 - i; j++) {
-			u64 a = *(u64 *)(mci.raw + 0xb0 + idx[j] * 0x48), b = *(u64 *)(mci.raw + 0xb0 + idx[j + 1] * 0x48);
+			u64 a = mci.hist[idx[j]].time, b = mci.hist[idx[j + 1]].time;
 
 			if (a > b)
 				swap(idx[j], idx[j + 1]);
 		}
 	for (k = 0; k < cnt; k++) {
-		u8 *r = mci.raw + idx[k] * 0x48;
-		u32 t4 = *(u32 *)(r + 0x90), t9 = *(u32 *)(r + 0x94);
-		u32 b4 = *(u32 *)(r + 0x98), b9 = *(u32 *)(r + 0x9c), n4 = *(u32 *)(r + 0xa0), n9 = *(u32 *)(r + 0xa4);
+		struct pc_rec *r = &mci.hist[idx[k]];
+		u32 t4 = r->t4, t9 = r->t9;
+		u32 b4 = r->c4, b9 = r->c9, n4 = r->n4, n9 = r->n9;
 		u32 a4 = n4 < b4 ? 0 : n4 - b4, a9 = n9 < b9 ? 0 : n9 - b9;
 		u32 rate4 = t4 ? a4 * 100 / t4 : 100, rate9 = t9 ? a9 * 100 / t9 : 100;
 
-		time64_to_tm(*(u64 *)(r + 0xb0) / 1000000000, 28800, &tm);
+		time64_to_tm(r->time / 1000000000, 28800, &tm);
 		snprintf(tbuf, sizeof(tbuf), "%02d-%02d %02d:%02d:%02d", tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 		len += sysfs_emit_at(buf, len,
 				     "%-9u %-19s %-9lu %u-%-5u %u-%-5u %-5u %-5u %-5u %-5u %-3u%s  %-3u%s  %-8u %-8u %-8lu %s\n",
-				     k + 1, tbuf, (unsigned long)(*(u64 *)(r + 0x78) >> 8), *(u32 *)(r + 0x80), *(u32 *)(r + 0x88),
-				     *(u32 *)(r + 0x84), *(u32 *)(r + 0x8c), t4, a4, t9, a9, rate4, "%", rate9, "%", n4, n9,
-				     (unsigned long)(*(u64 *)(r + 0xb8) / 1000), r[0xa8] ? "true" : "false");
+				     k + 1, tbuf, (unsigned long)(r->pages >> 8), r->f4, r->f4a,
+				     r->f9, r->f9a, t4, a4, t9, a9, rate4, "%", rate9, "%", n4, n9,
+				     (unsigned long)(r->dur / 1000), r->success ? "true" : "false");
 		if (len > 3895)
 			break;
 	}
@@ -618,12 +633,18 @@ unreg_shrink:
 	}
 	return ret;
 }
-EXPORT_SYMBOL(mi_smart_refill_init);
+EXPORT_SYMBOL_GPL(mi_smart_refill_init);
 /* ---- cma pool shrinker ---- */
 static struct shrinker pool_shrinker;
 static unsigned long cma_pool_shrink_count(struct shrinker *shrinker, struct shrink_control *sc);
 static unsigned long cma_pool_shrink_scan(struct shrinker *shrinker, struct shrink_control *sc);
-int cma_pool_init_shrinker(void)
+/* noinline keeps the stock `bl` in init_module, but the attribute token must not reach genksyms (export CRC) */
+#ifdef __GENKSYMS__
+#define LLM_EXPORT_NOINLINE
+#else
+#define LLM_EXPORT_NOINLINE noinline
+#endif
+LLM_EXPORT_NOINLINE int cma_pool_init_shrinker(void)
 {
 	static bool registered;
 
@@ -636,7 +657,7 @@ int cma_pool_init_shrinker(void)
 	}
 	return 0;
 }
-EXPORT_SYMBOL(cma_pool_init_shrinker);
+EXPORT_SYMBOL_GPL(cma_pool_init_shrinker);
 /* ---- cma pfn -> alignment table (100 entries, 24 bytes each) ---- */
 noinline __used int get_cma_align(unsigned long key, struct cma_pfn_to_align *out)
 {
@@ -1086,7 +1107,7 @@ noinline __used int sys_mem_data_dmabuf_init(void)
 		struct sys_mem_slot *s = &sys_mem_data[i];
 
 		INIT_LIST_HEAD(&s->list);
-		s->arr = kmalloc_array(dmabuf_pool_nums, sizeof(void *), GFP_KERNEL);
+		s->arr = kzalloc(sizeof(void *) * dmabuf_pool_nums, GFP_KERNEL); /* G1aj: stock __kmalloc(n * 8, GFP_KERNEL | __GFP_ZERO) = 0xdc0, no overflow check */
 		if (!s->arr)
 			goto fail;
 		for (j = 0; j < dmabuf_pool_nums; j++)
@@ -1160,10 +1181,10 @@ noinline __used int mi_pre_compact_init(void)
 	*(u64 *)(mci.raw + 4) = 0;
 	*(u64 *)(mci.raw + 0x68) = 0;
 	MCI_U32(0x70) = 3;			/* retry_times */
-	MCI_U32(0x8e8) = 0;
+	mci.hist_cnt = 0;
 	if (MCI_PTR(0x30) || MCI_PTR(0x58)) {
 		pr_warn("low_lat_mem: pre_compact pools already initialized, cleaning up\n");
-		pre_compact_pools_exit();
+		pools_exit_body();
 	}
 	pool = pool_new(4);
 	if (!pool) {
@@ -1195,7 +1216,6 @@ noinline __used int mi_pre_compact_init(void)
 		pr_err("low_lat_mem: register pre_compact hooks fail: %d", ret);
 		goto out_exit;
 	}
-	llm_kallsym_kp.symbol_name = "kallsyms_lookup_name";
 	if (register_kprobe(&llm_kallsym_kp)) {
 		pr_info("low_lat_mem: kallsyms_lookup_name addr not available\n");
 		ret = -1;
@@ -1286,7 +1306,7 @@ noinline __used int predo_store_call(void *unused)
 			goto done;
 		mutex_lock(&dmabuf_lock);
 		for (i = 0; i < dmabuf_pool_nums; i++) {
-			u32 *rec = slot->arr[i];
+			int *rec = slot->arr[i];	/* signed in the stock (smull by 3) */
 			u64 t0;
 
 			avg = (rec[0] + rec[1] + rec[2] + 3) / 3;
@@ -1463,18 +1483,28 @@ static __used unsigned int calculate_fragmentation_score(unsigned int order)
 	unsigned int score = 0;
 	struct zone *zone;
 
-	for (zone = contig_page_data.node_zones; zone < contig_page_data.node_zones + MAX_NR_ZONES; zone++) {
-		if (!populated_zone(zone))
+	_Static_assert(offsetof(struct pglist_data, node_id) == 0x2100, "node_id");
+	llm_for_each_zone(zone) {
+		if (contig_page_data.node_id || !populated_zone(zone))
 			continue;
 		unsigned long free = 0, suitable = 0;
 		unsigned long frag = 0;
 		int o;
 
+		unsigned long nr[11];
+
+#pragma clang loop unroll(full)
 		for (o = 0; o < 11; o++)
-			free += zone->free_area[o].nr_free << o;
-		for (o = 4; o < 11; o++)
-			if (o >= order)
-				suitable += zone->free_area[o].nr_free << (o - order);
+			nr[o] = zone->free_area[o].nr_free;
+#pragma clang loop unroll(full)
+		for (o = 0; o < 11; o++)
+			free += nr[o] << o;
+#pragma clang loop unroll(full)
+		/* G1ai: the stock tests order > o only for o = 4..8 (5 csel); o = 9 and 10 are unconditional (callers pass 4 or 9 only) */
+		for (o = 4; o < 9; o++)
+			suitable += (u64)(order <= o) * (nr[o] << ((o - order) & 63));
+		suitable += nr[9] << (9 - order);
+		suitable += nr[10] << (10 - order);
 		if (free)
 			frag = (u32)((free - (suitable << order)) * 100 / (u32)free);
 		score += frag * zone->present_pages / (zone->zone_pgdat->node_present_pages + 1);
@@ -1492,7 +1522,17 @@ static __always_inline void dump_trace_and_send_event(u64 arg, u32 type, u32 a, 
 /* percentage buckets of the pool fill level: 5 u32 counters at @base: <=20, <=40, <=60, <=80, rest */
 static __always_inline void dfx_fill_bucket(unsigned int pct, int base)
 {
-	atomic_inc(DFX_ATOMIC(base + (pct <= 20 ? 0 : pct <= 40 ? 4 : pct <= 60 ? 8 : pct <= 80 ? 12 : 16)));
+	/* the stock keeps one atomic increment per bucket (no merged offset) */
+	if (pct <= 20)
+		atomic_inc(DFX_ATOMIC(base));
+	else if (pct <= 40)
+		atomic_inc(DFX_ATOMIC(base + 4));
+	else if (pct <= 60)
+		atomic_inc(DFX_ATOMIC(base + 8));
+	else if (pct <= 80)
+		atomic_inc(DFX_ATOMIC(base + 12));
+	else
+		atomic_inc(DFX_ATOMIC(base + 16));
 }
 noinline __used void pre_do_compact(int order4, int order_ext)
 {
@@ -1509,7 +1549,7 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 		pr_info("low_lat_mem: target order4 & %d all 0\n", 0);
 		return;
 	}
-	MCI_U32(0) = 1;				/* strh #1: enable = 1, enough = 0 */
+	*(u16 *)mci.raw = 1;			/* strh #1: enable = 1, enough = 0 */
 	MCI_U32(4) = order4;
 	MCI_U32(8) = order_ext;
 	llm_for_each_zone(zone) {
@@ -1526,7 +1566,7 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 				(struct zonelist *)((u8 *)&contig_page_data + 0x2080), 9, 0xc00, NULL);
 		ttfp = sched_clock() - t0;
 		freq_a = cpufreq_get(raw_smp_processor_id());
-		atomic_inc(DFX_ATOMIC(0x8b4 + 4 * get_time_bucket(ttfp)));
+		atomic_inc(&DFX_ABKT(0x8b4, get_time_bucket(ttfp)));
 		DFX_U64(0x8c8) += ttfp;
 		if (ttfp > DFX_U32(0x8d0))
 			DFX_U32(0x8d0) = ttfp;
@@ -1547,7 +1587,7 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 	for (;;) {
 		u64 pages = 0, dt;
 		unsigned int f4, f9, f4a, f9a, c4, c9, fr1, fr2;
-		u8 *rec;
+		struct pc_rec *rc;
 		u32 idx;
 
 		llm_for_each_zone(zone)
@@ -1565,23 +1605,23 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 		total += dt;
 		f4a = calculate_fragmentation_score(4);
 		f9a = calculate_fragmentation_score(9);
-		idx = MCI_U32(0x8e8);
-		MCI_U32(0x8e8) = idx + 1;
-		rec = mci.raw + (idx % 30) * 0x48;
-		*(u64 *)(rec + 0x78) = pages;
-		*(u32 *)(rec + 0x80) = f4;
-		*(u32 *)(rec + 0x84) = f9;
-		*(u32 *)(rec + 0x88) = f4a;
-		*(u32 *)(rec + 0x8c) = f9a;
-		*(u32 *)(rec + 0x90) = MCI_U32(4);
-		*(u32 *)(rec + 0x94) = MCI_U32(8);
-		*(u32 *)(rec + 0x98) = c4;
-		*(u32 *)(rec + 0x9c) = c9;
-		*(u32 *)(rec + 0xa0) = MCI_POOL_COUNT(0x30);
-		*(u32 *)(rec + 0xa4) = MCI_POOL_COUNT(0x58);
-		rec[0xa8] = mci.raw[1];
-		*(u64 *)(rec + 0xb0) = ktime_get_real();
-		*(u64 *)(rec + 0xb8) = dt;
+		idx = mci.hist_cnt;
+		mci.hist_cnt = idx + 1;
+		rc = &mci.hist[idx % 30];
+		rc->pages = pages;
+		rc->f4 = f4;
+		rc->f9 = f9;
+		rc->f4a = f4a;
+		rc->f9a = f9a;
+		rc->t4 = MCI_U32(4);
+		rc->t9 = MCI_U32(8);
+		rc->c4 = c4;
+		rc->c9 = c9;
+		rc->n4 = MCI_POOL_COUNT(0x30);
+		rc->n9 = MCI_POOL_COUNT(0x58);
+		rc->success = mci.raw[1];
+		rc->time = ktime_get_real();
+		rc->dur = dt;
 		MCI_U32(0x6c) = calculate_fragmentation_score(9);
 		freq_avg = (fr1 + fr2) / 2;
 		if (mci.raw[1])
@@ -1611,7 +1651,7 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 	if (MCI_U32(8))
 		pct9 = MCI_POOL_COUNT(0x58) * 100 / MCI_U32(8);
 	if (total) {
-		atomic_inc(DFX_ATOMIC(0x8d4 + 4 * get_time_bucket(total)));
+		atomic_inc(&DFX_ABKT(0x8d4, get_time_bucket(total)));
 		DFX_U64(0x8e8) += total;
 		max_time = DFX_U32(0x8f0);
 		if (total > max_time) {
