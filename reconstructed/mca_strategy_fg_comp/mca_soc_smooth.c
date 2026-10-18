@@ -9,6 +9,7 @@
 #include <mca/common/mca_log.h>
 #include <mca/strategy/strategy_fg_class.h>
 #include <mca/common/mca_parse_dts.h>
+#include <mca/common/mca_voter.h>
 #include <mca/protocol/protocol_class.h>
 #include <mca/smart_charge/mca_smart_charge.h>
 #include "strategy_fg.h"
@@ -150,11 +151,145 @@ static int fg_update_mapped_soc(struct strategy_fg *fg)
 	return 0;
 }
 
-static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last_ui_soc, int ui_soc)
+/* OS4 "new soc smooth": keeps the UI SoC steady around charger plug/unplug (non-EU only, entered when allow/active). */
+static void fg_update_mapped_soc_new(struct strategy_fg *fg, int last_ui_soc)
+{
+	static bool init_soc_smooth_flag;
+	static time64_t start_soc_smooth_time;
+	static bool last_power_present;
+	static bool first_update_soc_flag;
+	static bool in_smooth_charging_flag;
+	static int remove_charger_raw_soc = -1;
+	static int remove_charger_ui_soc = -1;
+	int raw_soc = fg->batt_raw_soc;
+	int vterm = mca_get_effective_result(fg->vterm_voter);
+	int mapped_soc = 0;
+	int mapped_soc_decimal = 0;
+
+	if (raw_soc >= fg->cfg.report_full_raw_soc) {
+#line 189
+		mca_log_info("smooth_new:: raw_soc >= HW_REPORT_FULL_SOC, recover default logic");
+		fg->new_soc_smooth_active = false;
+		in_smooth_charging_flag = false;
+		first_update_soc_flag = false;
+		init_soc_smooth_flag = false;
+		mapped_soc = 100;
+		mapped_soc_decimal = 0;
+	} else {
+		mapped_soc = (raw_soc + fg->cfg.soc_proportion_c) / fg->cfg.soc_proportion;
+		mapped_soc_decimal = (raw_soc + fg->cfg.soc_proportion_c) % fg->cfg.soc_proportion;
+		if (mapped_soc > 99)
+			mapped_soc = 99;
+	}
+
+	if (last_power_present && !fg->power_present && fg->new_soc_smooth_active) {
+#line 199
+		mca_log_info("smooth_new:: remove charger, raw_soc[%d], last_ui_soc[%d]\n", raw_soc, last_ui_soc);
+		if (!first_update_soc_flag) {
+			remove_charger_raw_soc = raw_soc;
+			remove_charger_ui_soc = last_ui_soc;
+			first_update_soc_flag = true;
+		} else if (in_smooth_charging_flag || raw_soc > remove_charger_raw_soc) {
+			remove_charger_raw_soc = raw_soc;
+			remove_charger_ui_soc = last_ui_soc;
+		}
+		in_smooth_charging_flag = false;
+	}
+
+	if (!fg->power_present)
+		init_soc_smooth_flag = false;
+#line 215
+	mca_log_info("smooth_new:: raw_soc:%d, last_ui_soc:%d, init_soc_smooth_flag:%d, new_soc_smooth_active:%d, first_update_soc_flag:%d\n",
+		raw_soc, last_ui_soc, !init_soc_smooth_flag, fg->new_soc_smooth_active, first_update_soc_flag);
+#line 217
+	mca_log_info("smooth_new:: last_power_present:%d, power_present:%d, remove_charger_raw_soc:%d, remove_charger_ui_soc:%d, in_smooth_charging_flag:%d\n",
+		last_power_present, fg->power_present, remove_charger_raw_soc, remove_charger_ui_soc, in_smooth_charging_flag);
+	last_power_present = fg->power_present;
+
+	if (fg->power_present) {
+		if (fg->batt_temperature <= 479 && raw_soc < fg->cfg.report_full_raw_soc &&
+		    (fg->allow_new_soc_smooth || (fg->batt_voltage > vterm - 50 && fg->batt_current >= 0))) {
+			time64_t now;
+			int elapsed;
+
+#line 223
+			mca_log_info("smooth_new:: trigger new soc smooth strategy");
+			now = ktime_get_boottime_seconds();
+			elapsed = now - start_soc_smooth_time;
+			if (!init_soc_smooth_flag) {
+				start_soc_smooth_time = now;
+				init_soc_smooth_flag = true;
+				mapped_soc = min(last_ui_soc, 100);
+			} else if (elapsed >= 45) {
+				init_soc_smooth_flag = false;
+				fg->new_soc_smooth_active = true;
+				mapped_soc = min(last_ui_soc + 1, 100);
+				in_smooth_charging_flag = true;
+			} else {
+				mapped_soc = min(last_ui_soc, 100);
+			}
+		}
+	}
+	/* OS4 (stock +0x440): separate test, power_present is re-read after the trigger block */
+	if (fg->power_present && fg->new_soc_smooth_active && remove_charger_raw_soc != -1 &&
+	    remove_charger_ui_soc != -1 && last_ui_soc == 100 && raw_soc < fg->cfg.report_full_raw_soc) {
+		in_smooth_charging_flag = true;
+#line 246
+		mca_log_info("smooth_new:: should continue keep uisoc=100");
+		mapped_soc = 100;
+	}
+
+	if (remove_charger_raw_soc != -1 && remove_charger_ui_soc != -1 && fg->new_soc_smooth_active &&
+	    !in_smooth_charging_flag && raw_soc < fg->cfg.report_full_raw_soc) {
+		if (!fg->power_present && remove_charger_raw_soc < raw_soc) {
+#line 251
+			mca_log_info("smooth_new:: keep uisoc = remove_charger_ui_soc when raw_soc increase in discharging");
+			mapped_soc = min(remove_charger_ui_soc, 100);
+		} else if (fg->power_present && remove_charger_raw_soc < raw_soc) {
+			int d;
+
+#line 254
+			mca_log_info("smooth_new:: update uisoc when raw_soc increase in charging");
+			d = (raw_soc - remove_charger_raw_soc) / (remove_charger_raw_soc / remove_charger_ui_soc);
+			mapped_soc = min(max(d, 0) + remove_charger_ui_soc, 100);
+		} else {
+			int d;
+
+#line 259
+			mca_log_info("smooth_new:: update uisoc when raw_soc decrease in charging/discharging");
+			d = (remove_charger_raw_soc - raw_soc) / (remove_charger_raw_soc / remove_charger_ui_soc);
+			mapped_soc = min(remove_charger_ui_soc - min(remove_charger_ui_soc, max(d, 0)), 100);
+		}
+	}
+
+	fg->batt_mapped_soc = mapped_soc;
+	fg->batt_mapped_soc_decimal = mapped_soc_decimal;
+#line 270
+	mca_log_info("smooth_new:: mapped_soc[%d]\n", mapped_soc);
+}
+
+static int fg_ui_soc_process_special_conditions(struct strategy_fg *fg, int last_ui_soc, int ui_soc, bool prohibit_jump)
 {
 	time64_t time_now = ktime_get_boottime_seconds();
 	int down_update_duration = 30;
 	int soc_limit = 0;
+
+	if (!prohibit_jump) {
+		if (ui_soc == 0) {
+#line 283
+			mca_log_info("WARNING: not allow ui_soc jump to 0\n");
+			last_ui_soc = 1;
+		} else if (ui_soc > last_ui_soc && fg->resume_update_soc) {
+#line 286
+			mca_log_info("WARNING: not allow ui_soc increase when resume\n");
+			ui_soc = last_ui_soc;
+		} else {
+#line 289
+			mca_log_info("WARNING: allow ui_soc jump, boot_update_soc: %d, resume_update_soc: %d\n",
+				fg->boot_update_soc, fg->resume_update_soc);
+			return ui_soc;
+		}
+	}
 
 	soc_limit = mca_smartchg_get_limit_soc();
 	if (ui_soc > last_ui_soc &&
@@ -235,7 +370,10 @@ int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 	time64_t time_now = ktime_get_boottime_seconds();
 	static time64_t time_last;
 
-	fg_update_mapped_soc(fg);
+	if ((fg->allow_new_soc_smooth || fg->new_soc_smooth_active) && !fg->is_eu_model)
+		fg_update_mapped_soc_new(fg, last_ui_soc);
+	else
+		fg_update_mapped_soc(fg);
 	ui_soc = fg->batt_mapped_soc;
 
 	// Get the initial value for the first time
@@ -275,10 +413,8 @@ int fg_ui_soc_smooth(struct strategy_fg *fg, bool prohibit_jump)
 			ui_soc, last_ui_soc, soc_delta, soc_changed, fg->batt_mapped_soc, fg->is_eu_model, soc_keep_time);
 	}
 
-	if (prohibit_jump) {
-		ui_soc = fg_ui_soc_process_special_conditions(fg, last_ui_soc, ui_soc);
-		fg_ui_soc_update_decimal(fg, last_ui_soc, ui_soc);
-	}
+	ui_soc = fg_ui_soc_process_special_conditions(fg, last_ui_soc, ui_soc, prohibit_jump);
+	fg_ui_soc_update_decimal(fg, last_ui_soc, ui_soc);
 
 #line 415
 	mca_log_info("ui_soc: %d => %d, time_now: %lld prohibit_jump:%d\n", last_ui_soc, ui_soc, time_now, prohibit_jump);

@@ -237,6 +237,7 @@ int syna_tcm_allocate_device(struct tcm_dev **ptcm_dev_ptr,
 	tcm_dev->max_wr_size = hw_if->bdata_io.wr_chunk_size;
 
 	tcm_dev->write_message = NULL;
+	tcm_dev->write_message_timeout = NULL;
 	tcm_dev->read_message = NULL;
 
 	tcm_dev->cb_custom_touch_entity = NULL;
@@ -1118,7 +1119,9 @@ int syna_tcm_get_app_info(struct tcm_dev *tcm_dev,
 		struct tcm_application_info *app_info)
 {
 	int retval = 0;
-	unsigned char resp_code;
+	unsigned char resp_code = 0;
+	unsigned char status_code = 0;
+	int retry, i;
 	unsigned int app_status;
 	unsigned int resp_data_len = 0;
 	unsigned int copy_size;
@@ -1135,15 +1138,24 @@ int syna_tcm_get_app_info(struct tcm_dev *tcm_dev,
 		return -ERR_INVAL;
 	}
 
-	retval = tcm_dev->write_message(tcm_dev,
-			CMD_GET_APPLICATION_INFO,
-			NULL,
-			0,
-			0,
-			&resp_code,
-			tcm_dev->msg_data.default_resp_reading);
-	if (retval < 0) {
-		LOGE("Fail to send command 0x%02x\n",
+	for (retry = 0; retry < 3; retry++) {
+		retval = tcm_dev->write_message(tcm_dev,
+				CMD_GET_APPLICATION_INFO,
+				NULL,
+				0,
+				0,
+				&resp_code,
+				tcm_dev->msg_data.default_resp_reading);
+		if (retval >= 0)
+			break;
+		LOGE("Fail to send command 0x%02x retry:%d\n",
+			CMD_GET_APPLICATION_INFO, retry);
+		/* drain the pending messages before the next try */
+		for (i = 0; i < 3; i++)
+			retval = tcm_dev->read_message(tcm_dev, &status_code);
+	}
+	if (retry >= 3) {
+		LOGE("Fail to send command 0x%02x goto exit\n",
 			CMD_GET_APPLICATION_INFO);
 		goto exit;
 	}

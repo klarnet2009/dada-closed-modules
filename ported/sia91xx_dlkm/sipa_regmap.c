@@ -24,7 +24,6 @@
 #include "sipa_parameter.h"
 #include "sipa_regmap.h"
 #include "sia91xx_common.h"
-#include "sipa_tuning_cmd.h"
 
 
 struct reg_map_info {
@@ -103,63 +102,6 @@ static const struct reg_map_info reg_map_info_table[] = {
 	},
 };
 
-int sia91xx_read_reg16(
-	sipa_dev_t *si_pa,
-	unsigned char subaddress,
-	unsigned short *val)
-{
-	unsigned int value;
-	int ret;
-	int retries = I2C_RETRIES;
-
-	if (NULL == si_pa) {
-		pr_err("[  err][%s] %s: si_pa == NULL !!! \r\n", LOG_FLAG, __func__);
-		return -EINVAL;
-	}
-
-retry:
-	ret = regmap_read(si_pa->regmap, subaddress, &value);
-	if (ret < 0) {
-		pr_warn("i2c error, retries left: %d\n", retries);
-		if (retries) {
-			retries--;
-			msleep(I2C_RETRY_DELAY);
-			goto retry;
-		}
-		return -SIPA_ERROR_I2C;
-	}
-	*val = value & 0xffff;
-
-	return SIPA_ERROR_OK;
-}
-
-int sia91xx_write_reg16(
-	sipa_dev_t *si_pa,
-	unsigned char subaddr,
-	unsigned short val)
-{
-	int ret;
-	int retries = I2C_RETRIES;
-
-	if (NULL == si_pa) {
-		pr_err("[  err][%s] %s: si_pa == NULL !!! \r\n", LOG_FLAG, __func__);
-		return -EINVAL;
-	}
-
-retry:
-	ret = regmap_write(si_pa->regmap, subaddr, val);
-	if (ret < 0) {
-		pr_warn("i2c error, retries left: %d\n", retries);
-		if (retries) {
-			retries--;
-			msleep(I2C_RETRY_DELAY);
-			goto retry;
-		}
-		return -SIPA_ERROR_I2C;
-	}
-
-	return SIPA_ERROR_OK;
-}
 
 int sipa_regmap_read(
 	struct regmap *regmap,
@@ -796,14 +738,96 @@ void sipa_regmap_check_trimming(
 		regs = (SIPA_REG_PROC *)(data + reg_list->offset);
 		sipa_regmap_proc_1_reg_list(si_pa, reg_list, regs, val_width);
 
-#ifdef SIA91XX_TYPE
-		sipa_tuning_close_temp_f0_module(
-			si_pa->timer_task_hdl,
-			si_pa->dyn_ud_vdd_port,
-			si_pa->channel_num);
-#endif
 	}
 }
+/* g3m: written from the stock disassembly (215 insns); entry layout {addr, ?, val[6]} is 32 bytes */
+bool sipa_regmap_write_sram(sipa_dev_t *si_pa)
+{
+	SIPA_CHIP_CFG chip_cfg;
+	SIPA_REG_COMMON *sram;
+	void *data;
+	uint8_t i;
+	int ret;
+
+	if (NULL == si_pa)
+		return false;
+
+	memset(&chip_cfg, 0, sizeof(chip_cfg));
+
+	if (NULL == si_pa->regmap) {
+		pr_warn("[ warn][%s] %s: NULL == regmap \n", LOG_FLAG, __func__);
+		return false;
+	}
+
+	if (si_pa->scene >= AUDIO_SCENE_NUM) {
+		pr_err("[  err][%s] %s: scene = %u, AUDIO_SCENE_NUM = %u \n",
+			LOG_FLAG, __func__, si_pa->scene, AUDIO_SCENE_NUM);
+		return false;
+	}
+
+	if (si_pa->channel_num >= SIPA_CHANNEL_NUM) {
+		pr_err("[  err][%s] %s: channel_num = %u, SIPA_CHANNEL_NUM = %u \n",
+			LOG_FLAG, __func__, si_pa->channel_num, SIPA_CHANNEL_NUM);
+		return false;
+	}
+
+	if (si_pa->chip_type > 0x19)
+		return false;
+
+	/* only chip type 12 has an sram table */
+	if (si_pa->chip_type != 12)
+		return true;
+
+	data = sipa_param_read_chip_cfg(si_pa->channel_num, 12, &chip_cfg);
+	if (NULL == data) {
+		pr_err("[  err][%s] %s: fw unloaded \n", LOG_FLAG, __func__);
+		return false;
+	}
+
+	sram = (SIPA_REG_COMMON *)((char *)data + chip_cfg.sram.offset);
+	if (NULL == sram) {
+		pr_err("[  err][%s] %s: channel %d sram_data is NULL \n",
+			LOG_FLAG, __func__, si_pa->channel_num);
+		return false;
+	}
+
+	for (i = 0; chip_cfg.sram.num > i; i++) {
+		SIPA_REG_COMMON *e = &sram[i];
+		uint32_t v = e->val[si_pa->scene];
+		uint32_t half;
+
+		ret = regmap_write(si_pa->regmap, chip_cfg.sram_addr_reg, e->addr | 0x80) & 0xff;
+		if (ret) {
+			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x, value = %d\n",
+				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, chip_cfg.sram_addr_reg, e->addr);
+			continue;
+		}
+
+		half = v >> 16;
+		ret = regmap_write(si_pa->regmap, chip_cfg.sram_data_reg, half) & 0xff;
+		if (ret) {
+			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, val = 0x%x\n",
+				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, half);
+			continue;
+		}
+
+		ret = regmap_write(si_pa->regmap, chip_cfg.sram_addr_reg, e->addr) & 0xff;
+		if (ret) {
+			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x, value = %d\n",
+				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, chip_cfg.sram_addr_reg, e->addr);
+			continue;
+		}
+
+		half = v & 0xffff;
+		ret = regmap_write(si_pa->regmap, chip_cfg.sram_data_reg, half) & 0xff;
+		if (ret)
+			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, val = 0x%x\n",
+				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, half);
+	}
+
+	return true;
+}
+
 /********************************************************************
  * end - sia81xx reg map opt functions
  ********************************************************************/

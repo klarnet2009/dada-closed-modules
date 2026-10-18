@@ -88,21 +88,12 @@ void mi_calculate_sampling_stats(struct cpu_stats *stats)
 }
 EXPORT_SYMBOL(mi_calculate_sampling_stats);
 
-#ifdef DCVS_FORGE_CRC
-#ifdef __GENKSYMS__
-/* DOCUMENTED CRC HACK (g4d): genksyms-only stand-in whose salt makes the export CRC of mi_recalculate_freq_mhz equal the stock one
- * (4076948266): no spelling of `u32 f(struct cpu_ctrs *, u64, u32)` reproduced it (108000 combinations tried by g4). Code/ABI untouched. */
-unsigned int mi_recalculate_freq_mhz(char (*)[sizeof("fcrc_Pod6ehnfI")]);
-#endif
-#endif
-#if !(defined(DCVS_FORGE_CRC) && defined(__GENKSYMS__))
-u32 mi_recalculate_freq_mhz(struct cpu_ctrs *delta, u64 delta_us, u32 freq_mhz)
+u32 mi_recalculate_freq_mhz(struct cpu_ctrs *delta, s64 delta_us, u32 freq_mhz)
 {
 	if (is_dcvs_arbi_enable && !is_second)
 		freq_mhz = (delta->common_ctrs[CYC_IDX] - delta->common_ctrs[BE_STALL_IDX]) / delta_us;
 	return freq_mhz;
 }
-#endif
 EXPORT_SYMBOL(mi_recalculate_freq_mhz);
 
 void mi_cpufreq_to_memfreq(struct cpufreq_memfreq_map *map, u32 cpu_mhz)

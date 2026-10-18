@@ -1,6 +1,6 @@
 # gsim - EQUIVALENT vs OS4 stock (218 functions byte-identical, relocations, objects, 82 exports + CRCs, 82 imports + CRCs, modinfo)
 
-Reference: OS4 `<work-dir>` (Qualcomm GSI driver of the data IPA, "Generic Software Interface"). Agent a17C, 4 quick-loop iterations + 1 Bazel build.
+Reference: OS4 `<work-dir>` (Qualcomm GSI driver of the data IPA, "Generic Software Interface"). 4 quick-loop iterations + 1 Bazel build.
 Template: OnePlus13 `op13_modules: vendor/qcom/opensource/dataipa/drivers/platform/msm/{gsi/gsi.c,gsi.h,gsi_dbg.c,gsi_trace.h,gsi_emulation*.h,gsihal/*}` + `include/linux/msm_gsi.h`.
 The template matched the stock almost verbatim (0 source changes in gsi.c / gsi_dbg.c / gsihal*.c). Differences are build-environment only:
 - `gsihal/` flattened into the package (`gsihal_i.h` include of `../gsi.h` -> `gsi.h`); `gsi_emulation.c` not built (no `CONFIG_IPA_EMULATION`); `gsi_dbg.c` built (`CONFIG_DEBUG_FS`).

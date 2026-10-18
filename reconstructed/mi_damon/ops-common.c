@@ -67,7 +67,7 @@ void damon_pmdp_mkold(pmd_t *pmd, struct vm_area_struct *vma, unsigned long addr
 #endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 }
 
-int damon_vma_need_sample(struct vm_area_struct *vma)
+bool damon_vma_need_sample(struct vm_area_struct *vma)
 {
 	unsigned long size;
 

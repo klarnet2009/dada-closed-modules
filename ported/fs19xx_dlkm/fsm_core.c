@@ -107,8 +107,10 @@ struct fsm_config g_fsm_config __asm__("g_fsm_config.llvm.15073763127247982342")
 	.dev_count  = 0,
 	.volume     = FSM_VOLUME_MAX,
 	.next_scene = FSM_SCENE_MUSIC,
-	.i2s_bclk   = 1536000,
-	.i2s_srate  = 48000,
+	.cur_scene  = FSM_SCENE_MUSIC,
+	.i2s_bclk   = 6144000,
+	.i2s_srate  = 96000,
+	.spksw_gpio = -1,
 	.test_type  = TEST_NONE,
 	.freq_start = FREQ_START,
 	.freq_end   = FREQ_END,
@@ -1399,6 +1401,7 @@ int fsm_detect_device(fsm_dev_t *fsm_dev, uint8_t dev_id)
 		fsm_dev->is1801 = true;
 		//fs1801_ops(fsm_dev);
 		break;
+	case 0x17: /* stock jump table maps dev_id 0x17 to the same code as FS1958 */
 	case FS1958_DEV_ID:
 		fsm_dev->is1958 = true;
 		fs19xx_ops(fsm_dev);

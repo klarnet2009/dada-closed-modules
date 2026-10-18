@@ -35,7 +35,7 @@
 #include <linux/mutex.h>
 
 
-#define SIPA_DRIVER_VERSION					("3.0.7")
+#define SIPA_DRIVER_VERSION					("3.1.11-250813")
 #define SIPA_MAX_CHANNEL_SUPPORT			(8)
 
 struct sipa_err {
@@ -70,31 +70,40 @@ typedef struct sipa_dev_s {
 	unsigned int owi_cur_mode;
 	unsigned int owi_polarity;
 
-	spinlock_t rst_lock;
-	spinlock_t owi_lock;
+	spinlock_t rst_lock;		/* stock +0x1f8 */
+	spinlock_t owi_lock;		/* stock +0x1fc */
+	unsigned char g3l_pad200[0x18];	/* stock +0x200..0x218: not recovered (not referenced by the code below) */
 
-	struct regmap *regmap;
-	unsigned int scene;
+	struct regmap *regmap;		/* stock +0x218 */
+	unsigned int scene;		/* stock +0x220 */
 
-	uint32_t channel_num;
+	uint32_t channel_num;		/* stock +0x224 */
+	uint32_t g3l_en_compat;		/* stock +0x228 (en_compatible_type, guess) */
+	uint32_t g3l_en_irq;		/* stock +0x22c (en_irq_func, guess) */
+	uint32_t en_dyn_id;		/* stock +0x230 */
+	uint8_t status;			/* stock +0x234 ("Sipa Status") */
+	uint8_t fw_load_retry;		/* stock +0x235: retry counter of sipa_fw_load_work_delay (G11) */
+	struct list_head list;		/* stock +0x238 */
+	uint8_t mute;			/* stock +0x248 ("Sipa Mute") */
+	struct sipa_err err_info;	/* stock +0x250 (9 words) */
+	uint8_t power_mode;		/* stock +0x298 */
+	int spksw_gpio;			/* stock +0x29c */
+	int spksw_level;		/* stock +0x2a0 */
+
+	/* template-only fields (the stock has no tuning/cal/set_vdd code) */
 	uint32_t en_dyn_ud_vdd;
 	uint32_t en_dyn_ud_pvdd;
 	uint32_t dyn_ud_vdd_port;
-	uint32_t en_dyn_id;
 	uint32_t en_spk_cal_dl;
 	uint32_t spk_model_flag;
 	uint32_t timer_task_hdl;
 	uint32_t timer_task_hdl_backup;
-
-//#ifdef SIA91XX_TYPE
 	struct snd_soc_codec *codec;
 	int pstream;
 	int cstream;
 	int mute_mode;
-//#endif
-
-	struct list_head list;
-	struct sipa_err err_info;
+	uint32_t g3n_scene_clamp[6];	/* g3n: stock +0x1f4..0x208 (clamped chip_cfg words), layout mismatch */
+	uint32_t g3n_unk20c;
 } sipa_dev_t;
 
 struct sipa_chip_compat {
@@ -117,8 +126,10 @@ enum {
 enum {
 	AUDIO_SCENE_PLAYBACK = 0,
 	AUDIO_SCENE_VOICE,
+	AUDIO_SCENE_VOIP,
 	AUDIO_SCENE_RECEIVER,
 	AUDIO_SCENE_FACTORY,
+	AUDIO_SCENE_FM,
 	AUDIO_SCENE_NUM
 };
 
@@ -176,5 +187,19 @@ typedef  unsigned int   uint32_t;
 typedef  unsigned char  uint8_t;
 #endif
 #endif
+
+/* g3l: functions added from the stock disassembly */
+int mievent_report(unsigned int eventid, const char *value, struct device *dev);
+bool check_smartpa_type(const char *name);
+int set_smartpa_type(const char *name, unsigned int type);
+int get_smartpa_type(void);
+void set_smartpa_codec(const char *codec_name, const char *dai_name);
+struct snd_kcontrol;
+struct snd_ctl_elem_value;
+int sia91xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+int sia91xx_spksw_gpio_put(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol);
+void sipa_scene_set(sipa_dev_t *si_pa, unsigned int scene);
+int sipa_read_reg(struct regmap *regmap, unsigned char reg, unsigned int *val);
+int sipa_write_reg(struct regmap *regmap, unsigned char reg, unsigned int val);
 
 #endif /* _SIPA_COMMOMN_H */

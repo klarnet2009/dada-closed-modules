@@ -36,11 +36,22 @@
 #include "mca_wireless_revchg.h"
 #include <mca/common/mca_log.h>
 #include <mca/common/mca_event.h>
+#define MCA_FW_STATE_UPDATING 2	/* enum fw_update_status of the OS4 BTF (stubs header has another order): NO_UPDATE 0, NEED_UPDATE 1, UPDATING 2 */
 #define MCA_FW_STATE_FINISH 3	/* enum fw_update_status of the OS4 BTF (stubs header has another order) */
 #define MCA_FW_STATE_ERROR 4
 #define MCA_OVPGATE_REVCHG_TYPE 1	/* enum enable_ovpgate_type of the OS4 BTF (stubs header has 0) */
 #undef MCA_EVENT_NOTIFY_SIZE
 #define MCA_EVENT_NOTIFY_SIZE 500	/* OS4: 500 byte uevent buffers on the stack */
+/* OS4 values (read from the stock disassembly; the stubs header values were guesses) */
+#define MCA_DFX_WLS_TRX_FOD 0x1e
+#define MCA_DFX_WLS_TRX_OCP 0x1f
+#define MCA_DFX_WLS_TRX_UVLO 0x20
+#define MCA_DFX_WLS_TRX_IIC_ERR 0x21
+#define MCA_STATUS_TYPE_REV_TEST 7
+#define MCA_EVENT_WLS_REVCHG 0x10	/* OS4 value of the "wireless revchg" strategy event (stubs header: 4) */
+#define MCA_CP_VUSB_PRESENT_STAT 5	/* OS4 cp int-stat channel (stubs header: 0) */
+#define MCA_REV_EN_BOOST ((EN_SRC)2)	/* stubs header: REV_EN_BOOST = 0 */
+void mca_event_report_multiple_uevent(const struct mca_event_notify_data *n_data, int count);
 #include <mca/common/mca_voter.h>
 #include <mca/common/mca_parse_dts.h>
 #include <mca/platform/platform_wireless_class.h>
@@ -243,9 +254,9 @@ static int mca_wireless_rev_download_firmware(void)
 		mca_event_report_uevent(&event_data);
 		return ret;
 	}
-	info->proc_data.firmware_update_state = FIRMWARE_UPDATING;
+	info->proc_data.firmware_update_state = MCA_FW_STATE_UPDATING;
 	len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
-		"POWER_SUPPLY_WLS_FW_STATE=%d", FIRMWARE_UPDATING);
+		"POWER_SUPPLY_WLS_FW_STATE=%d", MCA_FW_STATE_UPDATING);
 	event_data.event = event;
 	event_data.event_len = len;
 	mca_event_report_uevent(&event_data);
@@ -471,10 +482,10 @@ static int mca_wireless_rev_charger_adapter_config(int enable)
 		return -1;
 	}
 
-	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_WIRELESS_REVCHG, enable);
-	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_WIRELESS_REVCHG, enable);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_WLS_REVCHG, enable);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_WLS_REVCHG, enable);
 
-	(void)platform_class_cp_get_int_stat(CP_ROLE_MASTER, VUSB_PRESENT_STAT, &usb_present);
+	(void)platform_class_cp_get_int_stat(CP_ROLE_MASTER, MCA_CP_VUSB_PRESENT_STAT, &usb_present);
 	platform_class_buckchg_ops_get_otg_boost_enable_status(MAIN_BUCK_CHARGER, &otg_boost_enable);
 	platform_class_buckchg_ops_get_otg_gate_enable_status(MAIN_BUCK_CHARGER, &otg_gate_enable);
 
@@ -488,7 +499,6 @@ static int mca_wireless_rev_charger_adapter_config(int enable)
 			info->proc_data.wired_chg_ok = false; //reset flag
 			return ret;
 		}
-		mca_wireless_rev_set_reverse_src(PMIC_REV_BOOST);
 #line 464
 		mca_log_err("should not be here, check code\n");
 	} else {
@@ -506,7 +516,7 @@ static int mca_wireless_rev_charger_boost_config(int enable)
 	int src_voltage;
 	int voltage = 5000;
 	int otg_boost_vol = 5200;
-	EN_SRC en_boost = REV_EN_BOOST;
+	EN_SRC en_boost = MCA_REV_EN_BOOST;
 	int src_enable;
 	struct mca_wireless_revchg *info = g_wls_rev_info;
 	int power_good = 0;
@@ -518,11 +528,11 @@ static int mca_wireless_rev_charger_boost_config(int enable)
 
 	if (enable) {
 		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, false);
-		mca_log_err("close ovp gate!!!,ret = %d", ret);
+#line 491
+		mca_log_err("close ovp gate");
 		msleep(100);
 
 		src_voltage = (info->rev_boost_src << 16) | voltage;
-		mca_log_err("enable boost!!!");
 		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
 #line 496
 		mca_log_err("enable boost voltage ret = %d", ret);
@@ -539,10 +549,12 @@ static int mca_wireless_rev_charger_boost_config(int enable)
 				break;
 			if (voltage < info->rev_boost_voltage) {
 				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 509
 				mca_log_err("wireless_reverse_charger_boost_config:boost voltage:%d\n", voltage);
 			} else {
 				src_voltage = (info->rev_boost_src << 16) | info->rev_boost_voltage;
 				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 513
 				mca_log_err("wireless_reverse_charger_boost_config:boost voltage end:%d\n", info->rev_boost_voltage);
 			}
 		}
@@ -561,17 +573,93 @@ static int mca_wireless_rev_charger_boost_config(int enable)
 			++retry_cnt;
 		}
 		if (retry_cnt >= 3)
-			mca_charge_mievent_report(CHARGE_DFX_WLS_TRX_IIC_ERR, NULL, 0);
+			mca_charge_mievent_report(MCA_DFX_WLS_TRX_IIC_ERR, NULL, 0);
 	} else {
 		src_voltage = (info->rev_boost_src << 16) | otg_boost_vol;
-		mca_log_err("close boost!!!");
 		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
 		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
 		msleep(100);
 		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, true);
-		mca_log_err("close ovpgate!!!");
+#line 537
+		mca_log_err("open ovpgate");
 	}
-	mca_log_err("boost done!!!,ret = %d", ret);
+#line 539
+	mca_log_err("revchg boost config done");
+	return ret;
+}
+
+static int mca_wireless_rev_hboost_config(int enable)
+{
+	int ret = 0;
+	int retry_cnt = 0;
+	int src_voltage;
+	int voltage = 5000;
+	int otg_boost_vol = 5200;
+	EN_SRC en_boost = MCA_REV_EN_BOOST;
+	int src_enable;
+	struct mca_wireless_revchg *info = g_wls_rev_info;
+
+	if (!info)
+		return -1;
+
+	src_enable = (en_boost << 16) | (info->rev_boost_src << 8) | enable;
+
+	if (enable) {
+		/* stock: TX-only (stylus) skips only the closing of the ovp gate, the boost enable still runs */
+		if (!info->support_tx_only) {
+			ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, false);
+#line 563
+			mca_log_err("close ovp gate!!!,ret = %d", ret);
+			msleep(100);
+		}
+
+		src_voltage = (info->rev_boost_src << 16) | voltage;
+		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 569
+		mca_log_err("enable hboost voltage ret = %d", ret);
+		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
+#line 571
+		mca_log_err("enable hboost!!!ret = %d", ret);
+
+		while (voltage < info->rev_boost_voltage) {
+			voltage += 500;
+			src_voltage = (info->rev_boost_src << 16) | voltage;
+			msleep(20);
+			if (voltage < info->rev_boost_voltage) {
+				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 579
+				mca_log_err("wireless_reverse_charger_hboost_config:hboost voltage:%d\n", voltage);
+			} else {
+				src_voltage = (info->rev_boost_src << 16) | info->rev_boost_voltage;
+				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 583
+				mca_log_err("wireless_reverse_charger_hboost_config:hboost voltage end:%d\n", info->rev_boost_voltage);
+			}
+		}
+
+		(void)platform_class_wireless_set_hboost_enable(WIRELESS_ROLE_MASTER, 1);
+		msleep(20);
+		while (retry_cnt < 3) {
+			ret = platform_class_wireless_check_i2c_is_ok(WIRELESS_ROLE_MASTER);
+			if (!ret)
+				break;
+			msleep(20);
+#line 593
+			mca_log_err("trx i2c check fail!");
+			++retry_cnt;
+		}
+	} else {
+		src_voltage = (info->rev_boost_src << 16) | otg_boost_vol;
+		ret |= platform_class_wireless_set_hboost_enable(WIRELESS_ROLE_MASTER, 0);
+		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
+		msleep(100);
+		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, true);
+#line 603
+		mca_log_err("open ovpgate");
+	}
+#line 605
+	mca_log_err("revchg hboost config done");
 	return ret;
 }
 
@@ -623,7 +711,7 @@ static int mca_wireless_rev_firmware_update_boost_config(int enable)
 	int src_voltage;
 	int voltage = 5000;
 	int otg_boost_vol = 5200;
-	EN_SRC en_boost = REV_EN_BOOST;
+	EN_SRC en_boost = MCA_REV_EN_BOOST;
 	int src_enable;
 	struct mca_wireless_revchg *info = g_wls_rev_info;
 
@@ -635,6 +723,7 @@ static int mca_wireless_rev_firmware_update_boost_config(int enable)
 	if (enable) {
 		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, false);
 		msleep(100);
+
 		src_voltage = (info->rev_boost_default << 16) | voltage;
 		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
 		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
@@ -643,13 +732,14 @@ static int mca_wireless_rev_firmware_update_boost_config(int enable)
 			voltage += 500;
 			src_voltage = (info->rev_boost_default << 16) | voltage;
 			msleep(20);
-
 			if (voltage < info->rev_boost_voltage) {
 				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 640
 				mca_log_err("wireless_reverse_charger_boost_config:boost voltage:%d\n", voltage);
 			} else {
 				src_voltage = (info->rev_boost_default << 16) | info->rev_boost_voltage;
 				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 644
 				mca_log_err("wireless_reverse_charger_boost_config:boost voltage end:%d\n", info->rev_boost_voltage);
 			}
 		}
@@ -670,11 +760,87 @@ static int mca_wireless_rev_firmware_update_boost_config(int enable)
 		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
 		msleep(100);
 		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, true);
-		mca_log_err("close ovpgate!!!");
+#line 663
+		mca_log_err("open ovpgate");
 	}
-	mca_log_err("boost done!!!,ret = %d", ret);
+#line 665
+	mca_log_err("fw boost config done");
 	return ret;
+}
 
+static int mca_wireless_rev_firmware_update_hboost_config(int enable)
+{
+	int ret = 0;
+	int retry_cnt = 0;
+	int src_voltage;
+	int voltage = 5000;
+	int otg_boost_vol = 5200;
+	EN_SRC en_boost = MCA_REV_EN_BOOST;
+	int src_enable;
+	struct mca_wireless_revchg *info = g_wls_rev_info;
+
+	if (!info)
+		return -1;
+
+	src_enable = (en_boost << 16) | (info->rev_boost_default << 8) | enable;
+
+	if (enable) {
+		/* stock: TX-only (stylus) skips only the closing of the ovp gate, the boost enable still runs */
+		if (!info->support_tx_only) {
+			ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, false);
+#line 689
+			mca_log_err("close ovp gate!!!,ret = %d", ret);
+			msleep(100);
+		}
+
+		src_voltage = (info->rev_boost_default << 16) | voltage;
+		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 695
+		mca_log_err("enable hboost voltage ret = %d", ret);
+		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
+#line 697
+		mca_log_err("enable hboost!!!ret = %d", ret);
+
+		while (voltage < info->rev_boost_voltage) {
+			voltage += 500;
+			src_voltage = (info->rev_boost_default << 16) | voltage;
+			msleep(20);
+			if (voltage < info->rev_boost_voltage) {
+				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 706
+				mca_log_err("wireless_reverse_charger_hboost_config:hboost voltage:%d\n", voltage);
+			} else {
+				src_voltage = (info->rev_boost_default << 16) | info->rev_boost_voltage;
+				ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+#line 710
+				mca_log_err("wireless_reverse_charger_hboost_config:hboost voltage end:%d\n", info->rev_boost_voltage);
+			}
+		}
+
+		(void)platform_class_wireless_set_hboost_enable(WIRELESS_ROLE_MASTER, 1);
+		msleep(20);
+		while (retry_cnt < 3) {
+			ret = platform_class_wireless_check_i2c_is_ok(WIRELESS_ROLE_MASTER);
+			if (!ret)
+				break;
+			msleep(20);
+#line 720
+			mca_log_err("trx i2c check fail!");
+			++retry_cnt;
+		}
+	} else {
+		src_voltage = (info->rev_boost_src << 16) | otg_boost_vol;
+		ret |= platform_class_wireless_set_hboost_enable(WIRELESS_ROLE_MASTER, 0);
+		ret |= platform_class_buckchg_ops_set_boost_voltage(MAIN_BUCK_CHARGER, src_voltage);
+		ret |= platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, src_enable);
+		msleep(100);
+		ret |= platform_class_cp_enable_ovpgate_with_check(CP_ROLE_MASTER, MCA_OVPGATE_REVCHG_TYPE, true);
+#line 730
+		mca_log_err("open ovpgate");
+	}
+#line 732
+	mca_log_err("fw hboost config done");
+	return ret;
 }
 
 static int mca_wireless_rev_charge_config(int enable)
@@ -696,21 +862,32 @@ static int mca_wireless_rev_charge_config(int enable)
 	if (info->proc_data.wls_sleep_fw_update) {
 		if (info->rev_boost_default == PMIC_REV_BOOST) {
 			ret = mca_wireless_rev_firmware_update_boost_config(enable);
-			mca_log_err("fw update start boost config!!!");
+#line 792
+			mca_log_err("fw update start boost config");
+			return ret;
+		} else if (info->rev_boost_default == PMIC_HBOOST) {
+			ret = mca_wireless_rev_firmware_update_hboost_config(enable);
+#line 796
+			mca_log_err("fw update start haptics boost config");
 			return ret;
 		} else if (info->rev_boost_default == EXTERNAL_BOOST) {
 			ret = mca_wireless_rev_external_boost_config(enable);
-			mca_log_info("fw update start external boost config!!!");
+#line 800
+			mca_log_err("fw update start external boost config");
 			return ret;
 		}
 	}
 
 	switch (info->rev_boost_src) {
 	case PMIC_REV_BOOST:
-	case PMIC_HBOOST:
-		mca_log_err("start boost config!!!");
+#line 807
+		mca_log_err("start boost config");
 		ret = mca_wireless_rev_charger_boost_config(enable);
-		mca_log_err("end boost config!!!");
+#line 809
+		mca_log_err("end boost config");
+		break;
+	case PMIC_HBOOST:
+		ret = mca_wireless_rev_hboost_config(enable);
 		break;
 	case EXTERNAL_BOOST:
 		ret = mca_wireless_rev_external_boost_config(enable);
@@ -924,11 +1101,10 @@ int mca_wireless_rev_enable_reverse_charge(bool enable)
 			info->proc_data.wireless_reverse_closing = true;
 			mca_charge_mievent_set_state(MIEVENT_STATE_PLUG, 0);
 			cancel_delayed_work_sync(&info->monitor_work);
-			if (!info->proc_data.revchg_config_close) {
+			if (!info->proc_data.revchg_config_close)
 				cancel_delayed_work_sync(&info->reverse_charge_config_work);
-				if (info->support_tx_only)
-					cancel_delayed_work_sync(&info->pen_place_err_check_work);
-			}
+			if (info->support_tx_only)
+				cancel_delayed_work_sync(&info->pen_place_err_check_work);
 			ret |= platform_class_wireless_enable_reverse_chg(WIRELESS_ROLE_MASTER, false);
 #line 1028
 			mca_log_err("start reverse_charge_config\n");
@@ -1186,9 +1362,12 @@ static void mca_wireless_update_fw_mainthread_work(struct work_struct *work)
 	info->proc_data.wls_sleep_fw_update = false;
 	info->proc_data.fw_updating = false;
 	//pmic_glink_send_power_supply_notification(XM_POWER_SUPPLY_GET_REQ);
+	mca_event_block_notify(0, 4, &info->proc_data.fw_updating);
 
 	if (!info->proc_data.wls_sleep_usb_insert)
 		(void)platform_class_wireless_set_enable_mode(WIRELESS_ROLE_MASTER, true);
+	if (info->support_tx_only)
+		mca_wireless_rev_enable_reverse_charge(true);
 }
 
 static void mca_wireless_poweron_update_work(struct work_struct *work)
@@ -1423,10 +1602,11 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 	int len;
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data = { 0 };
-	u8 err_code, dfx_code;
-	int ss = 0;
+	u8 err_code;
+	u8 dfx_code = 0x3f;
 	int pen_soc = 255;
 	u64 pen_mac = 0;
+	int reverse_chg_en = 1;
 
 #line 1496
 	mca_log_info("reverse chg handler, int_index = %d\n", info->proc_data.int_flag);
@@ -1440,10 +1620,12 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		mca_log_info("RTX_INT_PING");
 		break;
 	case RTX_INT_GET_RX:
-		ret = platform_class_wireless_enable_rev_fod(WIRELESS_ROLE_MASTER, true);
-		if (ret)
+		if (!info->support_tx_only) {
+			ret = platform_class_wireless_enable_rev_fod(WIRELESS_ROLE_MASTER, true);
+			if (ret)
 #line 1509
-			mca_log_info("RTX_INT_GET_RX: set rev fod failed in GET_RX!\n");
+				mca_log_info("RTX_INT_GET_RX: set rev fod failed in GET_RX!\n");
+		}
 		info->proc_data.reverse_chg_sts = REVERSE_STATE_TRANSFER;
 		len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 			"POWER_SUPPLY_REVERSE_CHG_STATE=%d", REVERSE_STATE_TRANSFER);
@@ -1484,6 +1666,7 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		mca_log_info("RTX_INT_CEP_TIMEOUT: tx ping timeout!\n");
 		break;
 	case RTX_INT_EPT:
+		cancel_delayed_work_sync(&info->pen_data_handle_work);
 		schedule_delayed_work(&info->tx_ping_timeout_work, msecs_to_jiffies(REVERSE_PING_TIMEOUT_TIMER));
 #line 1548
 		mca_log_info("RTX_INT_EPT: end power transfer!\n");
@@ -1494,7 +1677,7 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 			(void)platform_class_wireless_get_poweroff_err_code(WIRELESS_ROLE_MASTER, &err_code);
 			if (err_code == 4) {
 				schedule_delayed_work(&info->disable_tx_work, msecs_to_jiffies(700));
-				mca_charge_mievent_report(CHARGE_DFX_WLS_TRX_UVLO, NULL, 0);
+				mca_charge_mievent_report(MCA_DFX_WLS_TRX_UVLO, NULL, 0);
 			} else if (err_code != 0) {
 				mca_wireless_rev_enable_reverse_charge(false);
 				info->proc_data.reverse_chg_sts = REVERSE_STATE_ENDTRANS;
@@ -1513,7 +1696,7 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 				}
 
 				if (err_code == 2)
-					mca_charge_mievent_report(CHARGE_DFX_WLS_TRX_OCP, NULL, 0);
+					mca_charge_mievent_report(MCA_DFX_WLS_TRX_OCP, NULL, 0);
 			}
 #line 1575
 			mca_log_info("RTX_INT_PROTECTION: protection, %d", err_code);
@@ -1562,6 +1745,7 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		event_data.event = event;
 		event_data.event_len = len;
 		mca_event_report_uevent(&event_data);
+		mca_charge_mievent_report(MCA_DFX_WLS_TRX_FOD, NULL, 0);
 
 		if (info->support_tx_only) {
 			len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
@@ -1570,8 +1754,6 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 			event_data.event_len = len;
 			mca_event_report_uevent(&event_data);
 		}
-
-		mca_charge_mievent_report(CHARGE_DFX_WLS_TRX_FOD, NULL, 0);
 #line 1623
 		mca_log_info("RTX_INT_FOD: fod!!");
 		break;
@@ -1582,18 +1764,22 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		break;
 	case RTX_INT_ERR_CODE:
 		(void)platform_class_wireless_get_tx_err_code(WIRELESS_ROLE_MASTER, &err_code, &dfx_code);
-		mca_log_err("RTX_INT_ERR_CODE, err_code:0x%02x\n", err_code);
+#line 1631
+		mca_log_err("RTX_INT_ERR_CODE, err_code:0x%02x, dfx_code:%d\n", err_code, dfx_code);
+		if (dfx_code == MCA_DFX_WLS_TRX_OCP)
+			mca_charge_mievent_report(MCA_DFX_WLS_TRX_OCP, NULL, 0);
 		break;
 	case RTX_INT_TX_DET_RX:
 #line 1636
 		mca_log_info("RTX_INT_TX_DET_RX trigger!");
 		cancel_delayed_work_sync(&info->pen_place_err_check_work);
-		(void)platform_class_wireless_get_tx_ss(WIRELESS_ROLE_MASTER, &ss);
-		if (ss < 100) {
+		(void)platform_class_wireless_get_ss_voltage(WIRELESS_ROLE_MASTER, &info->proc_data.pen_ss_voltage);
+		if (info->proc_data.pen_ss_voltage < 100) {
 #line 1640
-			mca_log_info("tx get ss_reg value: %d, pen place err: ss\n", ss);
+			mca_log_info("tx get ss_reg value: %d, pen place err: ss\n", info->proc_data.pen_ss_voltage);
 			mca_wireless_rev_enable_reverse_charge(false);
 			cancel_delayed_work_sync(&info->pen_data_handle_work);
+			info->proc_data.pen_ss_voltage = 0;
 			platform_class_wireless_set_pen_place_err(WIRELESS_ROLE_MASTER, 1);
 			len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 				"POWER_SUPPLY_PEN_PLACE_ERR=%d", 1);
@@ -1627,6 +1813,9 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		mca_log_info("RTX_INT_TX_CHS_UPDATE trigger!");
 		(void)platform_class_wireless_get_pen_soc(WIRELESS_ROLE_MASTER, &pen_soc);
 		(void)platform_class_wireless_get_pen_mac(WIRELESS_ROLE_MASTER, &pen_mac);
+		(void)platform_class_wireless_get_reverse_chg_en(WIRELESS_ROLE_MASTER, &reverse_chg_en);
+		if (!reverse_chg_en)
+			break;
 		len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 				"POWER_SUPPLY_REVERSE_PEN_SOC=%d", pen_soc);
 		event_data.event = event;
@@ -1644,6 +1833,9 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 		mca_log_info("RTX_INT_TX_BLE_CONNECT trigger!");
 		(void)platform_class_wireless_get_pen_soc(WIRELESS_ROLE_MASTER, &pen_soc);
 		(void)platform_class_wireless_get_pen_mac(WIRELESS_ROLE_MASTER, &pen_mac);
+		(void)platform_class_wireless_get_reverse_chg_en(WIRELESS_ROLE_MASTER, &reverse_chg_en);
+		if (!reverse_chg_en)
+			break;
 		len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 				"POWER_SUPPLY_REVERSE_PEN_SOC=%d", pen_soc);
 		event_data.event = event;
@@ -1676,7 +1868,9 @@ static void mca_wireless_rev_process_hall_change(int value, struct mca_wireless_
 	bool pen_hall3_gpio_value = !(value & (1 << 3));
 	bool pen_hall4_gpio_value = !(value & (1 << 4));
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
+	char event2[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data = { 0 };
+	struct mca_event_notify_data events[2] = { { 0 } };
 	int len;
 
 #line 1736
@@ -1686,7 +1880,8 @@ static void mca_wireless_rev_process_hall_change(int value, struct mca_wireless_
 
 	if (!is_pen_attached) {
 		cancel_delayed_work_sync(&info->pen_data_handle_work);
-		cancel_delayed_work_sync(&info->pen_place_err_check_work);
+		info->proc_data.pen_ss_voltage = 0;
+		info->full_soc_count = 0;
 		info->proc_data.reverse_chg_sts = REVERSE_STATE_ENDTRANS;
 		len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 			"POWER_SUPPLY_REVERSE_CHG_STATE=%d", REVERSE_STATE_ENDTRANS);
@@ -1706,21 +1901,18 @@ static void mca_wireless_rev_process_hall_change(int value, struct mca_wireless_
 			event_data.event = event;
 			event_data.event_len = len;
 			mca_event_report_uevent(&event_data);
-
-			platform_class_wireless_set_pen_place_err(WIRELESS_ROLE_MASTER, 0);
 		}
 	}
 
 	atomic_notifier_call_chain(&pen_charge_state_notifier, is_pen_attached, NULL);
 
 	len = snprintf(event, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_PEN_HALL3=%d", pen_hall3_gpio_value);
-	event_data.event = event;
-	event_data.event_len = len;
-	mca_event_report_uevent(&event_data);
-	len = snprintf(event, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_PEN_HALL4=%d", pen_hall4_gpio_value);
-	event_data.event = event;
-	event_data.event_len = len;
-	mca_event_report_uevent(&event_data);
+	events[0].event = event;
+	events[0].event_len = len;
+	len = snprintf(event2, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_PEN_HALL4=%d", pen_hall4_gpio_value);
+	events[1].event = event2;
+	events[1].event_len = len;
+	mca_event_report_multiple_uevent(events, 2);
 }
 
 static void mca_wireless_rev_process_ppe_hall_change(int value, struct mca_wireless_revchg *info)
@@ -1742,7 +1934,7 @@ static void mca_wireless_rev_process_ppe_hall_change(int value, struct mca_wirel
 		if (info->proc_data.reverse_chg_en && info->proc_data.reverse_chg_sts == REVERSE_STATE_TRANSFER) {
 			mca_wireless_rev_enable_reverse_charge(false);
 			cancel_delayed_work_sync(&info->pen_data_handle_work);
-			cancel_delayed_work_sync(&info->pen_place_err_check_work);
+			info->proc_data.pen_ss_voltage = 0;
 			info->proc_data.reverse_chg_sts = REVERSE_STATE_ENDTRANS;
 			len = snprintf(event, MCA_EVENT_NOTIFY_SIZE,
 				"POWER_SUPPLY_REVERSE_CHG_STATE=%d", REVERSE_STATE_ENDTRANS);
@@ -1771,6 +1963,11 @@ static void mca_wireless_rev_process_usb_plug_change(int value, struct mca_wirel
 {
 	bool usb_present = false;
 
+	if (info->support_tx_only) {
+#line 1826
+		mca_log_info("pen revchg ignore usb plug change!\n");
+		return;
+	}
 	usb_present = value;
 	if (!info->proc_data.wls_sleep_fw_update && usb_present) {
 		if (info->is_switching)
@@ -1794,7 +1991,7 @@ static void mca_wireless_rev_process_online_change(int value, struct mca_wireles
 
 	if (!value) {
 		(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BASIC_WIRELESS,
-			STRATEGY_STATUS_TYPE_REV_TEST, &info->wait_for_reverse_test);
+			MCA_STATUS_TYPE_REV_TEST, &info->wait_for_reverse_test);
 		if (info->wait_for_reverse_test)
 			schedule_delayed_work(&info->reverse_test_start_work, msecs_to_jiffies(REVERSE_TEST_DELAY_MS));
 	} else {
@@ -1862,7 +2059,6 @@ static int mca_wireless_rev_process_event(int event, int value, void *data)
 		break;
 	case MCA_EVENT_USB_DISCONNECT:
 	case MCA_EVENT_USB_CONNECT:
-		if (!info->support_tx_only)
 		mca_wireless_rev_process_usb_plug_change(value, info);
 		break;
 	case MCA_EVENT_LPD_STATUS_CHANGE:

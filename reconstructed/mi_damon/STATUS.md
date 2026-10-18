@@ -1,5 +1,7 @@
 # mi_damon - PARTIAL (187 of 188 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4j (17.10.2026): real Kleaf build re-run: function set (188), relocations, objects, imports (97)+CRCs, modinfo OK; 187 of 188 byte-identical, only kdamond_fn differs. Not touched in g4j.
+
 g4d (17.10.2026): real Kleaf build re-run: function set (188), relocations, objects, imports (97) + CRCs, modinfo OK; 187 of 188 identical (`kdamond_fn` differs). No change made.
 
 

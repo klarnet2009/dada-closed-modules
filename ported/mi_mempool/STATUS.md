@@ -1,10 +1,15 @@
-# mi_mempool - EQUIVALENT (compare_ko.py of the real Kleaf/ThinLTO build: 27/27 functions byte-identical, relocations, objects, imports+CRC 54, modinfo OK) [agents g3e, g3g, g3h 17.10.2026]
+# mi_mempool - EQUIVALENT (strict compare_ko_v2: only metadata differences; one documented data hack)
+
+Old first line (before the strict recheck G9): # mi_mempool - EQUIVALENT (compare_ko.py of the real Kleaf/ThinLTO build: 27/27 functions byte-identical, relocations, objects, imports+CRC 54, modinfo OK) [agents g3e, g3g, g3h, g3i 17.10.2026]
 
 Reference: OS4 stock `<work-dir>` (= vendor_ramdisk copy, 27 functions). Build: `bash work/re/src/g3e_tools/g3_build.sh mi_mempool` (NB: its compare step uses an old compare_ko that crashes on this module; compare with `python3 <work-dir> stock/mi_mempool.ko built/mi_mempool.ko`).
 Quick loop (2 s): `bash work/re/src/g3e_tools/mpr.sh <func ...>` (ThinLTO emulation + per-function diff, prints only the errors when the compile fails: an old .lto.o is otherwise reused silently!).
 Variant search (new, generic): `g3e_tools/varsearch.py <base.c> <func-regex> <groups.json> [maxn]` pushes N source variants (product of alternatives for unique text anchors, see `vs_*.py` generators) to the server, compiles each (ThinLTO emu) and ranks them by diff lines of the function. It found most of the fixes below (declaration order, `u32` types, `||` vs `|`).
 
-## compare_ko of the final build (g3g, 17.10.2026, `python3 <work-dir>`)
+## g3i re-check (17.10.2026)
+After the g3h edit (interrupted by the usage limit) the sources were rebuilt unchanged with `bash work/re/src/g3i_tools/g3_build.sh mi_mempool`: compare_ko = EQUIVALENT (27/27 functions, relocations, objects, imports+CRC 54, modinfo), kCFI preambles 19/19 identical, `depends=` empty in both. Hacks (all codegen/layout only): `adj_whitelist`/`orders` in one `.rodata.adj_whitelist` section, the dummy `refill_logs[pos]` read in `mi_mempool_refill_work`.
+
+## compare_ko of the final build (g3g, outdated: refill_work was fixed later by g3h) (g3g, 17.10.2026, `python3 <work-dir>`)
 - OK function set (27), OK function relocations (resolved targets, all identical), OK global objects, OK exports (none), OK imports + CRCs (54), OK modinfo.
 - DIFF function bytes: only `mi_mempool_refill_work` (2 words). The other 26 are byte-identical, incl. `check_whitelist`, `mi_mempool_alloc_reclaim`, `direct_reclaim_threshold_mb_show` (fixed by g3g, see below).
 - Tools of g3g: `work/re/src/g3g_tools/` (copy of g3e_tools with scratch `<work-dir>`, variant dirs `gv<i>`; `re_build.sh` uses the new compare_ko and deletes the package's bazel-out afterwards). Build: `bash work/re/src/g3g_tools/g3_build.sh mi_mempool`.
@@ -30,5 +35,11 @@ Tools: `work/re/src/g3h_tools/` (copy of g3g_tools for scratch `<work-dir>`; `pa
 
 - Nothing was hardware-tested; the module still registers the same hooks/sysfs names as the stock (`mi_mempool/{process_use_count,general_stat_info,config,direct_reclaim_threshold_mb,pids}`).
 
-## Earlier notes (agents a17D, g3c, g3d; kept for the record)
+## Earlier notes
 Template: MiCode `bixi-v-oss` `drivers/staging/mi-perf/mi_mempool/mi_mempool.{c,h}` (older, node spelled `direct_relcaim_threshold_mb`). a17D: 2 of 20 functions identical; g3c/g3d: analysis only (struct layouts via `btf_dump_startid.py`, data tables). Their notes are superseded by the list above (all 18 differing functions were rewritten in this run; 4 remain off by scheduling).
+
+## G9 strict recheck (18.10.2026)
+compare_ko_v2 found: `__trace_printk_fmt` has 2 entries in the stock (`tracing_mark_write.trace_printk_fmt` and `tracing_mark_write.trace_printk_fmt.37`, both 8 zero bytes without relocation: the `static const char *trace_printk_fmt = __builtin_constant_p(str) ? str : NULL` of trace_puts(buf)), ours 1; and the 2 bug-table line numbers (stock 150, ours 134).
+Fix (mi_mempool.c): (1) the second entry is emitted by hand right after tracing_mark_write(): `static const char *tracing_mark_write_fmt_dup __asm__("tracing_mark_write.trace_printk_fmt.37") __used __section("__trace_printk_fmt") = NULL;` (the stock obviously has a second copy of tracing_mark_write in its link; we do not know which source file it came from); (2) `#line 150` before the WARN_ON_ONCE in folio_set_order pins the bug-table line to the stock value.
+Real Kleaf build: compare_ko_v2 only buildmeta fails (intree/scmversion/staging vs built_with=DDK); old compare_ko EQUIVALENT (27/27 functions); kCFI preamble 0 mismatches.
+Documented hacks now: the duplicate __trace_printk_fmt object, `#line 150`.

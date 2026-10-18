@@ -1,7 +1,7 @@
 # mi_memory - EQUIVALENT (OS4 stock `vendor_ramdisk/mi_memory.ko`; two documented stub/offset hacks)
 
 `compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144, `//re/mi_memory:mi_memory`, package `work/re/src/mi_memory/`): 29 functions byte-identical, relocations identical, global objects (incl. the `.llvm.<hash>` ones) identical,
-55 imports + CRCs identical, 0 exports, modinfo identical (description + two `MODULE_AUTHOR`, `depends=ufs_qcom` comes from the stub provider). Agent g3, 17.10.2026 (round 2, ~60 build/diff iterations with the Bazel-free ThinLTO loop `g3_tools/mm.sh`).
+55 imports + CRCs identical, 0 exports, modinfo identical (description + two `MODULE_AUTHOR`, `depends=ufs_qcom` comes from the stub provider). 17.10.2026 (round 2, ~60 build/diff iterations with the Bazel-free ThinLTO loop `g3_tools/mm.sh`).
 Build: `bash work/re/src/g3_tools/g3_build.sh mi_memory stubs_g3`. The module goes to the vendor ramdisk (first-stage), OS4 stock is function-for-function the same as HyperOS 3.
 
 Template: MiCode `erhu-w-oss` `drivers/scsi/mi_ufs/mi-memory/{mem_interface,mi_dram_info,mi_memory_sysfs,mi_ufs_info,mv}.[ch]` (`work/re/tplm/erhu/`), which turned out to be close to the stock; the OS4 stock is a reduced/newer revision of it.

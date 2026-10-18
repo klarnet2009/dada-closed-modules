@@ -1,4 +1,6 @@
-# fs19xx_dlkm - EQUIVALENT (128 of 128 functions byte-identical to the OS4 stock, compare_ko.py EQUIVALENT; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
+# fs19xx_dlkm - EQUIVALENT (strict compare_ko_v2: only metadata differences srcversion + depends order; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
+
+Old first line (before the strict recheck G9): # fs19xx_dlkm - EQUIVALENT (128 of 128 functions byte-identical to the OS4 stock, compare_ko.py EQUIVALENT; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
 
 Reference: OS4 `<work-dir>` (FourSemi FS19xx smart PA, v4.0.7). History: 98/128, round 1 117/128, round 2 127/128 (real Kleaf/ThinLTO build, `compare_ko.py`).
 Build: `bash work/re/src/g3_tools/g3_build.sh fs19xx_dlkm` (deps `//re/stubs_a17C:stub_machine`, `stub_miev`); quick loop `work/re/src/g3_tools/fs.sh` (ThinLTO emulation + per-function diff, `FD="func ..."`).
@@ -54,3 +56,14 @@ Why: with the load already in the dominating block, SimplifyCFG's FoldBranchToCo
 Real Kleaf/ThinLTO build + compare_ko.py (both the <build-dir> and the g3e copy): function set/bytes/relocs/globals/exports(1)/imports(76)/modinfo all OK -> EQUIVALENT.
 Documented hacks in this module: forged member name `fcrcJLl3fZ3UN6` in `struct fsm_config` (export CRC of fsm_get_config), ThinLTO-promoted statics as hidden `name.llvm.<hash>` globals, the uint8_t+`&1` load form above (codegen hint, ABI unchanged).
 Tools of this round: `work/re/src/g3f_tools` (copies of g3e_tools pointing to <work-dir> `varsearch.py` now needs env STOCK=<stock module>; `vs_fw*.py` = this search).
+
+## G9 strict recheck (18.10.2026): all REAL differences fixed
+compare_ko_v2 found static data that compare_ko.py does not compare; recovered from the OS4 stock `.data`/`.rodata` (dump with relocations: <work-dir>):
+- Names: the stock driver is called `fs16xx`: `FSM_DRV_NAME` = "fs16xx" (fsm_i2c_driver.driver.name, g_fsm_misc.name, `MODULE_ALIAS("foursemi:fs16xx")`), `FSM_FW_NAME` = "fs16xx.fsm" (g_fsm_config.fw_name), DAI `fsm_aif_dai[0].name` = "fs16xx-aif". (Strings inside functions stay "fs19xx" as before: the functions were already byte/reloc-identical.)
+- g_fsm_config initial values: cur_scene = 1 (FSM_SCENE_MUSIC), i2s_bclk = 6144000, i2s_srate = 96000, spksw_gpio = -1 (we had 0 / 1536000 / 48000 / 0).
+- fsm_aif_dai: no `.symmetric_rate` (the stock bit is 0).
+- control "FSM_SW_GPIO" max is 3 (we had 1) -> its compound literal; `fsm_spksw_gpio_get/put` are `static` (stock: local symbols, not global).
+- fsm_detect_device: the switch jump table maps dev_id 0x17 to the FS1958 code (same as 0x29): added `case 0x17:` before `case FS1958_DEV_ID:` (this was the only `anon-data`/function-reloc difference).
+- modinfo: `MODULE_SOFTDEP("pre: sia91xx_dlkm")` (first entry in .modinfo, before author).
+Real Kleaf build: compare_ko_v2 fails only `buildmeta` (srcversion differs, a hash of the source files) and `depends` order (`miev,machine_dlkm` vs stock `machine_dlkm,miev`; the package build rewrites .modinfo to the stock value). Old compare_ko EQUIVALENT (128/128 functions), kCFI preamble 0 mismatches.
+Behaviour notes: the codec DAI/driver/alias names now follow the stock (`fs16xx`), the default I2S rate is 96 kHz/6.144 MHz BCLK until set by hw_params.

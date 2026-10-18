@@ -129,6 +129,14 @@ struct gpu_blocked_node {
 	struct list_head list;
 	pid_t pid;
 	u64 start;
+	u32 type;	/* +0x20: third word of the user event (kzalloc size 40 in the stock) */
+};
+
+/* argument of the XR_FBT_QOS_EVENT callback (12 bytes, copied from user space) */
+struct qi_gpu_event {
+	pid_t pid;
+	u32 unblocked;	/* 0: the task blocks on the gpu, 1: it is released */
+	u32 type;
 };
 
 /* provided by perf_actuator */
@@ -142,8 +150,16 @@ extern void plat_free_mi_task_struct(struct task_struct *p);
 
 bool is_qi_feat_enabled(u8 feat);
 void iter_qos_inherit(struct task_struct *p, void *ptr);
-int do_qos_inherit(struct task_struct *from, struct task_struct *to, unsigned long ptr, u8 type);
-int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, unsigned long ptr, u8 type);
+int do_qos_inherit(struct task_struct *from, struct task_struct *to, void *ptr, u8 type);
+#ifndef QI_NO_UNDO_MACRO
+/* G11b: the stock prototype is int (struct task_struct *, struct task_struct *, void *, u8) (kCFI 0x12ff2bc8, found with Itanium substitutions S0_) */
+#define do_qos_inherit(f, t, ptr, type) do_qos_inherit(f, t, (void *)(unsigned long)(ptr), type)
+#endif
+int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, void *ptr, u8 type);
+#ifndef QI_NO_UNDO_MACRO
+/* G11: the stock prototype takes `void *` (kCFI 0x86fb9f9a); the callers of this file pass the key as an integer */
+#define undo_qos_inherit(p, qi, ptr, type) undo_qos_inherit(p, qi, (void *)(unsigned long)(ptr), type)
+#endif
 u32 get_task_qos(struct task_struct *task);
 u32 get_dyn_qos_lvl(struct task_struct *task);
 extern unsigned int sysctl_mutex_qos_opt_spin_time_ns;
@@ -168,5 +184,7 @@ struct mutex_waiter;
 void os_cpu_android_vh_alter_mutex_list_add(void *unused, struct mutex *lock, struct mutex_waiter *waiter,
 					    struct list_head *list, bool *already_on_list GKPAD(fcrcpSKVvx3Mb5));
 int qi_acquire_gpu_blockeds(struct gpu_blocked_info *info, u32 max);
+extern spinlock_t g_stats_lock;
+extern struct list_head g_gpu_blocked_list;
 
 #endif /* _XR_QI_H */

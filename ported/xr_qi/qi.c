@@ -25,7 +25,7 @@
 #define SYS_MODE	0640
 
 static volatile unsigned long g_qi_enable;
-static DEFINE_SPINLOCK(g_stats_lock);
+DEFINE_SPINLOCK(g_stats_lock);
 static struct ctl_table_header *xr_qos_cth;
 
 /* ThinLTO promoted this object (used from several source files of the stock module) */
@@ -35,7 +35,7 @@ struct atomic_notifier_head g_qievent_notif_chain __asm__("g_qievent_notif_chain
 unsigned int sysctl_mutex_qos_opt_spin_time_ns = 100000;
 unsigned int sysctl_mutex_normal_opt_spin_time_ns = 60000;
 
-static struct list_head g_gpu_blocked_list = LIST_HEAD_INIT(g_gpu_blocked_list);
+struct list_head g_gpu_blocked_list = LIST_HEAD_INIT(g_gpu_blocked_list);
 
 int register_qievent_notifier(struct notifier_block *nb)
 {

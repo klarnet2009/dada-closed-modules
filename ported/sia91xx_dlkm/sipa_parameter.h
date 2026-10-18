@@ -47,7 +47,7 @@ static inline uint32_t crc32(uint8_t *data, uint32_t length)
 }
 
 extern int sipa_pending_actions(sipa_dev_t *si_pa);
-void sipa_param_load_fw(struct device *dev);
+void sipa_param_load_fw(struct device *dev, char *name);
 void sipa_param_release(void);
 
 int sipa_param_read_spk_calibration(

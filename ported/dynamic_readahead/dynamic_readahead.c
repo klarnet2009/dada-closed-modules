@@ -203,6 +203,6 @@ module_param(enable, bool, 0600);
 MODULE_PARM_DESC(enable, "dynamic_readahead.enable=1 to indicate supporting dynamic readahead or not ");
 module_param(ra_close_large_folio_enable, bool, 0600);
 MODULE_PARM_DESC(ra_close_large_folio_enable, "ra_close_large_folio_enable = 1 to indicate supporting ra_close_large_folio");
-module_param_call(fault_around, fault_around_set, fault_around_get, NULL, 0600);
+module_param_call(fault_around, fault_around_set, fault_around_get, NULL, 0660);
 MODULE_PARM_DESC(fault_around, "write uid to disable fault_around for that app, write 0 to clear all, tracked appid range: [0,512)");
 MODULE_LICENSE("GPL v2");

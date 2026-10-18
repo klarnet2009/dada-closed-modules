@@ -1,6 +1,6 @@
 # nxp-nci - EQUIVALENT vs OS4 stock (43 functions byte-identical, relocations, objects, 76 imports + CRCs, modinfo)
 
-Reference: OS4 `<work-dir>` (modinfo name `nxp_nci`, qcom,sn-nci NXP SN1xx/SN2xx NFC driver). Agent a17C, ~12 quick-loop iterations + 2 Bazel builds.
+Reference: OS4 `<work-dir>` (modinfo name `nxp_nci`, qcom,sn-nci NXP SN1xx/SN2xx NFC driver). ~12 quick-loop iterations + 2 Bazel builds.
 Template: OnePlus13 `op13_modules: vendor/nxp/opensource/driver/nfc/{common.c,common.h,common_nxp.[ch],common_qcom.c,ese_cold_reset.[ch],i2c_drv.[ch]}` + `config/gki_nfc_conf.h`, uapi `nfcinfo.h`, `sn_uapi.h`.
 NOTE: the `drivers/nfc/nxp-nci` tree in micode_dada/bixi/miro is the UPSTREAM Linux nxp-nci driver (different driver, not the stock one); the XRING `nfc-mi` driver (MiCode `dijun-v-oss`) is not it either (only its `print_rw_buffer` helper matches).
 Changes relative to the template (reconstructed from the stock disassembly):

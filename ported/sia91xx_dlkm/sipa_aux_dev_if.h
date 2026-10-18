@@ -44,4 +44,7 @@ int soc_sia91xx_init(
 int soc_codec_conf_sia91xx(
 	struct platform_device *pdev,
 	struct snd_soc_card *card);
+int soc_codec_conf_sipa(
+	struct platform_device *pdev,
+	struct snd_soc_card *card);
 #endif /* _SIPA_AUX_DEV_IF_H */

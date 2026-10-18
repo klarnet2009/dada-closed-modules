@@ -207,7 +207,7 @@ int fsm_ultrasound_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-int fsm_spksw_gpio_get(struct snd_kcontrol *kcontrol,
+static int fsm_spksw_gpio_get(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
 	fsm_config_t *cfg = fsm_get_config();
@@ -224,7 +224,7 @@ int fsm_spksw_gpio_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
-int fsm_spksw_gpio_put(struct snd_kcontrol *kcontrol,
+static int fsm_spksw_gpio_put(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
 	fsm_config_t *cfg = fsm_get_config();
@@ -252,7 +252,7 @@ static const struct snd_kcontrol_new fsm_snd_controls[] =
 			fsm_rotation_get, fsm_rotation_put),
 	SOC_SINGLE_EXT("FSM_Ultrasound_Enable", SND_SOC_NOPM, 0, 1, 0,
 			fsm_ultrasound_get, fsm_ultrasound_put),
-	SOC_SINGLE_EXT("FSM_SW_GPIO", SND_SOC_NOPM, 0, 1, 0,
+	SOC_SINGLE_EXT("FSM_SW_GPIO", SND_SOC_NOPM, 0, 3, 0,
 			fsm_spksw_gpio_get, fsm_spksw_gpio_put),
 };
 
@@ -467,7 +467,7 @@ static const struct snd_soc_dai_ops fsm_aif_dai_ops = {
 
 static struct snd_soc_dai_driver fsm_aif_dai[] = {
 	{
-		.name = "fs19xx-aif",
+		.name = "fs16xx-aif",
 		.id = 1,
 		.playback = {
 			.stream_name = "AIF Playback",
@@ -486,7 +486,6 @@ static struct snd_soc_dai_driver fsm_aif_dai[] = {
 		},
 #endif
 		.ops = &fsm_aif_dai_ops,
-		.symmetric_rate = 1,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0)
 		//.symmetric_channels = 1,
 		//.symmetric_samplebits = 1,

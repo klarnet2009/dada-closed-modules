@@ -1,4 +1,4 @@
-# binder_gki - PARTIAL (9 of 10 functions byte-identical vs the OS4 stock; exports + CRCs OK; no public source, reconstructed from the disassembly) (g4c + g4d + g4e, 17.10.2026)
+# binder_gki - EQUIVALENT (compare_ko.py all OK in the real Kleaf build: 10 functions byte-identical, 3 exports + CRCs, 29 imports, modinfo; hacks listed below) (g4c + g4d + g4e + g4h, 17.10.2026)
 
 ## g7 CORRECTION (17.10.2026): the kCFI claim below was backwards, the STOCK probe is kCFI-safe on 6.6.144
 compare_ko.py only compares the bytes INSIDE each function symbol; the kCFI type-hash word sits in the 4 bytes BEFORE the symbol and is never compared. Reading it (`work/a17/kernel_pkg/preamble_cmp.py`): the OS4 stock `mi_binder_alloc_new_buf_locked` has hash 0x0c6377dc; vmlinux `__traceiter_android_vh_binder_alloc_new_buf_locked` (6.6.144 Image, 5 arguments: data, size, free_async_space, is_async, should_fail) checks exactly 0x0c6377dc (`movk w17,#0x77dc; movk w17,#0xc63,lsl #16`). So the stock probe type already contains `bool *should_fail`.
@@ -54,3 +54,10 @@ Tried (harness `work/a17/g4f/gen_bt3.py`, hunk counts vs stock, base = 3 hunks /
 
 ## goal-G4g note (17.10.2026)
 Not re-attacked (budget went to ufs_ffu / rsmc_driver). mi_binder_transaction state unchanged (stock 267 words vs 263; the `if (i >= 140) desc[139] = 0` check after the loop is kept by the stock, folded by us). Same lessons as ufs_ffu: put the check in an always_inline helper or a separate statement block so the loop-exit value is not known to the check.
+
+
+## g4h (17.10.2026): EQUIVALENT
+`mi_binder_transaction` is now byte-identical (real build `<work-dir> binder_gki` -> EQUIVALENT). Two source-form findings, both in the token loop:
+- the trip count `cnt = (len - 18) / 2 + 1` is computed BEFORE the guard (not inside it): inside the guard the sub gets nuw from the guard, InstCombine proves `i >= 140` dead; outside, the post-loop check keeps the stock closed form `cmp x8,#0x116; b.lo; strb wzr,[sp,#0x93]`;
+- the guard is `__builtin_expect_with_probability(len >= 18, 1, 0.1)` instead of `unlikely()`: `unlikely` makes the loop block so cold that it sinks BEHIND the fortify/preempt_schedule cold blocks; probability 0.01..0.4 all give the stock order (loop block first in the cold tail). Reusable: use a probability hint when `unlikely()` gives the right out-of-line decision but the wrong ORDER of the cold blocks.
+Hacks that remain (codegen/CRC, behaviour unchanged): volatile u32 read of `tr->flags` (stock keeps the 32-bit ldr), the probability hint + hoisted cnt above, `BINDER_FORGE_CRC` + forged OS4 CRCs of the millet_core stub (`//re/stubs_g4:os4_millet_core`: millet_debug, millet_binder_switch), the probe prototype with `bool *should_fail` (BINDER_GKI_SHOULD_FAIL=1; g7 proved the stock hash already has it). The package decision of g7 (ship the stock binder_gki.ko) is unchanged: this tree is for the source-level goal only.

@@ -1,19 +1,19 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* smart_chg_class.h - reconstructed API of mca_smart_charge.ko; OS4 (HyperOS 4.0) layout of struct mca_smartchg_if_ops from the stock BTF (88 bytes):
  * +80 is_support_pps_100w (new in OS4; the only implementation, strategy_buckchg_is_support_pps_100w, is `bool f(void)`, kCFI 0x36b1c5a6).
- * G2: type values 0..5 (mca_smartchg_if_ops_register() accepts type < 6); THERMAL = 5 (mca_charger_thermal), the others from the registering strategies. */
+ * type values 0..5 (mca_smartchg_if_ops_register() accepts type < 6); the order is the one stored in the OS4 stock .data of the registrants (G2n, 18.10.2026: first word of each ops struct: strategy_buckchg 0, basic_wireless 1, strategy_quickchg 2, quick_wireless 3, buckchg_jeita 4, charger_thermal 5). */
 #ifndef __MCA_SMART_CHG_CLASS_H__
 #define __MCA_SMART_CHG_CLASS_H__
 
 #include <linux/types.h>
 
 enum mca_smartchg_if_chg_type {
-	MCA_SMARTCHG_IF_CHG_TYPE_BUCK = 0,
-	MCA_SMARTCHG_IF_CHG_TYPE_QC,
-	MCA_SMARTCHG_IF_CHG_TYPE_WL_QC,
-	MCA_SMARTCHG_IF_CHG_TYPE_JEITA,
-	MCA_SMARTCHG_IF_CHG_TYPE_WL_BASIC,	/* guess (value 4), registered by mca_basic_wireless */
-	MCA_SMARTCHG_IF_CHG_TYPE_THERMAL,	/* 5 */
+	MCA_SMARTCHG_IF_CHG_TYPE_BUCK = 0,	/* mca_strategy_buckchg */
+	MCA_SMARTCHG_IF_CHG_TYPE_WL_BUCK = 1,	/* mca_basic_wireless */
+	MCA_SMARTCHG_IF_CHG_TYPE_QC = 2,	/* mca_strategy_quickchg */
+	MCA_SMARTCHG_IF_CHG_TYPE_WL_QC = 3,	/* mca_quick_wireless */
+	MCA_SMARTCHG_IF_CHG_TYPE_JEITA = 4,	/* mca_buckchg_jeita */
+	MCA_SMARTCHG_IF_CHG_TYPE_THERMAL = 5,	/* mca_charger_thermal */
 	MCA_SMARTCHG_IF_CHG_TYPE_END,		/* 6 */
 };
 

@@ -1,0 +1,32 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "minidump",
+    srcs = [
+        "drivers/soc/qcom/minidump_log.c",
+        "drivers/soc/qcom/minidump_memory.c",
+        "drivers/soc/qcom/msm_minidump.c",
+    ] + glob(["drivers/**/*.h", "kernel/**/*.h", "mm/*.h"]),
+    out = "minidump.ko",
+    defconfig = "minidump_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    local_defines = [
+        "CONFIG_LTO=1",
+        "CONFIG_QCOM_MINIDUMP=1",
+        "CONFIG_QCOM_MINIDUMP_PANIC_DUMP=1",
+        "CONFIG_QCOM_MINIDUMP_PANIC_MEMORY_INFO=1",
+        "CONFIG_QCOM_MINIDUMP_PANIC_CPU_CONTEXT=1",
+        "CONFIG_QCOM_MINIDUMP_PANIC_KTASK_STACK=1",
+        "CONFIG_QCOM_MINIDUMP_PANIC_CPUFREQ_INFO=1",
+        "CONFIG_QCOM_MINIDUMP_FTRACE=1",
+        "CONFIG_QCOM_MINIDUMP_PSTORE=1",
+        "CONFIG_QCOM_SMEM=1",
+        "CONFIG_QCOM_DEBUG_SYMBOL=1",
+        "CONFIG_MINIDUMP_MAX_ENTRIES=200",
+        "CONFIG_GH_RM_DRV=1",
+        "CONFIG_SCHED_WALT=1",
+    ],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = ["//re/stubs_portA:portA_headers", "//re/stubs_portA:minidump_deps_stub", "//common:all_headers_aarch64"],
+)

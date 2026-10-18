@@ -45,7 +45,7 @@ static int aw_get_hmute(struct aw_device *aw_dev)
 
 	aw_dev_dbg(aw_dev->dev, "enter");
 
-	ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, &reg_val);
+	ret = aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->reg, &reg_val);
 	if (ret < 0)
 		return ret;
 
@@ -96,7 +96,7 @@ static int aw_monitor_get_voltage(struct aw_device *aw_dev, unsigned int *vol)
 		}
 		*vol = (*vol) / 1000;
 	} else {
-		ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, vol);
+		ret = aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->reg, vol);
 		if (ret < 0) {
 			aw_dev_err(aw_dev->dev, "read voltage failed!");
 			return ret;
@@ -125,7 +125,7 @@ static int aw_monitor_get_temperature(struct aw_device *aw_dev, int *temp)
 		}
 		*temp = (*temp) / 10;
 	} else {
-		ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, &reg_val);
+		ret = aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->reg, &reg_val);
 		if (ret < 0) {
 			aw_dev_err(aw_dev->dev, "get temperature failed!");
 			return ret;
@@ -333,7 +333,7 @@ static void aw_monitor_set_ipeak(struct aw_device *aw_dev,
 	if (ipeak == IPEAK_NONE || (!monitor_cfg->ipeak_switch))
 		return;
 
-	ret = aw_dev->ops.aw_i2c_read(aw_dev, desc->reg, &reg_val);
+	ret = aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->reg, &reg_val);
 	if (ret < 0) {
 		aw_dev_err(aw_dev->dev, "read ipeak failed");
 		return;
@@ -353,7 +353,7 @@ static void aw_monitor_set_ipeak(struct aw_device *aw_dev,
 	read_reg_val = ipeak;
 	reg_val |= read_reg_val;
 
-	ret = aw_dev->ops.aw_i2c_write(aw_dev, desc->reg, reg_val);
+	ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c, desc->reg, reg_val);
 	if (ret < 0) {
 		aw_dev_err(aw_dev->dev, "write ipeak failed");
 		return;
@@ -489,7 +489,7 @@ static void aw_monitor_check_bop_status(struct aw_device *aw_dev)
 	if (aw_dev->bop_desc.reg == AW_REG_NONE)
 		return;
 
-	aw_dev->ops.aw_i2c_read(aw_dev, bop_desc->reg, &reg_val);
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c, bop_desc->reg, &reg_val);
 	reg_val = (uint16_t)reg_val & (~bop_desc->mask);
 	if (reg_val == bop_desc->enable)
 		aw_dev->bop_en = AW_BOP_ENABLE;

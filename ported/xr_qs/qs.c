@@ -577,8 +577,8 @@ static void qos_inherit_callback(struct qievent_struct *data)
 
 	get_task_struct(task);
 	qs = task_to_qs(task);
-	if (!qs) {
-		put_task_struct(task);
+	if (unlikely(!qs)) {
+		[[clang::__noinline__]] put_task_struct(task);
 		return;
 	}
 
@@ -590,8 +590,10 @@ static void qos_inherit_callback(struct qievent_struct *data)
 		policy = task->policy;
 		if (fair_policy(policy)) {
 			policy = data->from->policy;
-			if (fair_policy(policy))
+			if (fair_policy(policy)) {
+				barrier();
 				policy = SCHED_RR;
+			}
 		} else if (data->prio >= task->prio) {
 			goto rtg;
 		}
@@ -712,8 +714,8 @@ static void qos_reset_callback(struct qievent_struct *data)
 
 	get_task_struct(task);
 	qs = task_to_qs(task);
-	if (!qs) {
-		put_task_struct(task);
+	if (unlikely(!qs)) {
+		[[clang::__noinline__]] put_task_struct(task);
 		return;
 	}
 	if ((data->from_qos.qos & 0xf) >= 6) {
@@ -748,8 +750,10 @@ static void qos_reset_callback(struct qievent_struct *data)
 		if ((data->from_qos.qos & 0xf) == 9) {
 			policy = SCHED_RR;
 		} else {
+			int tprio = task->prio;
+
 			qs->policy_backup = policy;
-			qs->prio_backup = task->prio;
+			qs->prio_backup = tprio;
 		}
 		prio = get_task_prio(task);
 		if (prio < task->prio) {

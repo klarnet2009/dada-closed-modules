@@ -1,6 +1,8 @@
 load("/<build-dir>", "ddk_module")
 
-# OS4 build: headers = //re/stubs_g5 (copy of the a17B OS4 mca headers), providers = stubs_mcaB stub_all (HyperOS 3 CRCs; OS4 CRC diffs of the imports are not forged)
+# OS4 build: headers = //re/stubs_g5 (copy of the a17B OS4 mca headers); providers = forged OS4 stubs (//re/stubs_a17B/os4:os4_*, exact stock export CRCs)
+# + //re/stubs_g2g (fsa4480_switch_event, connector_antiburn_is_triggered, lpd_is_charging_limit: forged from the stock import CRCs).
+# Community-only charging source: never flash, never put into a ROM build.
 ddk_module(
     name = "mca_business_charger_comp",
     srcs = ["mca_business_charger_comp.c"],
@@ -11,8 +13,33 @@ ddk_module(
     kernel_build = "//common:kernel_aarch64",
     deps = [
         "//re/stubs_g5:mca_headers",
-        "//re/stubs_mcaB:stub_all",
-        "//re/stubs_g5:st_pps100w",  # OS3-CRC stubs incl. connector_antiburn/lpd_detect; the OS4 import CRC differences are listed in STATUS.md
+        "//re/stubs_a17B/os4:os4_charger_partition",
+        "//re/stubs_a17B/os4:os4_mca_charge_interface",
+        "//re/stubs_a17B/os4:os4_mca_charge_mievent",
+        "//re/stubs_a17B/os4:os4_mca_common",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_hwid",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_parse_dts",
+        "//re/stubs_a17B/os4:os4_mca_platform_buckchg_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_cp_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_fg_ic_ops",
+        "//re/stubs_a17B/os4:os4_mca_platform_loadsw_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_wireless_class",
+        "//re/stubs_a17B/os4:os4_mca_protocol_class",
+        "//re/stubs_a17B/os4:os4_mca_protocol_pd_class",
+        "//re/stubs_a17B/os4:os4_mca_protocol_qc_class",
+        "//re/stubs_a17B/os4:os4_mca_qcom_smem",
+        "//re/stubs_a17B/os4:os4_mca_smart_charge",
+        "//re/stubs_a17B/os4:os4_mca_strategy_class",
+        "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",
+        "//re/stubs_a17B/os4:os4_mca_sysfs",
+        "//re/stubs_a17B/os4:os4_mca_workqueue",
+        "//re/stubs_a17B/os4:os4_mca_wireless_revchg",
+        "//re/stubs_a17B/os4:os4_mca_basic_wireless",
+        "//re/stubs_g2g:st_fsa4480_switch_event",
+        "//re/stubs_g2g:st_connector_antiburn_is_triggered",
+        "//re/stubs_g2g:st_lpd_is_charging_limit",
         "//common:all_headers_aarch64",
     ],
 )

@@ -1,6 +1,6 @@
 # xiaomi_touch - EQUIVALENT (OS4 stock `vendor_dlkm/xiaomi_touch.ko`; 126 of 126 functions byte+relocation identical, 25 exports + CRCs, 115 imports + CRCs, objects, modinfo; 3 documented hacks)
 
-`compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144, `//re/xiaomi_touch:xiaomi_touch`, package `work/re/src/xiaomi_touch/`): EQUIVALENT. Agent g3c, 17.10.2026 (history: a17D 53/118, g3 101/126, g3c 126/126).
+`compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144, `//re/xiaomi_touch:xiaomi_touch`, package `work/re/src/xiaomi_touch/`): EQUIVALENT. 17.10.2026 (history: a17D 53/118, g3 101/126, g3c 126/126).
 Build: `bash work/re/src/g3c_tools/g3_build.sh xiaomi_touch` (providers `//re/miev:miev`, `//re/stubs_a17D:panel_event_notifier_stub`); quick loop `g3c_tools/xt.sh` (ThinLTO emulation, `FD="func"` = per-function diff; it cannot see the lock-key aliasing and the link order, the real build can).
 Template: XRING / MiCode `dijun-v-oss` `xiaomi-modules/touch_driver/xiaomi` (XIAOMI_TOUCH_VERSION 2024.08.30-01); the stock is a newer revision.
 

@@ -1,4 +1,6 @@
-# cs35l43_dlkm - EQUIVALENT (OS4 stock; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
+# cs35l43_dlkm - EQUIVALENT (strict compare_ko_v2: STRICT-EQUIVALENT; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
+
+Old first line (before the strict recheck G9): # cs35l43_dlkm - EQUIVALENT (OS4 stock; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
 
 Reference: OS4 `<work-dir>`. `compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144): function set 116 OK, function bytes ALL identical, relocations identical, globals identical,
 32 exports + CRCs identical, 147 imports + CRCs identical, modinfo identical (reached 103/116, 17.10.2026 finished the last 13 functions).
@@ -31,3 +33,12 @@ struct tag (`void cs_dsp_load_coeff(struct fgBNCdja *)`, `g3_tools/forge1.py`) s
 ## History
 XRING monolith glue removed, real i2c_driver/of_match/pm_ops, `cs35l43-i2c.c` -> `cs35l43_i2c.c`, Cirrus names `wm_adsp_*` restored, `MODULE_IMPORT_NS(FW_CS_DSP)`, product gating removed, `cs35l43_private` re-laid out to the stock offsets,
 `cs35lxx_dai_drv_append_suffix`, `DSP RESET` control, `mievent_report` (`ErrReason`/`ErrRegister`, id 906001355), `[TF-STABILITY]`/`[TF-NOSOUND]` log prefixes (`a17C_tools/strpatch.py`), stubs `//re/stubs_a17C:stub_miev`.
+
+## G9 strict recheck (18.10.2026): now STRICT-EQUIVALENT
+compare_ko_v2 found data that compare_ko.py does not look at; recovered from the OS4 stock `.rodata`/`.data` (dump with relocations, tools in <work-dir> objrows.py, routes.py):
+- DAI names: `dummy_dai.name` and `cs35l43_dai[0].name` are `"cs35l43"` in the stock (we had the XRING `"xring-spk"`; that string does not exist in the stock).
+- `amc_enable_ctrl` (new `SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 1, 0)`, between amp_enable_ctrl and dre_ctrl) and widget `SND_SOC_DAPM_SWITCH("AMC Enable", SND_SOC_NOPM, 0, 0, &amc_enable_ctrl)` between "AMP Enable" and "DRE" (31 widgets).
+- routes: `{"ASPTX1", NULL, "ASP TX1 Source"}` became `{"AMC Enable", "Switch", "ASP TX1 Source"}` + `{"ASPTX1", NULL, "AMC Enable"}` (112 routes).
+- controls (29): two more at the end, after "Enable RCV Pin Control": `SOC_SINGLE("CLASSH CONFIG", CS35L43_CLASSH_CONFIG, 0, 0x7FFFFF, 0)` and `SOC_SINGLE("PCM Invert", CS35L43_AMP_CTRL, CS35L43_AMP_INV_PCM_SHIFT, 1, 0)`.
+Effect on behaviour: the ASP TX1 path now goes through the AMC Enable switch, the DAI name is `cs35l43`.
+Real Kleaf build (6.6.144): compare_ko_v2 `VERDICT: STRICT-EQUIVALENT` (even buildmeta passes for this module); old compare_ko EQUIVALENT (116/116 functions); kCFI preamble 0 mismatches.

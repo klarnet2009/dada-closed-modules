@@ -6,7 +6,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from forcecrc import force
 RE = os.path.join(HERE, "..")
-KEY = os.path.join(RE, "..", "..", "keys", "<ssh-key>")
+KEY = os.path.join(RE, "..", "..", "<ssh-key-file>")
 K = ["ssh", "-i", KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "<user>@<build-server>"]
 W = "<work-dir>"
 mod, sym, target, ph = sys.argv[1], sys.argv[2], int(sys.argv[3], 16), sys.argv[4]

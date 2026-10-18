@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/* Reconstructed from the stock lb.ko by reverse engineering; not original source. (cold start record/preread) */
+/* Reconstructed from the stock lb.ko (OS4) by reverse engineering; not original source. (cold start record/preread, real timing) */
 #include "lb.h"
 
 struct lb_manager *g_manager;
@@ -8,6 +8,7 @@ atomic_t collecting_;
 static struct {
 	struct package_info *package;
 	unsigned int nr_pids;
+	bool by_tgid;
 	pid_t pids[5];
 } g_active_package;
 
@@ -29,21 +30,13 @@ static noinline void mi_lb_pagecache_collect(struct file *file, unsigned long in
 	struct file *cached;
 	unsigned long magic;
 
-	if (g_atrace_enable && debug_owner.uid && current_uid().val == debug_owner.uid) {
-		const char *path = file_path(file, g_manager->path_buf, 4096);
-
-		LB_D(74, "collect file %s", path);
+	if (g_active_package.by_tgid) {
+		if (!g_active_package.package || !lb_pid_collecting(current->tgid))
+			return;
+	} else {
+		if (!g_active_package.package || !lb_pid_collecting(current->pid))
+			return;
 	}
-
-	if (!g_active_package.package)
-		return;
-
-	if (!lb_pid_collecting(current->pid))
-		return;
-
-	mgr = g_manager;
-	if (time_after(jiffies, mgr->last_jiffies + 500))
-		return;
 
 	if (!file->f_inode->i_sb)
 		return;
@@ -51,7 +44,13 @@ static noinline void mi_lb_pagecache_collect(struct file *file, unsigned long in
 	if (magic != 0xef53 && magic != 0xf2f52010 && magic != 0xe0f5e1e2)
 		return;
 
+	mgr = g_manager;
+	if (time_after(jiffies, mgr->last_jiffies + 500))
+		return;
+
 	spin_lock(&g_manager->lock);
+	if (!g_active_package.package)
+		goto out;
 	nr = g_manager->nr_files;
 	cached = NULL;
 	for (n = 0; n < nr; n++) {
@@ -70,13 +69,20 @@ static noinline void mi_lb_pagecache_collect(struct file *file, unsigned long in
 	}
 	if (n == 2048)
 		goto out;
-	if (g_manager->nr_records < 0x20000) {
-		struct lb_record *rec = &g_manager->records[g_manager->nr_records];
+	if (g_manager->nr_records < 0xac00) {
+		struct collect_info *rec = &g_manager->records[g_manager->nr_records];
 
 		rec->file = cached;
 		rec->index = index;
 		rec->nr = nr_pages;
 		g_manager->nr_records++;
+	} else if (g_manager->extra_records && g_manager->nr_extra_records < 0x15800) {
+		struct collect_info *rec = &g_manager->extra_records[g_manager->nr_extra_records];
+
+		rec->file = cached;
+		rec->index = index;
+		rec->nr = nr_pages;
+		g_manager->nr_extra_records++;
 	}
 out:
 	spin_unlock(&g_manager->lock);
@@ -91,11 +97,86 @@ void mi_lb_page_collect_on_readfile(void *data, struct file *file, loff_t pos, s
 void mi_lb_page_collect_on_pagefault(void *data, struct file *file, pgoff_t orig_start_pgoff, pgoff_t last_pgoff, vm_fault_t ret)
 {
 	if (last_pgoff != orig_start_pgoff)
-		mi_lb_pagecache_collect(file, orig_start_pgoff, last_pgoff - orig_start_pgoff, true);
+		mi_lb_pagecache_collect(file, orig_start_pgoff, last_pgoff - orig_start_pgoff + 1, true);
+}
+
+/* ---- vendor hooks: stop background tasks from reading ahead while an app launch is recorded ---- */
+static inline bool lb_task_is_background(struct task_struct *p)
+{
+	struct css_set *cset;
+	struct cgroup_subsys_state *css;
+	struct cgroup *cgrp;
+	struct kernfs_node *kn;
+
+	if (!p)
+		return false;
+	cset = READ_ONCE(p->cgroups);
+	css = cset->subsys[0];
+	if (!css)
+		return false;
+	cgrp = css->cgroup;
+	if (!cgrp)
+		return false;
+	kn = cgrp->kn;
+	if (!kn)
+		return false;
+	return !strncmp(kn->name, "background", 11);
+}
+
+static inline bool lb_skip_ra_task(void)
+{
+	struct task_struct *p = current;
+
+	if (!lb_task_is_background(p))
+		return false;
+	if (p->prio < MAX_RT_PRIO)
+		return false;
+	return !lb_pid_collecting(p->tgid);
+}
+
+void adjust_readahead(void *data, struct readahead_control *ractl, unsigned long *max_page)
+{
+	struct file_ra_state *ra;
+
+	if (!g_skip_background_readahead_enable || !g_active_package.package)
+		return;
+	ra = ractl->ra;
+	if (!lb_skip_ra_task())
+		return;
+	*max_page = min_t(long, *max_page, ra->ra_pages >> 1);
+}
+
+void adjust_readaround(void *data, unsigned int ra_pages, pgoff_t pgoff, pgoff_t *start, unsigned int *size, unsigned int *async_size)
+{
+	if (!g_skip_background_readahead_enable || !g_active_package.package)
+		return;
+	if (!lb_skip_ra_task())
+		return;
+	*start = max_t(long, pgoff - (ra_pages >> 2), 0);
+	*size = ra_pages >> 1;
+	*async_size = ra_pages >> 3;
+}
+
+void mi_lb_skip_async_mmap_readahead(void *data, struct vm_fault *vmf, struct folio *folio, bool *skip)
+{
+	if (!g_skip_background_readahead_enable || !g_active_package.package)
+		return;
+	if (!lb_skip_ra_task())
+		return;
+	*skip = true;
+}
+
+void should_skip_fault_around(void *data, struct vm_fault *vmf, bool *should_around)
+{
+	if (!g_background_faultaround_disable || !g_active_package.package)
+		return;
+	if (!lb_skip_ra_task())
+		return;
+	*should_around = false;
 }
 
 /* put every file reference taken by the collect hooks and reset the buffers */
-static inline void lb_files_clear(void)
+static inline void mi_lb_record_buf_clear(void)
 {
 	unsigned int i;
 
@@ -107,63 +188,119 @@ static inline void lb_files_clear(void)
 	}
 	g_manager->nr_files = 0;
 	g_manager->nr_records = 0;
+	if (g_manager->extra_records) {
+		kvfree(g_manager->extra_records);
+		g_manager->extra_records = NULL;
+		g_manager->nr_extra_records = 0;
+		g_manager->total_memory -= 0x204000;
+	}
 }
 
-static inline int mb_lb_dealwith_collect_start(struct lb_owner *owner)
+static __always_inline void lb_pid_append(struct lb_owner *owner)
 {
-	struct package_info *package;
-
-	if (!atomic_add_unless(&collecting_, 1, 1)) {
-		if (g_active_package.package &&
-		    !strcmp(g_active_package.package->owner.package_name, owner->package_name) &&
-		    g_active_package.nr_pids < 5) {
-			int *slot = &g_active_package.pids[g_active_package.nr_pids];
-
-			*slot = owner->pid;
-			g_active_package.nr_pids++;
-		}
-		return 0;
-	}
-
-	lb_files_clear();
-	package = mi_lb_get_package_info(owner, true);
-	if (!package) {
-		if (g_manager->app_nums >= 100) {
-			struct package_info *oldest = mi_lb_get_oldest_package_info();
-
-			if (oldest)
-				package_info_put(oldest);
-			else
-				LB_E(328, "no old package to free");
-		}
-		package = kzalloc(sizeof(*package), GFP_KERNEL);
-		if (!package) {
-			LB_E(335, "alloc package info fail");
-			return 0;
-		}
-		INIT_LIST_HEAD(&package->file_infos);
-		mutex_init(&package->package_lock);
-		package->file_num = 0;
-		package->mm_size = sizeof(*package);
-		package->is_cleared = false;
-		atomic_inc(&package->refcount);
-	}
-	memcpy(&package->owner, owner, sizeof(*owner));
-	package->total_startup_bytes = 0;
-	package->app_startup_bytes = 0;
-	g_active_package.package = package;
-	unsigned long now = jiffies;
-	struct delayed_work *dwork;
-
-	g_manager->last_jiffies = now;
-	dwork = &g_manager->compiler_work;
-	queue_delayed_work(system_wq, dwork, 500);
 	if (g_active_package.package && g_active_package.nr_pids < 5) {
 		int *slot = &g_active_package.pids[g_active_package.nr_pids];
 
 		*slot = owner->pid;
 		g_active_package.nr_pids++;
 	}
+}
+
+/* ---- package creation ---- */
+static noinline struct package_info *real_timing_package_init(struct lb_owner *owner)
+{
+	struct package_info *package;
+
+	while (g_manager->nr_real_timing_apps >= g_max_real_timing_apps) {
+		struct package_info *oldest = mi_lb_get_oldest_package_info(true);
+
+		if (!oldest) {
+			LB_E(433, "no old package to free");
+			break;
+		}
+		package_info_put(oldest);
+	}
+	package = kzalloc(sizeof(*package), GFP_KERNEL);
+	if (!package) {
+		LB_E(440, "alloc package info fail");
+		return NULL;
+	}
+	package->mm_size = sizeof(*package);
+	package->is_cleared = false;
+	package->is_real_timing = true;
+	g_manager->total_memory += sizeof(*package);
+	memcpy(&package->owner, owner, sizeof(*owner));
+	return package;
+}
+
+static __always_inline struct package_info *file_sequential_package_init(struct lb_owner *owner)
+{
+	struct package_info *package;
+
+	while (g_manager->nr_file_sequential_apps >= g_max_file_sequential_apps) {
+		struct package_info *oldest = mi_lb_get_oldest_package_info(false);
+
+		if (!oldest) {
+			LB_E(461, "no old package to free");
+			break;
+		}
+		package_info_put(oldest);
+	}
+	package = kzalloc(sizeof(*package), GFP_KERNEL);
+	if (!package) {
+		LB_E(468, "alloc package info fail");
+		return NULL;
+	}
+	INIT_LIST_HEAD(&package->file_infos);
+	package->is_real_timing = false;
+	package->file_num = 0;
+	package->mm_size = sizeof(*package);
+	g_manager->total_memory += sizeof(*package);
+	package->is_cleared = false;
+	memcpy(&package->owner, owner, sizeof(*owner));
+	return package;
+}
+
+static inline int mb_lb_dealwith_collect_start(struct cmd_app_info *app_info)
+{
+	struct lb_owner *owner = &app_info->owner;
+	struct package_info *package;
+	struct lb_manager *mgr;
+	const char *name;
+
+	mi_lb_record_buf_clear();
+	package = mi_lb_get_package_info(app_info, true);
+	if (!package) {
+		if (app_info->is_real_timing)
+			package = real_timing_package_init(owner);
+		else
+			package = file_sequential_package_init(owner);
+		if (!package) {
+			LB_E(516, "alloc package info fail");
+			return -1;
+		}
+		atomic_inc(&package->refcount);
+	}
+	g_active_package.package = package;
+	g_active_package.by_tgid = false;
+	name = owner->package_name;
+	mgr = g_manager;
+	mgr->last_jiffies = jiffies;
+	if (!strcmp(name, "com.tencent.jkchess") || !strcmp(name, "com.tencent.KiHan") ||
+	    !strcmp(name, "com.tencent.tmgp.supercell.brawlstars") || !strcmp(name, "com.tencent.msgame")) {
+		if (!mgr->extra_records) {
+			mgr->extra_records = kvmalloc(0x204000, GFP_KERNEL);
+			mgr = g_manager;
+			if (mgr->extra_records) {
+				mgr->nr_extra_records = 0;
+				mgr->total_memory += 0x204000;
+			} else {
+				LB_E(536, "failed to pre-allocate extra 2MB buffer for %s", name);
+			}
+		}
+	}
+	queue_delayed_work(system_wq, &mgr->compiler_work, 500);
+	lb_pid_append(owner);
 	return 0;
 }
 
@@ -173,74 +310,72 @@ static inline int mb_lb_dealwith_collect_finish(struct lb_owner *owner)
 
 	package = g_active_package.package;
 	if (!package) {
-		LB_E(212, "active package is NULL");
+		LB_E(346, "active package is NULL");
 		return 0;
 	}
 	if (package->owner.uid == owner->uid && !strcmp(package->owner.package_name, owner->package_name)) {
 		cancel_delayed_work_sync(&g_manager->compiler_work);
 		wake_up_all(&g_manager->compiler_wait);
 	} else {
-		LB_E(222, "finish collecting app[%s] != active app[%s]", package->owner.package_name, owner->package_name);
+		LB_E(356, "finish collecting app[%s] != active app[%s]", package->owner.package_name, owner->package_name);
 	}
 	return 0;
 }
 
-static inline int mb_lb_dealwith_collect_abort(struct lb_owner *owner)
+noinline int mi_lb_dealwith_collect_cmd(enum APP_LAUNCH_CMD cmd, struct cmd_app_info *app_info)
 {
-	struct package_info *package;
+	struct lb_owner *owner = &app_info->owner;
+	struct task_struct *task;
 
-	package = g_active_package.package;
-	if (!package) {
-		LB_E(233, "active package is NULL");
-		return 0;
-	}
-	memset(&g_active_package, 0, sizeof(g_active_package));
-	cancel_delayed_work_sync(&g_manager->compiler_work);
-	if (package->owner.uid != owner->uid)
-		return 0;
-	if (strncmp(package->owner.package_name, owner->package_name, strlen(owner->package_name)))
-		return 0;
-	lb_files_clear();
-	if (mi_lb_is_in_package_list(package)) {
-		package_info_put(package);
-	} else {
-		LB_D(245, "active package %s not in package list", package->owner.package_name);
-		g_manager->total_memory -= package->mm_size;
-		kfree(package);
-	}
-	atomic_set(&collecting_, 0);
-	return 0;
-}
-
-noinline int mi_lb_dealwith_collect_cmd(enum APP_LAUNCH_CMD cmd, struct lb_owner *owner)
-{
+	LB_D(553, "cmd: %d, readahead mode %d uid: %d, pid: %d, packagename: %s", cmd, app_info->is_real_timing,
+	     owner->uid, owner->pid, owner->package_name);
 	switch (cmd) {
 	case APP_COLLECT_START:
-		mb_lb_dealwith_collect_start(owner);
+		if (!atomic_add_unless(&collecting_, 1, 1)) {
+			if (g_active_package.package &&
+			    !strcmp(g_active_package.package->owner.package_name, owner->package_name) &&
+			    g_active_package.nr_pids < 5) {
+				int *slot = &g_active_package.pids[g_active_package.nr_pids];
+
+				*slot = owner->pid;
+				g_active_package.nr_pids++;
+			}
+			return 0;
+		}
+		task = get_pid_task(find_vpid(owner->pid), PIDTYPE_PID);
+		if (!task) {
+			LB_E(560, "get_pid_task fail");
+			goto fail;
+		}
+		if (!strcmp(task->comm, "RenderThread"))
+			LB_E(565, "first launch process is %s, maybe timeout 2s", task->comm);
+		put_task_struct(task);
+		if (mb_lb_dealwith_collect_start(app_info)) {
+			LB_E(575, "launch app %s failed", owner->package_name);
+			goto fail;
+		}
 		break;
 	case APP_LAUNCH_FINISH:
 		if (!atomic_read(&collecting_)) {
-			LB_D(378, "finish: the app[%s] is not collecting", owner->package_name);
+			LB_D(590, "finish: the app[%s] is not collecting", owner->package_name);
 			break;
 		}
 		mb_lb_dealwith_collect_finish(owner);
 		break;
-	case APP_LAUNCH_ABORT:
-		if (!atomic_read(&collecting_)) {
-			LB_D(385, "abort: the app[%s] is not collecting", owner->package_name);
-			break;
-		}
-		mb_lb_dealwith_collect_abort(owner);
-		break;
 	default:
-		LB_E(389, "unknown cold start cmd is %u", cmd);
+		LB_E(594, "unknown cold start cmd is %u", cmd);
 		break;
 	}
 	return 0;
+fail:
+	atomic_set(&collecting_, 0);
+	return -1;
 }
 
 static void mi_lb_do_compile(struct work_struct *work)
 {
+	if (g_active_package.package)
+		LB_D(366, "timeout 2s, wake up all %s", g_active_package.package->owner.package_name);
 	wake_up_all(&g_manager->compiler_wait);
 }
 
@@ -250,24 +385,29 @@ noinline int mi_lb_init_manager(void)
 {
 	struct task_struct *t;
 	struct lb_manager *m;
-	struct lb_record *records;
+	struct collect_info *records;
 	int ret;
 
 	g_manager = kzalloc(sizeof(*g_manager), GFP_KERNEL);
 	if (!g_manager)
 		return -ENOMEM;
-	records = kvmalloc(0x300000, GFP_KERNEL);
+	records = kvmalloc(0x102000, GFP_KERNEL);
 	m = g_manager;
 	m->records = records;
 	if (!records) {
 		ret = -ENOMEM;
 		goto free_mgr;
 	}
+	m->extra_records = NULL;
+	m->nr_extra_records = 0;
+	m->total_memory = sizeof(*g_manager) + 0x102000;
 	spin_lock_init(&m->lock);
-	m->total_memory = sizeof(*g_manager) + 0x300000;
 	mutex_init(&g_manager->compiler_lock);
-	mutex_init(&g_manager->package_list_lock);
-	INIT_LIST_HEAD(&g_manager->package_list);
+	mutex_init(&g_manager->clear_lock);
+	mutex_init(&g_manager->file_sequential_list_lock);
+	mutex_init(&g_manager->real_timing_list_lock);
+	INIT_LIST_HEAD(&g_manager->file_sequential_list);
+	INIT_LIST_HEAD(&g_manager->real_timing_list);
 	INIT_DELAYED_WORK(&g_manager->compiler_work, mi_lb_do_compile);
 	g_manager->nr_records = 0;
 	g_manager->nr_files = 0;
@@ -276,7 +416,7 @@ noinline int mi_lb_init_manager(void)
 	if (IS_ERR(t)) {
 		ret = PTR_ERR(t);
 		g_manager->compiler_thread = t;
-		LB_E(652, "create compiler_thread fail, ret: %d", ret);
+		LB_E(1247, "create compiler_thread fail, ret: %d", ret);
 		kvfree(g_manager->records);
 		goto free_mgr;
 	}
@@ -287,12 +427,56 @@ noinline int mi_lb_init_manager(void)
 free_mgr:
 	if (g_manager)
 		kfree(g_manager);
+	g_manager = NULL;
 	return ret;
 }
 
 static const char * const file_type_list[] = { "so", "dex", "vdex", "odex", "art", "apk", "jar", NULL };
 
-static inline int launch_reset_fileinfo(struct file_info *info, struct file *file)
+/* the path of a file as the user space sees it: mount root prefix (unless /data or /media) + d_path */
+static noinline char *lb_file_path(struct file *file, char *buf)
+{
+	char mnt_path[32];
+	char path_buf[240];
+	char *mnt_root_path, *path;
+	unsigned int prefix_len = 0;
+	unsigned int len;
+
+	mnt_root_path = dentry_path_raw(file->f_path.mnt->mnt_root, mnt_path, sizeof(mnt_path));
+	if (!IS_ERR(mnt_root_path) && strncmp(mnt_root_path, "/data", 5) && strncmp(mnt_root_path, "/media", 6)) {
+		prefix_len = min_t(unsigned int, strlen(mnt_root_path), 4095);
+		memcpy(buf, mnt_root_path, prefix_len);
+	}
+	path = d_path(&file->f_path, path_buf, sizeof(path_buf));
+	if (IS_ERR(path)) {
+		LB_D(54, "d_path failed");
+		path = file_path(file, path_buf, sizeof(path_buf));
+		if (IS_ERR(path)) {
+			LB_D(57, "file_path also failed");
+			buf[0] = '\0';
+			return ERR_PTR(-ENOENT);
+		}
+	}
+	len = strlen(path);
+	if (prefix_len + len > 4095)
+		len = 4095 - prefix_len;
+	memcpy(buf + prefix_len, path, len);
+	buf[prefix_len + len] = '\0';
+	return buf;
+}
+
+/* list_del() is not inlined into the big get_fileinfo in the stock link */
+static __always_inline void lb_list_del(struct list_head *entry)
+{
+	if (__list_del_entry_valid(entry)) {
+		entry->next->prev = entry->prev;
+		WRITE_ONCE(entry->prev->next, entry->next);
+	}
+	entry->next = LIST_POISON1;
+	entry->prev = LIST_POISON2;
+}
+
+static __always_inline int file_sequential_launch_reset_fileinfo(struct file_info *info, struct file *file)
 {
 	loff_t size;
 
@@ -308,10 +492,10 @@ static inline int launch_reset_fileinfo(struct file_info *info, struct file *fil
 	info->bitmap_longs = BITS_TO_LONGS((int)((size + 0xfff) >> 12));
 	info->bitmaps = bitmap_zalloc(info->nr_pages, GFP_KERNEL);
 	if (!info->bitmaps) {
-		LB_E(442, "alloc file_info bitmaps err");
+		LB_E(647, "alloc file_info bitmaps err");
 		if (info->path)
 			kfree(info->path);
-		list_del(&info->list);
+		lb_list_del(&info->list);
 		if (info)
 			kfree(info);
 		return -ENOMEM;
@@ -319,10 +503,10 @@ static inline int launch_reset_fileinfo(struct file_info *info, struct file *fil
 	return 0;
 }
 
-static inline int mi_lb_get_fileinfo(struct package_info *package, struct file *file, struct file_info **pinfo)
+static noinline int file_sequential_get_fileinfo(struct package_info *active_package, struct file *file, struct file_info **pinfo)
 {
 	struct file_info *info;
-	struct list_head *head = &package->file_infos;
+	struct list_head *head = &active_package->file_infos;
 	struct inode *inode;
 	char *path;
 	size_t len;
@@ -330,9 +514,9 @@ static inline int mi_lb_get_fileinfo(struct package_info *package, struct file *
 	loff_t size;
 	int i;
 
-	path = file_path(file, g_manager->path_buf, 4096);
+	path = lb_file_path(file, g_manager->path_buf);
 	if (IS_ERR(path)) {
-		LB_E(466, "find filepath error\n");
+		LB_E(671, "find filepath error\n");
 		return -1;
 	}
 	if (!list_empty(head)) {
@@ -343,12 +527,12 @@ static inline int mi_lb_get_fileinfo(struct package_info *package, struct file *
 					info->is_moved = true;
 				}
 				info->is_collected = true;
+				*pinfo = info;
 				inode = file->f_inode;
 				if (info->ino != inode->i_ino || inode->i_mtime.tv_sec != info->mtime.tv_sec) {
-					if (launch_reset_fileinfo(info, file))
+					if (file_sequential_launch_reset_fileinfo(info, file))
 						return -1;
 				}
-				*pinfo = info;
 				return 0;
 			}
 		}
@@ -391,7 +575,7 @@ static inline int mi_lb_get_fileinfo(struct package_info *package, struct file *
 
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info) {
-		LB_E(489, "alloc file_info err");
+		LB_E(693, "alloc file_info err");
 		return -1;
 	}
 	info->collect_num = 0;
@@ -406,55 +590,32 @@ static inline int mi_lb_get_fileinfo(struct package_info *package, struct file *
 	info->bitmap_longs = BITS_TO_LONGS((int)((size + 0xfff) >> 12));
 	info->bitmaps = bitmap_zalloc(info->nr_pages, GFP_KERNEL);
 	if (!info->bitmaps) {
-		LB_E(505, "alloc file_info bitmaps err");
+		LB_E(709, "alloc file_info bitmaps err");
 		goto free_info;
 	}
 	plen = strlen(path);
 	info->path = kzalloc(plen + 1, GFP_KERNEL);
 	if (!info->path) {
-		LB_E(512, "info->path alloc fail\n");
+		LB_E(716, "info->path alloc fail\n");
 		bitmap_free(info->bitmaps);
 		goto free_info;
 	}
 	strncpy(info->path, path, plen + 1);
+	*pinfo = info;
 	list_add(&info->list, head);
-	package->file_num++;
+	active_package->file_num++;
 	{
 		unsigned long sz = plen + 1 + info->bitmap_longs * sizeof(unsigned long) + sizeof(*info);
 
 		info->mm_size = sz;
-		package->mm_size += sz;
+		active_package->mm_size += sz;
 		g_manager->total_memory += info->mm_size;
 	}
-	*pinfo = info;
 	return 0;
 free_info:
 	kfree(info);
 	return -1;
 }
-
-static inline void mi_lb_record_buf_clear(void)
-{
-	unsigned int i;
-
-	for (i = 0; i < g_manager->nr_files; i++) {
-		if (g_atrace_enable) {
-			if (g_manager->files[i].file) {
-				const char *path = file_path(g_manager->files[i].file, g_manager->path_buf, 4096);
-
-				LB_D(194, "collected file: %s", path);
-			}
-		}
-		if (g_manager->files[i].file) {
-			fput(g_manager->files[i].file);
-			g_manager->files[i].file = NULL;
-		}
-	}
-	g_manager->nr_files = 0;
-	g_manager->nr_records = 0;
-}
-
-void free_one_fileinfo(struct package_info *package, struct file_info *file_entry);
 
 static inline bool mi_lb_file_is_collected(struct file_info *info)
 {
@@ -467,73 +628,412 @@ static inline bool mi_lb_file_is_collected(struct file_info *info)
 	return k < g_manager->nr_files;
 }
 
-static inline void mi_lb_compiler_do_work(void)
+noinline void file_sequential_free_one_fileinfo(struct package_info *package, struct file_info *file_entry)
 {
-	struct package_info *package;
-	struct file_info *info, *next;
-	struct lb_record *rec;
-	int i;
+	list_del(&file_entry->list);
+	package->file_num--;
+	if (file_entry->path)
+		kfree(file_entry->path);
+	if (file_entry->bitmaps)
+		kfree(file_entry->bitmaps);
+	kfree(file_entry);
+}
 
-	package = g_active_package.package;
-	if (!package) {
-		LB_E(572, "package is null");
+/* ---- real timing: file index lookup, dex bitmaps, ranges ---- */
+static noinline unsigned short real_timing_lookup_file_index(struct package_info *package, struct real_timing_file_node *file_lists,
+							      unsigned short *filename_count, struct collect_info *collect_info)
+{
+	unsigned short idx = *filename_count;
+	unsigned short nr_files = g_manager->nr_files;
+	struct real_timing_file_node *node;
+	struct inode *inode;
+	char *path;
+	unsigned int len;
+	unsigned int i;
+
+	for (i = 0; i < idx; i++) {
+		inode = collect_info->file->f_inode;
+		if (file_lists[i].dev == inode->i_sb->s_dev && file_lists[i].ino == inode->i_ino)
+			return i;
+	}
+	if (idx >= nr_files)
+		return nr_files;
+	path = lb_file_path(collect_info->file, g_manager->path_buf);
+	if (IS_ERR(path)) {
+		LB_E(758, "find filepath error\n");
+		return g_manager->nr_files;
+	}
+	len = strlen(path) + 1;
+	node = &file_lists[idx];
+	node->path_len = len;
+	node->path = kzalloc(len, GFP_KERNEL);
+	if (!node->path) {
+		LB_E(764, "info->path alloc fail\n");
+		return g_manager->nr_files;
+	}
+	node->dev = collect_info->file->f_inode->i_sb->s_dev;
+	node->ino = collect_info->file->f_inode->i_ino;
+	memcpy(node->path, path, len);
+	node->i_mtime = collect_info->file->f_inode->i_mtime.tv_sec;
+	INIT_LIST_HEAD(&node->file_head);
+	if (g_file_page_reclaim_supported && package->is_file_page_reclaimed && strstr(node->path, package->owner.package_name))
+		node->is_dex_file = true;
+	package->file_info.paths_buffer_size += node->path_len;
+	package->file_info.file_nums++;
+	(*filename_count)++;
+	return idx;
+}
+
+static noinline void dex_files_for_bitmap_record(struct package_info *package, struct collect_info *collect_info,
+						 unsigned short file_index, struct real_timing_file_node *file_lists)
+{
+	struct real_timing_file_node *node = &file_lists[file_index];
+	struct reclaimed_file *rf;
+	const char *name;
+	loff_t size;
+	unsigned int type;
+	unsigned int nr_pages;
+
+	if (!node->is_dex_file)
+		return;
+	name = node->path;
+	if (strstr(name, ".apk"))
+		type = 0;
+	else if (strstr(name, ".odex"))
+		type = 1;
+	else if (strstr(name, ".vdex"))
+		type = 2;
+	else
+		return;
+	rf = &package->reclaimed_files[type];
+	size = min_t(loff_t, i_size_read(collect_info->file->f_inode), 1UL << 31);
+	size += 0xfff;
+	nr_pages = size >> 12;
+	if (!rf->bitmaps) {
+		rf->bitmap_longs = BITS_TO_LONGS(nr_pages);
+		rf->bitmaps = bitmap_zalloc(size >> 12, GFP_KERNEL);
+		if (!rf->bitmaps) {
+			LB_E(807, "alloc file_info bitmaps err");
+			return;
+		}
+		package->mm_size += rf->bitmap_longs * sizeof(unsigned long);
+		g_manager->total_memory += rf->bitmap_longs * sizeof(unsigned long);
+	}
+	if (collect_info->index + collect_info->nr > nr_pages)
+		return;
+	bitmap_set(rf->bitmaps, collect_info->index, collect_info->nr);
+}
+
+static int real_timing_file_range_cmp(void *priv, const struct list_head *a, const struct list_head *b)
+{
+	const struct real_timing_range_node *ra = list_entry(a, struct real_timing_range_node, list);
+	const struct real_timing_range_node *rb = list_entry(b, struct real_timing_range_node, list);
+
+	if (ra->start < rb->start)
+		return -1;
+	if (ra->start != rb->start)
+		return 1;
+	if (ra->end < rb->end)
+		return -1;
+	return ra->end != rb->end;
+}
+
+/* one range node per collected record, chained per file and in one global list */
+static __always_inline void real_timing_file_range_add_to_list(struct package_info *package, struct real_timing_file_node *file_lists,
+							       unsigned short *filename_count, struct list_head *range_list,
+							       size_t lists_size)
+{
+	struct real_timing_range_node *range;
+	unsigned int i;
+	unsigned short file_index;
+
+	for (i = 0; i < g_manager->nr_records; i++) {
+		range = kzalloc(sizeof(*range), GFP_KERNEL);
+		if (!range) {
+			LB_E(837, "alloc range_list err");
+			continue;
+		}
+		file_index = real_timing_lookup_file_index(package, file_lists, filename_count, &g_manager->records[i]);
+		if (file_index == g_manager->nr_files) {
+			LB_E(843, "file_index is g_manager->collected_num");
+			kfree(range);
+			continue;
+		}
+		range->seq = i;
+		range->file_index = file_index;
+		range->start = g_manager->records[i].index;
+		range->end = g_manager->records[i].nr + (unsigned int)g_manager->records[i].index;
+		range->valid = true;
+		list_add_tail(&range->list, &file_lists[file_index].file_head);
+		list_add_tail(&range->all_list, range_list);
+		if (g_file_page_reclaim_supported && package->is_file_page_reclaimed)
+			dex_files_for_bitmap_record(package, &g_manager->records[i], file_index, file_lists);
+	}
+	if (g_manager->extra_records && g_manager->nr_extra_records) {
+		for (i = 0; i < g_manager->nr_extra_records; i++) {
+			range = kzalloc(sizeof(*range), GFP_KERNEL);
+			if (!range) {
+				LB_E(866, "alloc range_list err");
+				continue;
+			}
+			file_index = real_timing_lookup_file_index(package, file_lists, filename_count, &g_manager->extra_records[i]);
+			if (file_index == g_manager->nr_files) {
+				LB_E(872, "file_index is g_manager->collected_num");
+				kfree(range);
+				continue;
+			}
+			range->seq = g_manager->nr_records + i;
+			range->file_index = file_index;
+			range->start = g_manager->extra_records[i].index;
+			range->end = g_manager->extra_records[i].nr + (unsigned int)g_manager->extra_records[i].index;
+			range->valid = true;
+			list_add_tail(&range->list, &file_lists[file_index].file_head);
+			list_add_tail(&range->all_list, range_list);
+			if (g_file_page_reclaim_supported && package->is_file_page_reclaimed)
+				dex_files_for_bitmap_record(package, &g_manager->extra_records[i], file_index, file_lists);
+		}
+	}
+}
+
+/* sort the ranges of every file and merge the neighbouring ones */
+static __always_inline void real_timing_file_range_merge(struct package_info *package, struct real_timing_file_node *file_lists)
+{
+	unsigned int i;
+
+	package->range_nums = 0;
+	for (i = 0; i < package->file_info.file_nums; i++) {
+		struct list_head *head = &file_lists[i].file_head;
+		struct list_head *pos;
+		struct real_timing_range_node *prev, *cur;
+
+		if (list_empty(head))
+			continue;
+		list_sort(NULL, head, real_timing_file_range_cmp);
+		package->range_nums++;
+		prev = list_first_entry(head, struct real_timing_range_node, list);
+		for (pos = head->next; pos != head; pos = pos->next) {
+			cur = list_entry(pos, struct real_timing_range_node, list);
+			if (cur == prev)
+				continue;
+			if (prev->end + g_max_gap_range >= cur->start) {
+				unsigned int end = max(prev->end, cur->end);
+				unsigned int start = min(prev->start, cur->start);
+
+				if (end - prev->start <= g_max_merge_range) {
+					if (prev->seq < cur->seq) {
+						prev->start = start;
+						prev->end = end;
+						cur->valid = false;
+					} else {
+						prev->valid = false;
+						cur->start = start;
+						cur->end = end;
+						prev = cur;
+					}
+					continue;
+				}
+			}
+			package->range_nums++;
+			prev = cur;
+		}
+	}
+}
+
+static __always_inline void real_timing_file_range_copy_to_array(struct package_info *package, struct list_head *range_list)
+{
+	struct real_timing_range_node *r, *tmp;
+	unsigned int n = 0;
+
+	package->ranges = kvmalloc(package->range_nums * sizeof(*package->ranges), GFP_KERNEL);
+	if (!package->ranges) {
+		LB_E(971, "alloc package->ranges err");
 		return;
 	}
-	mutex_lock(&g_manager->compiler_lock);
-	memset(&g_active_package, 0, sizeof(g_active_package));
+	package->ranges_buffer_size = package->range_nums * sizeof(*package->ranges);
+	package->mm_size += package->ranges_buffer_size;
+	g_manager->total_memory += package->ranges_buffer_size;
+	list_for_each_entry_safe(r, tmp, range_list, all_list) {
+		if (r->valid) {
+			package->ranges[n].file_index = r->file_index;
+			package->ranges[n].start = r->start;
+			package->ranges[n].end = r->end;
+			n++;
+		}
+		list_del(&r->all_list);
+		kfree(r);
+	}
+}
+
+static __always_inline int real_timing_file_path_copy_to_array(struct package_info *package, struct real_timing_file_node *file_lists)
+{
+	char *pos;
+	unsigned int i;
+
+	package->file_info.file_paths = kvmalloc(package->file_info.paths_buffer_size, GFP_KERNEL);
+	if (!package->file_info.file_paths) {
+		LB_E(1002, "alloc package->file_info.file_paths err");
+		return -ENOMEM;
+	}
+	package->mm_size += package->file_info.paths_buffer_size;
+	g_manager->total_memory += package->file_info.paths_buffer_size;
+	package->file_info.i_mtime_buffer_size = package->file_info.file_nums * sizeof(unsigned int);
+	package->file_info.i_mtime_buffer = kzalloc(package->file_info.i_mtime_buffer_size, GFP_KERNEL);
+	if (!package->file_info.i_mtime_buffer) {
+		LB_E(1011, "alloc package->file_info.i_mtime_buffer err");
+		kvfree(package->file_info.file_paths);
+		return -ENOMEM;
+	}
+	package->mm_size += package->file_info.i_mtime_buffer_size;
+	g_manager->total_memory += package->file_info.i_mtime_buffer_size;
+	pos = package->file_info.file_paths;
+	for (i = 0; i < package->file_info.file_nums; i++) {
+		if (pos + file_lists[i].path_len > package->file_info.file_paths + package->file_info.paths_buffer_size) {
+			LB_E(1021, "pos + file_lists[i].path_len > package->file_info.file_paths + package->file_info.paths_buffer_size");
+			return -ENOMEM;
+		}
+		memcpy(pos, file_lists[i].path, file_lists[i].path_len);
+		package->file_info.i_mtime_buffer[i] = file_lists[i].i_mtime;
+		kfree(file_lists[i].path);
+		file_lists[i].path = NULL;
+		pos += file_lists[i].path_len;
+	}
+	return 0;
+}
+
+static __always_inline void real_timing_app_compiler(struct package_info *package)
+{
+	struct real_timing_file_node *file_lists;
+	struct list_head range_list;
+	unsigned short collected_num = 0;
+	unsigned int nr_files;
+	unsigned int i;
+
+	if (g_manager->nr_records + g_manager->nr_extra_records == 0 || !g_manager->nr_files) {
+		LB_E(1041, "total collected == 0 || g_manager->collected_num == 0");
+		goto done;
+	}
+	nr_files = g_manager->nr_files;
+	file_lists = kzalloc(nr_files * sizeof(*file_lists), GFP_KERNEL);
+	if (!file_lists) {
+		LB_E(1047, "alloc file_list err");
+		goto done;
+	}
+	INIT_LIST_HEAD(&range_list);
+	real_timing_file_range_add_to_list(package, file_lists, &collected_num, &range_list, nr_files * sizeof(*file_lists));
+	real_timing_file_range_merge(package, file_lists);
+	real_timing_file_range_copy_to_array(package, &range_list);
+	if (real_timing_file_path_copy_to_array(package, file_lists)) {
+		LB_E(1056, "real_timing_file_path_copy_to_array err");
+		for (i = 0; i < package->file_info.file_nums; i++)
+			if (file_lists[i].path)
+				kfree(file_lists[i].path);
+	}
+	kfree(file_lists);
+done:
+	mi_lb_add_package_info(package);
+	package_info_put(package);
+}
+
+static __always_inline bool mi_lb_app_compiler(struct package_info *package)
+{
+	struct lb_owner owner;
+
+	memcpy(&owner, &package->owner, sizeof(owner));
+	mutex_lock(&g_manager->clear_lock);
+	if (package->is_cleared) {
+		package_info_put(package);
+		mutex_unlock(&g_manager->clear_lock);
+		return false;
+	}
+	if (mi_lb_is_in_package_list(package)) {
+		package->is_cleared = true;
+		package_info_put(package);
+		package_info_put(package);
+		mutex_unlock(&g_manager->clear_lock);
+		package = real_timing_package_init(&owner);
+		if (!package) {
+			LB_E(1135, "real_timing_package_init err");
+			return false;
+		}
+		atomic_inc(&package->refcount);
+	} else {
+		mutex_unlock(&g_manager->clear_lock);
+	}
+	real_timing_app_compiler(package);
+	return true;
+}
+
+static __always_inline void file_sequential_app_compiler(struct package_info *package)
+{
+	struct file_info *info, *next;
+	unsigned int i;
+
 	list_for_each_entry_safe(info, next, &package->file_infos, list)
 		info->is_collected = false;
 
+	if (g_manager->nr_records >= 0xac00)
+		g_manager->nr_records = 0xac00;
 	for (i = 0; i < g_manager->nr_records; i++) {
-		struct file *file = g_manager->records[i].file;
-		unsigned long index;
-		unsigned int nr;
+		struct collect_info *rec = &g_manager->records[i];
 
-		rec = &g_manager->records[i];
-		if (mi_lb_get_fileinfo(package, file, &info))
+		if (file_sequential_get_fileinfo(package, rec->file, &info))
 			continue;
-		index = rec->index;
-		nr = rec->nr;
-		if (index + nr > info->nr_pages)
+		if (rec->index + rec->nr > info->nr_pages)
 			continue;
-		if (g_debug_verbose) {
-			unsigned int j = index, end = j + nr;
-
-			for (; j < end; j++)
-				if (!test_bit(j, info->bitmaps))
-					package->app_startup_bytes += PAGE_SIZE;
-		}
-		bitmap_set(info->bitmaps, index, nr);
+		bitmap_set(info->bitmaps, rec->index, rec->nr);
 	}
+	if (g_manager->extra_records && g_manager->nr_extra_records) {
+		for (i = 0; i < g_manager->nr_extra_records; i++) {
+			struct collect_info *rec = &g_manager->extra_records[i];
 
-	mi_lb_add_package_info(package);
-
+			if (file_sequential_get_fileinfo(package, rec->file, &info))
+				continue;
+			if (rec->index + rec->nr > info->nr_pages)
+				continue;
+			bitmap_set(info->bitmaps, rec->index, rec->nr);
+		}
+	}
 	list_for_each_entry_safe(info, next, &package->file_infos, list) {
-		if (g_debug_verbose)
-			package->total_startup_bytes += bitmap_weight(info->bitmaps, info->nr_pages) << 12;
 		info->is_moved = false;
-		if (mi_lb_file_is_collected(info)) {
+		if (mi_lb_file_is_collected(info))
 			info->ref = 3;
-		} else if (--info->ref == 0) {
-			free_one_fileinfo(package, info);
-		}
+		else if (--info->ref == 0)
+			file_sequential_free_one_fileinfo(package, info);
 	}
-
-	mi_lb_record_buf_clear();
+	mi_lb_add_package_info(package);
 	package_info_put(package);
+}
+
+static __always_inline void mi_lb_compiler_do_work(void)
+{
+	struct package_info *package;
+	ktime_t start, end;
+
+	start = ktime_get();
+	mutex_lock(&g_manager->compiler_lock);
+	spin_lock(&g_manager->lock);
+	package = g_active_package.package;
+	memset(&g_active_package, 0, sizeof(g_active_package));
+	spin_unlock(&g_manager->lock);
+	if (!package) {
+		mutex_unlock(&g_manager->compiler_lock);
+		LB_E(1164, "package is null");
+		return;
+	}
+	if (package->is_real_timing)
+		mi_lb_app_compiler(package);
+	else
+		file_sequential_app_compiler(package);
+	mi_lb_record_buf_clear();
 	atomic_set(&collecting_, 0);
 	mutex_unlock(&g_manager->compiler_lock);
-
-	if (g_debug_verbose) {
-		if (g_lb_msg_level <= 2) {
-			package->hit_rate = 100 - package->app_startup_bytes * 100ULL / package->total_startup_bytes;
-		} else {
-			LB_D(589, "compiler finish: total_memory %lu apps %u", g_manager->total_memory, g_manager->app_nums);
-			package->hit_rate = 100 - package->app_startup_bytes * 100ULL / package->total_startup_bytes;
-			LB_D(594, "current app %s, This app load io: %u bytes, total io: %u bytes, hit_rate: %d%%",
-			     package->owner.package_name, package->app_startup_bytes, package->total_startup_bytes, package->hit_rate);
-		}
-	}
+	end = ktime_get();
+	LB_D(1180, "compiler finish, compile_time: %lld ms, total_apps: %u, total_memory: %lu.%02luMB",
+	     ktime_to_ms(ktime_sub(end, start)), g_manager->nr_real_timing_apps + g_manager->nr_file_sequential_apps,
+	     g_manager->total_memory >> 20, (g_manager->total_memory * 100 >> 20) % 100);
+	if (g_manager->total_memory > 0x500000)
+		LB_E(1186, "total_memory exceeded 5MB limit: %lu.%02luMB, total_apps: %u", g_manager->total_memory >> 20,
+		     (g_manager->total_memory * 100 >> 20) % 100, g_manager->nr_real_timing_apps + g_manager->nr_file_sequential_apps);
 }
 
 static int mi_lb_compiler_thread(void *data)
@@ -541,16 +1041,13 @@ static int mi_lb_compiler_thread(void *data)
 	struct lb_manager *mgr = data;
 
 	if (!data) {
-		LB_E(603, "data is null");
+		LB_E(1195, "data is null");
 		return -EINVAL;
 	}
-	LB_D(607, "collecting_: %d", atomic_read(&collecting_));
 	while (!kthread_should_stop()) {
-		DEFINE_WAIT(wait);
-
-		prepare_to_wait(&mgr->compiler_wait, &wait, TASK_UNINTERRUPTIBLE);
-		schedule();
-		finish_wait(&mgr->compiler_wait, &wait);
+		wait_event_interruptible(mgr->compiler_wait, kthread_should_stop() || atomic_read(&collecting_));
+		if (kthread_should_stop())
+			break;
 		if (!atomic_read(&collecting_))
 			continue;
 		mi_lb_compiler_do_work();
@@ -560,14 +1057,14 @@ static int mi_lb_compiler_thread(void *data)
 
 noinline int mi_lb_exit_manager(void)
 {
-	lb_files_clear();
 	if (g_manager) {
 		kthread_stop(g_manager->compiler_thread);
-		wake_up(&g_manager->compiler_wait);
+		mi_lb_record_buf_clear();
 		if (g_manager->records)
 			kvfree(g_manager->records);
 		if (g_manager)
 			kfree(g_manager);
+		g_manager = NULL;
 	}
 	return 0;
 }
@@ -579,54 +1076,61 @@ noinline int mi_lb_dealwith_preread_size_cmd(struct lb_app_preread_info_size *in
 	size_t size;
 	int ret;
 
+	LB_D(151, "preread size: package uid: %d, packagename: %s", info_size->app_info.owner.uid, info_size->app_info.owner.package_name);
 	mutex_lock(&g_manager->compiler_lock);
-	package = mi_lb_get_package_info(&info_size->owner, false);
+	package = mi_lb_get_package_info(&info_size->app_info, false);
 	if (!package) {
-		LB_D(95, "app first cold start, No pre-reading");
+		LB_D(156, "app first cold start, No pre-reading");
 		ret = -1;
 		goto out;
+	}
+	if (package->is_real_timing) {
+		size = package->file_info.i_mtime_buffer_size + package->file_info.paths_buffer_size +
+		       package->ranges_buffer_size + sizeof(struct lb_app_preread_info);
+		goto set_size;
 	}
 	if (list_empty(&package->file_infos))
 		goto no_files;
 	size = sizeof(struct lb_app_preread_info);
 	list_for_each_entry(f, &package->file_infos, list) {
 		if (f->is_collected)
-			size += f->bitmap_longs * sizeof(unsigned long) + sizeof(struct lb_app_preread_file_info);
+			size += f->bitmap_longs * sizeof(unsigned long) + sizeof(struct lb_file_sequential_file_info);
 	}
 	if (!size)
 		goto no_files;
-	info_size->info_size = size + 0x110;
+set_size:
+	info_size->info_size = size;
 	package_info_put(package);
 	ret = 0;
 	goto out;
 no_files:
-	LB_D(102, "app has collected, but no pre-reading files");
+	LB_D(163, "app has collected, but no pre-reading files");
 	ret = -2;
 out:
 	mutex_unlock(&g_manager->compiler_lock);
 	return ret;
 }
 
-static inline int get_app_pre_filesinfo(struct package_info *package, struct lb_app_preread_info *info)
+static inline int get_file_sequential_preread_info(struct package_info *package, struct lb_app_preread_info *info)
 {
 	struct file_info *f;
-	struct lb_app_preread_file_info *pf;
+	struct lb_file_sequential_file_info *pf;
 	size_t size = sizeof(*info), next_size, bytes;
 	size_t len;
 	unsigned int n;
 	const char *name;
 
-	info->file_num = 0;
+	info->file_sequential.file_num = 0;
 	list_for_each_entry_reverse(f, &package->file_infos, list) {
 		if (!f->is_collected)
 			continue;
 		bytes = (size_t)f->bitmap_longs << 3;
 		next_size = size + bytes + sizeof(*pf);
-		if (next_size > info->file_info_buf_size) {
-			LB_E(38, "Exceeded preread_info memory size %zu", info->file_info_buf_size);
+		if (next_size > info->preread_info_buf_size) {
+			LB_E(39, "Exceeded preread_info memory size %zu", info->preread_info_buf_size);
 			break;
 		}
-		pf = (struct lb_app_preread_file_info *)((char *)info + size);
+		pf = (struct lb_file_sequential_file_info *)((char *)info + size);
 		pf->mtime = f->mtime;
 		pf->ino = f->ino;
 		pf->nr_pages = f->nr_pages;
@@ -634,7 +1138,7 @@ static inline int get_app_pre_filesinfo(struct package_info *package, struct lb_
 		len = strlen(name);
 		n = len;
 		if (n > 255) {
-			LB_E(53, "file path is too long %s", name);
+			LB_E(54, "file path is too long %s", name);
 			pf->path[0] = '\0';
 		} else {
 			char *dst = strncpy(pf->path, name, n);
@@ -643,9 +1147,25 @@ static inline int get_app_pre_filesinfo(struct package_info *package, struct lb_
 		}
 		pf->bitmap_longs = f->bitmap_longs;
 		memcpy(pf->bitmaps, f->bitmaps, bytes);
-		info->file_num++;
+		info->file_sequential.file_num++;
 		size = next_size;
 	}
+	return 0;
+}
+
+static inline int get_real_timing_preread_info(struct package_info *package, struct lb_app_preread_info *info)
+{
+	info->real_timing.file_nums = package->file_info.file_nums;
+	info->real_timing.i_mtimes_buffer_size = package->file_info.i_mtime_buffer_size;
+	info->real_timing.paths_buffer_size = package->file_info.paths_buffer_size;
+	info->real_timing.ranges_buffer_size = package->ranges_buffer_size;
+	info->real_timing.range_nums = package->range_nums;
+	size_t off;
+
+	memcpy((char *)(info + 1), package->file_info.i_mtime_buffer, package->file_info.i_mtime_buffer_size);
+	off = package->file_info.i_mtime_buffer_size + sizeof(*info);
+	memcpy((char *)info + off, package->file_info.file_paths, package->file_info.paths_buffer_size);
+	memcpy((char *)info + package->file_info.paths_buffer_size + off, package->ranges, package->ranges_buffer_size);
 	return 0;
 }
 
@@ -653,107 +1173,119 @@ noinline int mi_lb_dealwith_preread_info_cmd(struct lb_app_preread_info *info)
 {
 	struct package_info *package;
 
+	LB_D(183, "preread info uid: %d, packagename: %s", info->app_info.owner.uid, info->app_info.owner.package_name);
 	mutex_lock(&g_manager->compiler_lock);
-	package = mi_lb_get_package_info(&info->owner, false);
+	package = mi_lb_get_package_info(&info->app_info, false);
 	if (!package) {
 		mutex_unlock(&g_manager->compiler_lock);
-		LB_D(124, "app first cold start, No pre-reading");
+		LB_D(189, "app first cold start, No pre-reading");
 		return -1;
 	}
-	get_app_pre_filesinfo(package, info);
+	if (package->is_real_timing)
+		get_real_timing_preread_info(package, info);
+	else
+		get_file_sequential_preread_info(package, info);
 	package_info_put(package);
 	mutex_unlock(&g_manager->compiler_lock);
 	return 0;
-}
-
-noinline void free_one_fileinfo(struct package_info *package, struct file_info *file_entry)
-{
-	list_del(&file_entry->list);
-	package->file_num--;
-	package->mm_size -= file_entry->mm_size;
-	g_manager->total_memory -= file_entry->mm_size;
-	if (file_entry->path)
-		kfree(file_entry->path);
-	if (file_entry->bitmaps)
-		kfree(file_entry->bitmaps);
-	kfree(file_entry);
 }
 
 noinline bool package_info_do_destroy(struct package_info *package)
 {
 	struct file_info *f, *tmp;
 
-	mutex_lock(&g_manager->package_list_lock);
+	if (package->is_real_timing) {
+		mutex_lock(&g_manager->real_timing_list_lock);
+		list_del(&package->app_list);
+		g_manager->nr_real_timing_apps--;
+		g_manager->total_memory -= package->mm_size;
+		if (package->ranges)
+			kvfree(package->ranges);
+		if (package->file_info.file_paths)
+			kvfree(package->file_info.file_paths);
+		if (package->file_info.i_mtime_buffer)
+			kvfree(package->file_info.i_mtime_buffer);
+		if (package->reclaimed_files[0].bitmaps)
+			kfree(package->reclaimed_files[0].bitmaps);
+		if (package->reclaimed_files[1].bitmaps)
+			kfree(package->reclaimed_files[1].bitmaps);
+		if (package->reclaimed_files[2].bitmaps)
+			kfree(package->reclaimed_files[2].bitmaps);
+		mutex_unlock(&g_manager->real_timing_list_lock);
+		kfree(package);
+		return true;
+	}
+	mutex_lock(&g_manager->file_sequential_list_lock);
 	list_del(&package->app_list);
-	g_manager->app_nums--;
+	g_manager->nr_file_sequential_apps--;
 	g_manager->total_memory -= package->mm_size;
-	mutex_unlock(&g_manager->package_list_lock);
-	list_for_each_entry_safe(f, tmp, &package->file_infos, list)
-		free_one_fileinfo(package, f);
+	mutex_unlock(&g_manager->file_sequential_list_lock);
+	list_for_each_entry_safe(f, tmp, &package->file_infos, list) {
+		list_del(&f->list);
+		package->file_num--;
+		if (f->path)
+			kfree(f->path);
+		if (f->bitmaps)
+			kfree(f->bitmaps);
+		kfree(f);
+	}
 	kfree(package);
 	return true;
 }
 
-noinline int mi_lb_dealwith_clear_cmd(struct lb_owner *owner)
+noinline int mi_lb_dealwith_clear_cmd(struct cmd_app_info *app_info)
 {
 	struct package_info *package;
 
-	LB_D(57, "clear cmd : package uid: %d, pid: %d, packagename: %s", owner->uid, owner->pid, owner->package_name);
-	package = mi_lb_get_package_info(owner, false);
+	LB_D(93, "clear cmd : package uid: %d, pid: %d, packagename: %s", app_info->owner.uid, app_info->owner.pid, app_info->owner.package_name);
+	mutex_lock(&g_manager->clear_lock);
+	package = mi_lb_get_package_info(app_info, false);
 	if (!package) {
-		LB_D(61, "app not found, don't clear");
+		mutex_unlock(&g_manager->clear_lock);
+		LB_D(99, "app not found, don't clear");
 		return -1;
 	}
-	mutex_lock(&package->package_lock);
-	if (package->is_cleared) {
-		mutex_unlock(&package->package_lock);
-		LB_D(67, "app is cleared, don't clear");
-	} else {
+	if (!package->is_cleared) {
 		package->is_cleared = true;
-		mutex_unlock(&package->package_lock);
 		package_info_put(package);
 	}
 	package_info_put(package);
-	return 0;
-}
-
-noinline int mi_lb_dealwith_get_app_names(struct lb_app_list *app_list)
-{
-	struct package_info *p;
-	unsigned int n = 0;
-	struct list_head *head = &g_manager->package_list;
-
-	mutex_lock(&g_manager->package_list_lock);
-	list_for_each_entry(p, head, app_list) {
-		struct lb_owner *dst = &app_list->owner[n];
-
-		n++;
-		memcpy(dst, &p->owner, sizeof(struct lb_owner));
-		if (n == 100)
-			break;
-	}
-	app_list->app_nums = n;
-	mutex_unlock(&g_manager->package_list_lock);
+	mutex_unlock(&g_manager->clear_lock);
 	return 0;
 }
 
 static int lb_collect_show(struct seq_file *m, void *v)
 {
 	struct package_info *p;
-	int i = 0;
+	int i;
 
-	mutex_lock(&g_manager->package_list_lock);
-	if (list_empty(&g_manager->package_list)) {
-		seq_puts(m, "g_cold_record_list_user0 is empty\n");
+	seq_printf(m, "iorap version: %u.%u.%u\n", 3, 0, 0);
+	seq_printf(m, "total memory size %lu app_num: %u\n", g_manager->total_memory,
+		   g_manager->nr_real_timing_apps + g_manager->nr_file_sequential_apps);
+	mutex_lock(&g_manager->file_sequential_list_lock);
+	if (list_empty(&g_manager->file_sequential_list)) {
+		seq_puts(m, "file sequential collect app is empty\n");
 	} else {
-		seq_printf(m, "total memory size %lu app_num: %u\n", g_manager->total_memory, g_manager->app_nums);
-		list_for_each_entry(p, &g_manager->package_list, app_list) {
-			seq_printf(m, "[%d] app:%s, uid:%d, file num: %d, file size: %u, hit rate: %d%%, mm size: %d\n",
-				   i++, p->owner.package_name, p->owner.uid, p->file_num, p->total_startup_bytes,
-				   p->hit_rate, p->mm_size);
+		seq_printf(m, "file sequential mode aps[%u] list:\n", g_manager->nr_file_sequential_apps);
+		i = 0;
+		list_for_each_entry(p, &g_manager->file_sequential_list, app_list) {
+			seq_printf(m, "[%d] app:%s, uid:%d, file num: %d, mm size: %d\n", i++, p->owner.package_name,
+				   p->owner.uid, p->file_num, p->mm_size);
 		}
 	}
-	mutex_unlock(&g_manager->package_list_lock);
+	mutex_unlock(&g_manager->file_sequential_list_lock);
+	seq_printf(m, "real timing mode apps[%u] list:\n", g_manager->nr_real_timing_apps);
+	mutex_lock(&g_manager->real_timing_list_lock);
+	if (list_empty(&g_manager->real_timing_list)) {
+		seq_puts(m, "file sequential collect app  is empty\n");
+	} else {
+		i = 0;
+		list_for_each_entry(p, &g_manager->real_timing_list, app_list) {
+			seq_printf(m, "[%d] app:%s, uid:%d, file num: %d, mm size: %d\n", i++, p->owner.package_name,
+				   p->owner.uid, p->file_info.file_nums, p->mm_size);
+		}
+	}
+	mutex_unlock(&g_manager->real_timing_list_lock);
 	return 0;
 }
 
@@ -834,24 +1366,28 @@ static inline int mi_lb_create_proc(void)
 
 	dir = proc_mkdir("iorap_node", NULL);
 	if (!dir) {
-		LB_E(148, "proc_mkdir failed\n");
+		LB_E(170, "proc_mkdir failed\n");
 		return -ENOMEM;
 	}
 	if (!proc_create("collect", 0, dir, &lb_collect_file_fops)) {
 		remove_proc_entry("iorap_node", NULL);
-		LB_E(155, "proc_create lb_collect failed\n");
+		LB_E(177, "proc_create lb_collect failed\n");
 		return -ENOMEM;
 	}
-	proc_create("hot_collect", 0, dir, &lb_hot_collect_file_fops);
+	if (!proc_create("hot_collect", 0, dir, &lb_hot_collect_file_fops)) {
+		remove_proc_entry("collect", dir);
+		remove_proc_entry("iorap_node", NULL);
+		LB_E(185, "proc_create lb_hot_collect failed\n");
+		return -ENOMEM;
+	}
 	return 0;
 }
 
 noinline int mi_lb_dbg_init(void)
 {
 	if (mi_lb_create_proc()) {
-		LB_E(177, "lb_create_proc failed\n");
+		LB_E(199, "lb_create_proc failed\n");
 		return -ENOMEM;
 	}
 	return 0;
 }
-

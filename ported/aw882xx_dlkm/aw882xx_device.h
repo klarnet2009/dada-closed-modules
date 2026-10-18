@@ -110,18 +110,13 @@ enum AW_ALGO_AUTH_STATUS {
 };
 
 struct aw_device_ops {
-	int (*aw_i2c_write)(struct aw_device *aw_dev, unsigned char reg_addr, unsigned int reg_data);
-	int (*aw_i2c_read)(struct aw_device *aw_dev, unsigned char reg_addr, unsigned int *reg_data);
-	int (*aw_i2c_write_bits)(struct aw_device *aw_dev, unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
-	int (*aw_set_hw_volume)(struct aw_device *aw_dev, unsigned int value);
-	int (*aw_get_hw_volume)(struct aw_device *aw_dev, unsigned int *value);
+	int (*aw_i2c_write)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int reg_data);
+	int (*aw_i2c_read)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int *reg_data);
+	int (*aw_i2c_write_bits)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
 	unsigned int (*aw_reg_val_to_db)(unsigned int value);
-	bool (*aw_check_wr_access)(int reg);
-	bool (*aw_check_rd_access)(int reg);
-	int (*aw_get_reg_num)(void);
+	unsigned int (*aw_db_val_to_reg)(unsigned int value);
 	int (*aw_get_version)(char *buf, int size);
 	int (*aw_get_dev_num)(void);
-	void (*aw_set_algo)(struct aw_device *aw_dev);
 	unsigned int (*aw_get_irq_type)(struct aw_device *aw_dev, unsigned int value);
 	void (*aw_reg_force_set)(struct aw_device *aw_dev);
 	int (*aw_frcset_check)(struct aw_device *aw_dev);
@@ -297,6 +292,18 @@ struct aw_efcheck_desc {
 	unsigned int or_val;
 };
 
+/* g3l: "ef lock" check of the stock (aw882xx_dev_check_ef_lock): up to 2 {reg, mask, value} items */
+struct aw_ef_lock_item {
+	unsigned int reg;
+	unsigned int mask;
+	unsigned int value;
+};
+
+struct aw_ef_lock_desc {
+	unsigned int num;
+	struct aw_ef_lock_item item[2];
+};
+
 struct aw_dither_desc {
 	unsigned int reg;
 	unsigned int mask;
@@ -406,26 +413,53 @@ struct aw_device {
 	struct aw_spin_desc spin_desc;
 	struct aw_bop_desc bop_desc;
 	struct aw_efcheck_desc efcheck_desc;
+	struct aw_ef_lock_desc ef_lock_desc;
 	struct aw_dither_desc dither_desc;
 	struct aw_noise_gate_desc noise_gate_desc;
 	struct aw_psm_desc psm_desc;
 	struct aw_mpd_desc mpd_desc;
 	struct aw_dsmzth_desc dsmzth_desc;
 	struct aw_auth_desc auth_desc;
+	/* g3m: data driven replacements of the per-pid volume/access/num functions */
+	const unsigned char *reg_access;
+	int reg_max;
+	unsigned int vol_reg;
+	unsigned int vol_shift;
+	unsigned int vol_mask;
 	struct aw_device_ops ops;
 	struct list_head list_node;
+	unsigned char g3n_cmm[0x498];	/* g3n: overlay of the stock layout written by aw_dev_init_cmm (unused otherwise) */
 };
+
+#define AW_REG_RD_ACCESS	(1 << 0)
+#define AW_REG_WR_ACCESS	(1 << 1)
+
+static inline bool aw_dev_reg_rd_access(struct aw_device *aw_dev, int reg)
+{
+	if (reg >= aw_dev->reg_max)
+		return false;
+
+	return !!(aw_dev->reg_access[reg] & AW_REG_RD_ACCESS);
+}
+
+unsigned int aw_direct_reg_val_to_db(unsigned int value);
+unsigned int aw_direct_db_val_to_reg(unsigned int value);
+unsigned int aw_6_0P125_reg_val_to_db(unsigned int value);
+unsigned int aw_6_0P125_db_val_to_reg(unsigned int value);
+unsigned int aw_6_0P5_reg_val_to_db(unsigned int value);
+unsigned int aw_6_0P5_db_val_to_reg(unsigned int value);
+unsigned int aw_get_irq_type(struct aw_device *aw_dev, unsigned int value);
 
 
 void aw882xx_dev_deinit(struct aw_device *aw_dev);
-int aw882xx_device_init(struct aw_device *aw_dev, struct aw_container *aw_cfg);
+int aw882xx_dev_init(struct aw_device *aw_dev, struct aw_container *aw_cfg);
 int aw882xx_device_start(struct aw_device *aw_dev);
 int aw882xx_device_stop(struct aw_device *aw_dev);
 int aw882xx_dev_reg_update(struct aw_device *aw_dev, bool force);
-int aw882xx_device_irq_reinit(struct aw_device *aw_dev);
+int aw882xx_dev_irq_reinit(struct aw_device *aw_dev);
 
-struct mutex *aw882xx_dev_get_ext_dsp_prof_wr_lock(void);
-char *aw882xx_dev_get_ext_dsp_prof_write(void);
+extern char ext_dsp_prof_write;
+extern struct mutex g_ext_dsp_prof_wr_lock;
 
 /*re*/
 int aw882xx_dev_get_cali_re(struct aw_device *aw_dev, int32_t *cali_re);
@@ -445,12 +479,9 @@ void aw882xx_dev_get_fade_time(unsigned int *time, bool fade_in);
 void aw882xx_dev_set_fade_time(unsigned int time, bool fade_in);
 
 /*dsp kcontrol*/
-int aw882xx_dev_set_afe_module_en(int type, int enable);
-int aw882xx_dev_get_afe_module_en(int type, int *status);
-int aw882xx_dev_set_copp_module_en(bool enable);
 
-int aw882xx_device_probe(struct aw_device *aw_dev);
-int aw882xx_device_remove(struct aw_device *aw_dev);
+int aw882xx_dev_probe(struct aw_device *aw_dev);
+int aw882xx_dev_remove(struct aw_device *aw_dev);
 int aw882xx_dev_get_list_head(struct list_head **head);
 
 int aw882xx_dev_set_volume(struct aw_device *aw_dev, unsigned int set_vol);
@@ -461,7 +492,9 @@ void aw882xx_dev_mute(struct aw_device *aw_dev, bool mute);
 void aw882xx_dev_monitor_hal_get_time(struct aw_device *aw_dev, uint32_t *time);
 void aw882xx_dev_monitor_hal_work(struct aw_device *aw_dev, uint32_t *vmax);
 
-int aw882xx_dev_algo_auth_mode(struct aw_device *aw_dev, struct algo_auth_data *algo_data);
+int aw882xx_dev_algo_auth_set(struct aw_device *aw_dev, struct algo_auth_data *algo_data);
+int aw882xx_dev_algo_auth_get(struct aw_device *aw_dev, struct algo_auth_data *algo_data);
+int aw882xx_dev_check_ef_lock(struct aw_device *aw_dev);
 void aw882xx_dev_iv_forbidden_output(struct aw_device *aw_dev, bool power_waste);
 
 #endif

@@ -6,6 +6,7 @@
  */
 
 #define pr_fmt(fmt) "qi: " fmt
+#define QI_NO_UNDO_MACRO
 
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -182,7 +183,7 @@ static inline u32 qos_merge(u32 a, u32 b)
 	return (b & 0xf) <= (a & 0xf) ? (a | (b & 0xf0)) : ((a & 0xf0) | b);
 }
 
-int do_qos_inherit(struct task_struct *from, struct task_struct *to, unsigned long ptr, u8 type)
+int do_qos_inherit(struct task_struct *from, struct task_struct *to, void *ptr, u8 type)
 {
 	struct qi_struct *from_qi = get_task_qi(from);
 	struct qievent_struct event = {};
@@ -284,7 +285,7 @@ out:
 	return ret;
 }
 
-int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, unsigned long ptr, u8 type)
+int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, void *ptr, u8 type)
 {
 	struct qievent_struct event = {};
 	struct inherit_node *node, *tmp, *n;
@@ -300,7 +301,7 @@ int undo_qos_inherit(struct task_struct *p, struct qi_struct *qi, unsigned long 
 	head = &qi->inherit[type].list;
 	any = !type && !ptr;
 	list_for_each_entry_safe(node, tmp, head, list) {
-		if (any || node->owner == (void *)ptr)
+		if (any || node->owner == ptr)
 			goto found;
 	}
 	ret = -1;

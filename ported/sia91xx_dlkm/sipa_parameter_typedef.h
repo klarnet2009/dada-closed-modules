@@ -18,7 +18,7 @@
 
 #define SIPA_FW_VER_MAIN		(1)
 #define SIPA_FW_VER_SUB			(0)
-#define SIPA_FW_VER_REV			(2)
+#define SIPA_FW_VER_REV			(5)	/* G11: the stock compares param->version with 0x10005 (mov #5 + movk #1,lsl #16); the template had 2 and would reject the stock sipa.bin */
 #define SIPA_FW_VER				\
 	((SIPA_FW_VER_MAIN << 16) | (SIPA_FW_VER_SUB << 8) | (SIPA_FW_VER_REV))
 
@@ -62,6 +62,7 @@ typedef struct __sipa_reg {
 
 typedef struct __sipa_reg_common {
 	uint32_t addr;
+	uint32_t g3m_unk4;	/* stock entry = 32 bytes: {addr, ?, val[6]} */
 	uint32_t val[AUDIO_SCENE_NUM];
 } __packed SIPA_REG_COMMON;
 
@@ -70,6 +71,7 @@ typedef struct __sipa_reg_proc {
 	uint32_t mask;
 	uint32_t action;
 	uint32_t delay;		// us
+	uint32_t g3m_unk10;	/* stock item = 0x2c bytes, val[] at +0x14 */
 	uint32_t val[AUDIO_SCENE_NUM];
 } __packed SIPA_REG_PROC;
 
@@ -116,6 +118,7 @@ typedef struct __sipa_chip_cfg {
 	uint32_t reg_val_width;
 	uint32_t chip_id_addr;
 	SIPA_PARAM_LIST chip_id_ranges;
+	uint32_t g3m_unk28[6];	/* stock: chip_en is at +0x34 (template +0x1c), purpose unknown */
 
 	SIPA_REG chip_en; 
 	SIPA_PARAM_LIST init;
@@ -123,6 +126,10 @@ typedef struct __sipa_chip_cfg {
 	SIPA_PARAM_LIST shutdown;
 	SIPA_TRIM_REGS trim_regs;
 	SIPA_FUNC0_TO_REG pvdd_limit;	//SIPA_PARAM_LIST pvdd_limit;
+
+	uint32_t sram_addr_reg;	/* stock +0xa4 */
+	uint32_t sram_data_reg;	/* stock +0xa8 */
+	SIPA_PARAM_LIST sram;	/* stock +0xac: entries of SIPA_REG_COMMON */
 
 	/* move from dts */
 	uint32_t en_dyn_ud_vdd;

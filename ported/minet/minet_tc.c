@@ -59,11 +59,11 @@ struct tc_cfg_reply {
 };
 
 int m_tc_enable;
-static u32 m_tc_mask = 0;
-static u32 m_white_mark = 0;
-static u32 m_black_mark = 0;
-static u32 m_user_offset = 0;
-static u32 m_app_start = 0;
+static u32 m_tc_mask = 0x30000000; /* stock .data initial value */
+static u32 m_white_mark = 0x10000000; /* stock .data initial value */
+static u32 m_black_mark = 0x20000000; /* stock .data initial value */
+static u32 m_user_offset = 100000; /* stock .data initial value */
+static u32 m_app_start = 10000; /* stock .data initial value */
 static struct tc_list m_tc_list;
 /* ThinLTO-promoted static of the stock (hash not reproducible): non-static object with the stock symbol name */
 mi_idletimer_tg_info m_idletimer_info __asm__("m_idletimer_info.llvm.6912468423217759055") __attribute__((visibility("hidden")));
@@ -137,6 +137,8 @@ out:
 	return ret;
 }
 
+/* stock: static in the source (no kCFI preamble), ThinLTO-promoted to GLOBAL HIDDEN clear_tc_app.llvm.<hash>. Ours is a real hidden global, so a harmless 4-byte kCFI preamble word precedes it
+   (G9: static + module-asm .globl removes the preamble but module asm blocks the ThinLTO import/inlining of minet_tc_limiter_finit into cleanup_module: tried, 3 iterations, reverted). */
 void clear_tc_app(void) __asm__("clear_tc_app.llvm.6912468423217759055") __attribute__((visibility("hidden"), no_sanitize("kcfi")));
 void clear_tc_app(void)
 {

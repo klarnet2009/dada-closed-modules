@@ -1,0 +1,14 @@
+load("/<build-dir>", "ddk_module")
+
+ddk_module(
+    name = "mi_game",
+    srcs = ["params.c", "mi_game_load.c", "mi_game_ca.c", "flt.c", "migt_a.h", "kleaf_stubs.c", "mi_game.h", "trace_mi_game.h", "migt_b.h", "migt_c.h", "migt_e.h", "migt_f.h", "migt_g.h", "migt_h.h"],  # order = stock TU order (migt, load, flt)
+    out = "mi_game.ko",
+    defconfig = "mi_game_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-unused-function", "-Wno-unused-variable"],  # PARTIAL: helpers not referenced yet
+    local_defines = ["CONFIG_LTO=1", "MI_GAME_KLEAF_STUBS=1"],
+    visibility = ["//re:__subpackages__"],
+    kernel_build = "//common:kernel_aarch64",
+    includes = ["."],
+    deps = ["//re/stubs_g1p/os4:os4_vip_sched", "//re/stubs_g1/os4:os4_sched-walt", "//re/stubs_g1/os4:os4_plat_common", "//re/stubs_g1/os4:os4_mist", "//common:all_headers_aarch64"],
+)

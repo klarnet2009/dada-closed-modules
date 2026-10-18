@@ -126,6 +126,7 @@ void sipa_regmap_set_pvdd_limit(
 	struct regmap *regmap, uint32_t chip_type, uint32_t ch, unsigned int vol);
 
 void sipa_regmap_check_trimming(sipa_dev_t *si_pa);
+bool sipa_regmap_write_sram(sipa_dev_t *si_pa);
 
 int sia91xx_read_reg16(sipa_dev_t *si_pa, unsigned char subaddress,
    unsigned short *val);

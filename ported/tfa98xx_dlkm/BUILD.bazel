@@ -1,0 +1,19 @@
+load("/<build-dir>", "ddk_module")
+
+# g3k: tfa98xx_dlkm (NXP TFA98xx smart PA) - functional-coverage reconstruction, NOT equivalent to the stock
+ddk_module(
+    name = "tfa98xx_dlkm",
+    srcs = glob(["*.c", "*.h", "inc/*.h"]),
+    out = "tfa98xx_dlkm.ko",
+    includes = [".", "inc"],
+    defconfig = "tfa98xx_dlkm_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    local_defines = ["CONFIG_LTO=1", "CONFIG_MIEV=1", "CONFIG_DEBUG_FS=1"],
+    copts = ["-ffunction-sections", "-fdata-sections", "-Wno-visibility", "-Wno-incompatible-pointer-types"],
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//re/stubs_a17C:a17C_headers",
+        "//re/stubs_a17C:stub_miev",
+        "//re/stubs_a17C:stub_machine",
+        "//common:all_headers_aarch64",
+    ],
+)

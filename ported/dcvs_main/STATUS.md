@@ -1,5 +1,12 @@
 # dcvs_main - PARTIAL (15 of 18 functions byte-identical vs the OS4 stock; exports + CRCs now all OK; no public source, reconstructed from the disassembly) (+ g4d, 17.10.2026)
 
+## G11 (18.10.2026) - the forged export CRC is GONE, kCFI of mi_recalculate_freq_mhz fixed (first line unchanged: PARTIAL, 15 of 18)
+- The multiset audit flagged `mi_recalculate_freq_mhz` (exported, kCFI word 0xff91e60e instead of the stock 0x8b754eb4). Brute force over the mangled type (`g11_tools/kcq.py` style) gave `u32 f(struct cpu_ctrs *, s64, u32)`: the stock `delta_us` is **s64**, ours was u64 (division is still the unsigned udiv because the numerator is u64). With the real prototype the genksyms CRC equals the stock one (4076948266) WITHOUT the stand-in, so the g4d "DOCUMENTED CRC HACK" (`DCVS_FORGE_CRC`, the `char (*)[sizeof("fcrc_Pod6ehnfI")]` prototype) was removed from `dcvs_main.c` and `BUILD.bazel`. Kleaf build + compare_ko_v2: exports 9 PASS, kcfi-preamble 17 of 17 identical (was 1 mismatch), function bytes unchanged (same 3 differ: dcvs_arbi_second_store, mi_calculate_mon_sampling_freq, mi_update_memlat_fp_vote).
+- LESSON for the other forged-CRC modules: an argument type that "no spelling reproduces" is usually a signedness/width difference of a typedef (s64 vs u64): brute force the kCFI hash first (xxh64 of the Itanium name), it pins the exact prototype in seconds.
+- Remaining hacks of this module: none for CRC. `mi_calculate_mon_sampling_freq` CONST (audit: `cmp lsl #1`) not touched.
+
+g4j (17.10.2026): real Kleaf build re-run: function set (18), relocations, objects, exports (9)+CRC, imports (23)+CRCs, modinfo OK; 15 of 18 byte-identical, differing: dcvs_arbi_second_store, mi_calculate_mon_sampling_freq, mi_update_memlat_fp_vote. No function is missing. Not touched in g4j.
+
 ## g4d addendum (17.10.2026)
 - DOCUMENTED CRC HACK: the export CRC of `mi_recalculate_freq_mhz` (stock 4076948266) is now forced with a GENKSYMS-only stand-in prototype (`unsigned int mi_recalculate_freq_mhz(char (*)[sizeof("fcrc_Pod6ehnfI")]);`, `DCVS_FORGE_CRC` in `BUILD.bazel`/`dcvs_main.c`, salt from `work/a17/g4d/forge_crc.py`);
   compare_ko: exports + CRCs (9) OK. Code and ABI are untouched. Lesson: in the real Kbuild genksyms run the stand-in must use a builtin type (`unsigned int`, `int`); with the typedef `u32` the real CRC differs from our emulation (0x8e1f1b59 instead of the forged 0xf3014b2a).

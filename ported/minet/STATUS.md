@@ -1,4 +1,6 @@
-# minet - EQUIVALENT (44 of 44 functions identical to the OS4 stock, compare_ko.py EQUIVALENT; ; hacks: ThinLTO-promoted names as hidden globals, `(unsigned long)buf == 0` codegen hint, local declaration order)
+# minet - PARTIAL (strict compare_ko_v2: data fixed; remaining REAL difference: 2 ThinLTO-promoted hidden functions reset_timer/clear_tc_app carry a kCFI preamble word that the stock does not have)
+
+Old first line (before the strict recheck G9): # minet - EQUIVALENT (44 of 44 functions identical to the OS4 stock, compare_ko.py EQUIVALENT; ; hacks: ThinLTO-promoted names as hidden globals, `(unsigned long)buf == 0` codegen hint, local declaration order)
 
 ## Update (17.10.2026)
 - `minet_set_tc_enable` now identical: the stores to `m_tc_enable` are `WRITE_ONCE` (volatile store keeps the `adrp` of `m_idletimer_info.timer` after the store).
@@ -56,3 +58,9 @@ Real Kleaf/ThinLTO build + compare_ko.py (functions 44, bytes, relocs, objects, 
   `!buf`, `unlikely`, `__builtin_expect_with_probability`, `__builtin_unpredictable` did not give the layout); (b) the local declaration order `u32 status; u8 *buf; u8 *p; size_t room; size_t size;` (phi order in the join block = alloca order decides the order of the `mov w21,wzr`/`mov x24,xzr` copies).
 Documented hacks: hidden `.llvm.<hash>` globals (see below), the integer-compare null test and the declaration order (codegen hints, behaviour unchanged). The reply/dump payload layouts remain inferred from code.
 Tools: `work/re/src/g3f_tools` (`mn.sh` quick loop, `varsearch.py` with env STOCK=minet).
+
+## G9 strict recheck (18.10.2026)
+compare_ko_v2 found (a) 5 variables in stock `.data` with non-zero values (m_tc_mask=0x30000000, m_white_mark=0x10000000, m_black_mark=0x20000000, m_user_offset=100000, m_app_start=10000; read with `objdump -s -j .data` at offsets 0x1e0..0x1f0): FIXED with initialisers in minet_tc.c, objects PASS now.
+(b) kCFI preamble on `reset_timer.llvm.*` / `clear_tc_app.llvm.*`: STILL OPEN. In the stock these are static functions (no preamble) that ThinLTO promoted to GLOBAL HIDDEN; ours are real hidden globals (hash-name hack), clang emits a type-hash word before them even with no_sanitize("kcfi") (the attribute only drops the checks). Tried (3 builds): `static` + `asm("name")` + module asm `.globl/.hidden` -> preamble gone for clear_tc_app, binding GLOBAL HIDDEN, BUT module asm blocks ThinLTO import/inlining: minet_tc_limiter_finit is no longer inlined into cleanup_module (function-bytes and relocs of cleanup_module differ). Reverted to the previous source (old compare_ko EQUIVALENT, 44/44 functions byte-identical, kCFI preamble_cmp 0 mismatches for the non-promoted functions).
+Other compare_ko_v2 differences (acceptable): buildmeta (srcversion/built_with), bug-lines (minet_nl_msg/minet_nl_reply `__LINE__` 1037 vs 1048, cosmetic).
+Idea not tried: a per-function way to suppress the type hash (a clang/LLVM patch or post-link strip of the 4 bytes), or restructure so ThinLTO itself promotes the statics (name hash then differs from stock).

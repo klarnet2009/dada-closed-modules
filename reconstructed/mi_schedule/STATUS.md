@@ -66,4 +66,4 @@ fixes the CRC (done).
 - Caching loaded fields in locals (or re-reading them) decides whether the compiler hoists loads; `-ftrivial-auto-var-init=zero` makes the declaration order of locals visible.
 - memset of a sub-range of a struct: fortify complains at compile time; use `(char *)&s + offsetof(...)` as destination.
 - BTF of the stock module (`btf_dump.py` with the right string base) gives exact struct layouts; unknown base IDs (`unsigned int`, `u64`, `list_head`, `spinlock_t`, `refcount_t`) are inferred from usage.
-- Path pitfall: use Git bash (`C:/Program Files/Git/bin/bash.exe`) and Windows `python` for the helper scripts; WSL bash silently uses stale server copies. Write C files with the Write/Edit tool (shell heredocs halve backslashes).
+- Path pitfall: use Git bash (`Git bash`) and Windows `python` for the helper scripts; WSL bash silently uses stale server copies. Write C files with the Write/Edit tool (shell heredocs halve backslashes).

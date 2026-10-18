@@ -1,5 +1,7 @@
 # cameralog - PARTIAL (10 of 11 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4j (17.10.2026): real Kleaf build re-run: all structural checks OK, only cameralog_ioctl differs (block layout). New try: `__builtin_expect_with_probability(debugLevel > 0, 1, p)` on the toggle test, p = 0.05..0.95 (7 values): 62 -> 60 word diff at best (p <= 0.35), not the fix; source unchanged. Stock lays out the toggle ON block (`mov w9,#1; str`) and OFF block (`str wzr`) after the SET_DEBUG block and shares one `mov x0,xzr; b epilogue` tail; ours tail-duplicates `mov x0,xzr` into the toggle OFF block.
+
 g4d (17.10.2026): real Kleaf build re-run against the OS4 stock: function set (11), relocations, objects, export CRC, imports (27) + CRCs, modinfo OK; only `cameralog_ioctl` differs. No change made (the block-layout problem is unchanged).
 
 

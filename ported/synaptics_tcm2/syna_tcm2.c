@@ -449,7 +449,12 @@ static void syna_dev_free_input_events(struct syna_tcm *tcm)
 	input_mt_sync(input_dev);
 #endif
 	input_sync(input_dev);
-	update_fod_press_status(0);
+	if (tcm->fingerprint_authstate) {
+		LOGI("fingerprint AuthState %d means wrong fingerprint, skip\n", tcm->fingerprint_authstate);
+	} else {
+		update_fod_press_status(0);
+		LOGD("fingerprint AuthState %d update_fod_press_status \n", tcm->fingerprint_authstate);
+	}
 
 	syna_pal_mutex_unlock(&tcm->tp_event_mutex);
 
@@ -1140,6 +1145,7 @@ void syna_dev_reflash_startup(struct syna_tcm *tcm, bool force_reflash)
 			&tcm->pdev->dev);
 	if (retval < 0) {
 		LOGE("Fail to request %s\n", xiaomi_get_firmware_image_name());
+		xiaomi_touch_mievent_report_str(TOUCH_EVENT_FWLOAD_ERR, 0, "TpFirmwareLoadFail", "synaptics");
 		goto exit;
 	}
 
@@ -1174,6 +1180,7 @@ void syna_dev_reflash_startup(struct syna_tcm *tcm, bool force_reflash)
 	}
 	if (retval < 0) {
 		LOGE("Fail to do reflash\n");
+		xiaomi_touch_mievent_report_str(TOUCH_EVENT_FWLOAD_ERR, 0, "TpFirmwareLoadFail", "synaptics");
 		goto exit;
 	}
 
@@ -1558,6 +1565,19 @@ static int syna_dev_suspend(struct device *dev)
 #endif
 	/* disable irq */
 	if (irq_disabled && (hw_if->ops_enable_irq)) {
+		if (ATOMIC_GET(tcm->tcm_dev->msg_data.command_status) == CMD_STATE_BUSY) {
+			int timeout = 0;
+
+			LOGE("cmd is busy, wait for it to finish\n");
+			while (timeout < 60) {
+				syna_pal_sleep_ms(20);
+				timeout += 20;
+				if (ATOMIC_GET(tcm->tcm_dev->msg_data.command_status) == CMD_STATE_IDLE) {
+					LOGE("timeout:%d\n", timeout);
+					break;
+				}
+			}
+		}
 		hw_if->ops_enable_irq(hw_if, false);
 		if (tcm->irq_wake) {
 			disable_irq_wake(hw_if->bdata_attn.irq_id);

@@ -96,10 +96,12 @@ int aw882xx_dsp_get_afe_module_en(int type, int *status);
 int aw882xx_dsp_set_copp_module_en(bool enable);
 int aw882xx_dsp_write_spin(int spin_mode);
 int aw882xx_dsp_read_spin(int *spin_mode);
-int aw882xx_get_algo_version(struct aw_device *aw_dev, char *algo_ver_buf);
-void aw882xx_device_parse_topo_id_dt(struct aw_device *aw_dev);
-void aw882xx_device_parse_port_id_dt(struct aw_device *aw_dev);
+int aw882xx_dsp_algo_ver(struct aw_device *aw_dev, char *algo_ver_buf);
+void aw882xx_dsp_parse_topo_id_dt(struct aw_device *aw_dev);
+void aw882xx_dsp_parse_port_id_dt(struct aw_device *aw_dev);
 int aw882xx_dsp_set_mixer_en(struct aw_device *aw_dev, uint32_t mixer_en);
+int aw882xx_dsp_read_vol_offset(struct aw_device *aw_dev, int32_t *vol_offset);
+int aw882xx_dsp_write_vol_offset(struct aw_device *aw_dev, int32_t vol_offset);
 #ifdef AW_ALGO_AUTH_DSP
 int aw882xx_dsp_read_algo_auth_data(struct aw_device *aw_dev,
 		char *data, unsigned int data_len);

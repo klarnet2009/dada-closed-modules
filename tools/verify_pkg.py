@@ -22,6 +22,10 @@ Checks (per module):
   order      load order of modules.load / vendor_dlkm.modules.load: every dependency (depends or symbol provider) loads
              earlier (or is a GKI/system_dlkm module or not in any list = reported as 'dep-not-listed').
   hook       (optional, --hook) kCFI hash of a registered tracepoint probe equals the hash the vmlinux traceiter expects.
+  strict     (G9, default on when compare_ko_v2.py is found) every file that differs from the OS4 stock is compared with compare_ko_v2.py (function bytes + relocations +
+             binding, kCFI preambles, ALL named objects incl. .data/.rodata/.bss content, anonymous data, bug/jump/other tables, exports/imports + CRC, modinfo, depends,
+             notes). Classes: STRICT (no difference), metadata-only (only buildmeta/depends/notes/vermagic), cosmetic (+ bug-table line numbers), crc-hack (only import/export CRC
+             differences that crc_patch/forged stubs explain), REAL (anything else). A REAL module counts as a problem: it must be replaced by the stock file.
 """
 import argparse, collections, csv, os, re, struct, subprocess, sys
 from collections import defaultdict
@@ -263,6 +267,9 @@ def main():
     ap.add_argument("--no-hooks", action="store_true")
     ap.add_argument("--trusted-ko", default="<build-dir>", help="a .ko signed by the kernel build key of the Image: its signer serial = the trusted key")
     ap.add_argument("--emitters", default="ufs_qcom,zram,zsmalloc,gzvm", help="modules that EMIT vendor hooks inline (ufs_qcom embeds the ufshcd core, zram/zsmalloc/gzvm call their own hooks): their __tracepoint_android_* imports are not probe registrations")
+    ap.add_argument("--no-strict", action="store_true", help="skip the compare_ko_v2 strict check of every non-stock file")
+    ap.add_argument("--strict-tool", default=None, help="path of compare_ko_v2.py (default: next to this script, then <work-dir>)")
+    ap.add_argument("--exports-map", default="<work-dir>", help="exports map of compare_ko_v2 (optional)")
     a = ap.parse_args()
     lists = a.lists or os.path.join(a.root, "lists")
 
@@ -429,6 +436,51 @@ def main():
     for r in rows:
         r.setdefault("hook_mismatch", 0)
 
+    # strict check (compare_ko_v2) of every file that differs from the OS4 stock
+    strict_rows, strict_note = [], ""
+    for r in rows:
+        r["strict"], r["strict_fail"] = "", ""
+    if not a.no_strict:
+        tool = a.strict_tool or next((t for t in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "compare_ko_v2.py"), "<work-dir>") if os.path.exists(t)), None)
+        if tool is None:
+            strict_note = "strict check skipped: compare_ko_v2.py not found"
+        else:
+            sys.path.insert(0, os.path.dirname(tool))
+            import compare_ko_v2 as v2
+            exmap = v2.load_map(a.exports_map) if a.exports_map and os.path.exists(a.exports_map) else None
+            META = {"depends", "buildmeta", "notes", "vermagic"}
+
+            def klass(f):
+                if not f:
+                    return "STRICT"
+                if f <= META:
+                    return "metadata-only"
+                if f <= META | {"bug-lines"}:
+                    return "cosmetic"
+                if f <= META | {"bug-lines", "imports", "exports"} and f & {"imports", "exports"}:
+                    return "crc-hack"
+                return "REAL"
+            order = ["STRICT", "metadata-only", "cosmetic", "crc-hack", "REAL"]
+            for part, p in mods:
+                if part == "system_dlkm":      # GKI modules of the Image's own build: not comparable with the 6.6.118 stock
+                    continue
+                k = Ko(p)
+                sp = os.path.join(a.stock, part, os.path.relpath(p, os.path.join(a.root, part)))
+                if not os.path.exists(sp):
+                    sp = stock_path.get(k.name)
+                if not sp or open(sp, "rb").read() == k.d:
+                    continue
+                try:
+                    _a, _b, res, _info = v2.run(sp, p, False, exmap)
+                    f = {n for n, ok, *_ in res if not ok}
+                    cl = klass(f)
+                except Exception as ex:  # a module the tool cannot parse is not clean
+                    f, cl = {"error:" + repr(ex)[:60]}, "REAL"
+                strict_rows.append((k.name, part, cl, sorted(f)))
+                rr = rmap[k.name]
+                if not rr["strict"] or order.index(cl) > order.index(rr["strict"]):
+                    rr["strict"], rr["strict_fail"] = cl, ",".join(sorted(f))
+
     hook_res = []
     for h in a.hook:
         m, fn, ti = h.split(":")
@@ -451,6 +503,15 @@ def main():
     print(f"depends names missing from set: {c('dep_missing', bool)}; symbol providers not in depends: {c('provider_not_in_depends', bool)}; depends differ from stock: {c('depends_vs_stock', lambda x: x.startswith('DIFF'))}")
     print(f"modules differing from stock: {sum(1 for r in rows if r['preamble_vs_stock'] != '')}; of them with kCFI preamble-hash mismatches vs stock: {c('preamble_vs_stock', lambda x: x not in ('', 0))}")
     print(f"kCFI instrumented: {c('kcfi_instr', bool)}/{len(rows)}; global funcs without hash preamble: {sum(r['fn_global'] - r['fn_preamble'] for r in rows)} of {sum(r['fn_global'] for r in rows)}")
+    if strict_rows:
+        cnt = collections.Counter(x[2] for x in strict_rows)
+        print("strict compare_ko_v2 vs OS4 stock (non-stock files): " + ", ".join(f"{k}={cnt[k]}" for k in ("STRICT", "metadata-only", "cosmetic", "crc-hack", "REAL")) + f" of {len(strict_rows)} files")
+        for kk in ("STRICT", "metadata-only", "cosmetic", "crc-hack", "REAL"):
+            names = sorted({x[0] for x in strict_rows if x[2] == kk})
+            if names:
+                print(f"  strict {kk}: {len(names)} modules: " + ", ".join(names))
+    elif strict_note:
+        print(strict_note)
     print(f"load lists: vendor_boot {len(vb)}, vendor_dlkm {len(vd)}, system_dlkm {len(sd_)}; listed but not in set {len(notinset)}; dependency cycles {len(cyc)}; "
           f"dependency not available at that stage {len(unavail)}; derived deps not covered by stock vendor_boot modules.dep {nodep}")
     print(f"tracepoint/hook probes: {hook_total} registrations checked, {len(hook_bad)} with no function of the expected kCFI type in the module (modules: {len({x[0] for x in hook_bad})})")
@@ -461,6 +522,9 @@ def main():
             probs = [k for k in ("crc_bad", "crc_missing", "protected_export_unsigned", "dep_missing", "provider_not_in_depends", "export_collide_kernel") if r[k]]
             if probs or not r["vermagic_flags_ok"] or r["depends_vs_stock"].startswith("DIFF") or r["preamble_vs_stock"] not in ("", 0):
                 print("  PROBLEM", r["module"], r["part"], probs, r["examples"], r["depends_vs_stock"], "preamble-vs-stock:", r["preamble_vs_stock"])
+        for n, part_, cl, f in strict_rows:
+            if cl == "REAL":
+                print("  STRICT-REAL", n, part_, f, "-> replace by the stock file")
         for n, x, e in hook_bad[:80]:
             print("  HOOK-TYPE", n, x, "vmlinux expects", e)
         for x in cyc[:10]:
@@ -471,7 +535,7 @@ def main():
             print("  LISTED-NOT-IN-SET", x)
     bad_total = sum(1 for r in rows if r["crc_bad"] or r["crc_missing"] or r["protected_export_unsigned"] or r["dep_missing"]
                     or not r["vermagic_flags_ok"] or r["depends_vs_stock"].startswith("DIFF") or r["preamble_vs_stock"] not in ("", 0))
-    bad_total += len(cyc) + len(notinset) + len(hook_bad)
+    bad_total += len(cyc) + len(notinset) + len(hook_bad) + sum(1 for x in strict_rows if x[2] == "REAL")
     ok = bad_total == 0 and all(h[3] for h in hook_res)
     print("RESULT:", "PASS" if ok else f"{bad_total} problems (see PROBLEM/CYCLE lines)")
     return 0 if ok else 1

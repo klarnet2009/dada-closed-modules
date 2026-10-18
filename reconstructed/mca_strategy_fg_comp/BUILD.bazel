@@ -1,3 +1,4 @@
+# OS4 build: headers = //re/stubs_g5, providers = forged OS4 stubs //re/stubs_a17B/os4:os4_* (exact stock export CRCs). Community-only charging source: never flash, never put into a ROM build.
 load("/<build-dir>", "ddk_module")
 
 ddk_module(
@@ -16,8 +17,25 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],  # stock was LTO-linked per function/data section: local calls keep CALL26 relocs
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_mcaB:mca_headers",
-        "//re/stubs_mcaB:stub_all",
+        "//re/stubs_g2k:mca_headers",
+        "//re/stubs_a17B/os4:os4_charger_partition",
+        "//re/stubs_a17B/os4:os4_mca_charge_mievent",
+        "//re/stubs_a17B/os4:os4_mca_common",
+        "//re/stubs_a17B/os4:os4_mca_event",
+        "//re/stubs_a17B/os4:os4_mca_hwid",
+        "//re/stubs_a17B/os4:os4_mca_log",
+        "//re/stubs_a17B/os4:os4_mca_parse_dts",
+        "//re/stubs_a17B/os4:os4_mca_platform_buckchg_class",
+        "//re/stubs_a17B/os4:os4_mca_platform_fg_ic_ops",
+        "//re/stubs_a17B/os4:os4_mca_platform_loadsw_class",
+        "//re/stubs_a17B/os4:os4_mca_protocol_class",
+        "//re/stubs_a17B/os4:os4_mca_protocol_pd_class",
+        "//re/stubs_a17B/os4:os4_mca_qcom_smem",
+        "//re/stubs_a17B/os4:os4_mca_smart_charge",
+        "//re/stubs_a17B/os4:os4_mca_strategy_class",
+        "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",
+        "//re/stubs_a17B/os4:os4_mca_sysfs",
+        "//re/stubs_a17B/os4:os4_mca_workqueue",
         "//common:all_headers_aarch64",
     ],
 )

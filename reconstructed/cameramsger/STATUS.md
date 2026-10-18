@@ -1,5 +1,12 @@
 # cameramsger - PARTIAL (14 of 22 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+## G11 (18.10.2026) - kCFI prototypes of the submodule callbacks fixed, first line unchanged (still PARTIAL, 14 of 22)
+- The multiset audit flagged `cam_sched_ioctl`, `cam_sched_w_pids`, `get_tgid_by_cmdline` (address in .rodata/.text, kCFI hash different from the stock: indirect call through `submodules[]` would trap). Cause found with `g11_tools/kcq.py`-style brute force: the stock `hit` out-parameter is `unsigned char *` (hash 0x9058c5bb = `int (struct file *, char *, int, unsigned char *)`, 0x8611c10d = `void (struct file *, unsigned int, unsigned long, unsigned char *)`), ours was `bool *`. Changed to `u8 *hit` (prototypes, the `struct cam_submodule` function pointers, the two `hit` locals). Result: preamble mismatches of address-taken/global functions 4 -> 1 (emulation and Kleaf preamble_cmp); function bytes unchanged (14 of 22 identical, same 8 differ: register allocation).
+- Left (harmless): `debug` (stock `unsigned char debug(int)` has a kCFI preamble 0xef5250c9, ours `int debug(int)` has none: not address-taken in ours; the stock type is u8, not changed to avoid new codegen drift).
+- cameramsger_read/write/release/snd_message REAL-by-multiset (audit): unchanged, still register allocation / stack slots.
+
+g4j (17.10.2026): real Kleaf build re-run against the OS4 stock: function set (22), relocations, objects, imports (53)+CRCs, modinfo OK; 14 of 22 byte-identical, 8 differ (read, write, release, ioctl, snd_message, xmi_rvh_select_task_rq_fair, init_module, cam_sched_w_pids). NOTE: no function is MISSING (the "8 missing functions" in the goal text are these 8 byte-differing ones); no source change, all 8 are register-allocation / block-layout differences documented below.
+
 g4d (17.10.2026): real Kleaf build re-run: function set (22), relocations, objects, imports (53) + CRCs, modinfo OK; 14 of 22 functions identical, 8 differ (read, write, release, ioctl, snd_message, xmi_rvh_select_task_rq_fair, init_module, cam_sched_w_pids). No change made.
 
 

@@ -33,8 +33,8 @@
 #define FSM_GIT_BRANCH   ""
 #define FSM_GIT_COMMIT   ""
 
-#define FSM_DRV_NAME     "fs19xx"
-#define FSM_FW_NAME      "fs19xx_dft.fsm"
+#define FSM_DRV_NAME     "fs16xx" /* stock driver/misc/alias name (strict recheck G9) */
+#define FSM_FW_NAME      "fs16xx.fsm"
 
 // #define FSM_CALIB_SAVE_PATH   "/data"
 // TODO

@@ -403,3 +403,37 @@ int soc_codec_conf_sia91xx(
 	return 0;
 }
 EXPORT_SYMBOL(soc_codec_conf_sia91xx);
+
+/* g3l: stock entry point, picks the digital (91xx) or the analog (aux only) path from the DT property "si,is_digital_pa" */
+int soc_codec_conf_sipa(
+	struct platform_device *pdev,
+	struct snd_soc_card *card)
+{
+	u32 is_digital = 0;
+	int ret;
+
+	ret = of_property_read_u32(pdev->dev.of_node, "si,is_digital_pa", &is_digital);
+	if (ret < 0)
+		pr_info("[ info][%s] : node is not exist. ret = %d !!! \n", __func__, ret);
+
+	if (is_digital) {
+		u32 conf_num = soc_sia81xx_get_aux_num(pdev);
+		struct snd_soc_codec_conf *codec_conf;
+
+		codec_conf = devm_kzalloc(card->dev, conf_num * sizeof(*codec_conf), GFP_KERNEL);
+		if (!codec_conf)
+			return -ENOMEM;
+
+		ret = soc_sia91xx_init(pdev, codec_conf, conf_num);
+		if (ret) {
+			pr_err("[  err][%s] : soc_sia91xx_init ret = %d !!! \n", "soc_codec_conf_sia91xx", ret);
+			return ret;
+		}
+		card->codec_conf = codec_conf;
+		card->num_configs = conf_num;
+		return 0;
+	}
+
+	return soc_aux_init_only_sia81xx(pdev, card);
+}
+EXPORT_SYMBOL(soc_codec_conf_sipa);

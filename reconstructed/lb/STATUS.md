@@ -1,4 +1,31 @@
-# lb - PARTIAL vs the OS4 stock: OS4 grew new code (13 functions + vendor hooks) that our HyperOS 3 based source lacks (g4 re-check 17.10.2026); vs HyperOS 3 it was 42/46
+# lb - PARTIAL vs the OS4 stock: all 57 functions, relocations, objects, imports+CRC (124) and modinfo match; 38 of 57 function bodies byte-identical (g4j 17.10.2026)
+
+g4j (17.10.2026) re-reconstructed the OS4 lb from the stock .ko disassembly (BTF with START_ID 141904 + STR_BASE 2552072, see `work/a17/g4j/NOTES.md`). Real Kleaf build + compare_ko: function set OK (57),
+function relocations (resolved targets) OK, global objects OK, exports (0) OK, imports + CRCs OK (124), modinfo OK (incl. all 27 `parm`/`parmtype` lines and `depends=`), kCFI preambles OK (41 functions, 0 mismatches).
+Function bytes: 19 of 57 differ (before: 13 functions missing + 23 differing).
+
+What was recovered (all from the asm, nothing was copied from a source):
+- New structures: `package_info` is now 0x188 bytes (union of the file-sequential part {file_infos, file_num} and the real-timing part {file_info{file_nums,i_mtime_buffer_size,paths_buffer_size,i_mtime_buffer,file_paths}, range_nums,
+  ranges_buffer_size, ranges*, reclaimed_files[3]}; owner@0x70, mm_size@0x178, is_cleared/is_real_timing/is_file_page_reclaimed@0x17c.., refcount@0x180; no package_lock any more); `lb_manager` is 0xd1d0 bytes (two package lists
+  with their own mutexes, `clear_lock`, `extra_records` 2 MB buffer for 4 game packages, `nr_real_timing_apps`/`nr_file_sequential_apps` as bytes @0xd1c8/9); ioctl argument `cmd_app_info {bool is_real_timing; lb_owner}`;
+  `lb_app_preread_info` 0x130 bytes with the file-sequential / real-timing union; `real_timing_file_node` and range node (48 bytes each); `g_active_package` {package, nr_pids, by_tgid, pids[5]}.
+- New functions (13): `lb_file_path`, `real_timing_package_init`, `real_timing_lookup_file_index`, `dex_files_for_bitmap_record`, `real_timing_file_range_cmp`, `file_sequential_get_fileinfo` (the old inline helper became a function),
+  `file_sequential_free_one_fileinfo`, `mi_lb_remove_package_info_from_list`, `is_real_timing_package`, and the four vendor hooks `adjust_readahead`, `adjust_readaround`, `mi_lb_skip_async_mmap_readahead`, `should_skip_fault_around`
+  (registered in init_module for android_vh_ra_tuning_max_page / tune_mmap_readaround / do_async_mmap_readahead / should_fault_around, failures only logged).
+- Rewritten for OS4: `mi_lb_compiler_thread` (the real-timing compile pipeline inlined: range list per file, list_sort + merge with g_max_gap_range/g_max_merge_range, ranges/paths/i_mtime arrays), `mi_lb_dealwith_collect_cmd` (ABORT no longer handled, RenderThread check,
+  extra 2 MB buffer for com.tencent.jkchess/KiHan/brawlstars/msgame), preread size/info (real-timing branch), clear_cmd (manager clear_lock), destroy, get/add/oldest package (list selected by is_real_timing), lb_collect_show, mi_lb_ioctl
+  (cmd_app_info, is_real_timing_package(), LB_GET_VERSION 0x80044c14, no get_app_names/debug_owner cases, pte_clean not called), init_module/chrdev/hooks, module parameters (8 new, stock defaults taken from .data).
+- Removed OS4-dropped code: `mi_lb_dealwith_get_app_names`, `free_one_fileinfo` (now file_sequential_free_one_fileinfo), debug accounting (total/app_startup_bytes, hit_rate).
+- Hacks: lock-key section emulation as before; `lb_list_del()` (always-inline copy of list_del, because clang left an out-of-line `list_del` in `file_sequential_get_fileinfo`).
+
+Byte-identical (38): pagecache_collect, hooks adjust_*/skip_async/should_skip, package_info_put/do_destroy, init_manager/exit_manager, clear_cmd, dbg_init, lb_cold_exit, free_one_fileinfo, real_timing_file_range_cmp, lb_file_path, ... and all hot functions except the ones below.
+Still differing (ThinLTO emulation word diff, g4j q.sh): `mi_lb_compiler_thread` 966 (largest; the real-timing section is structurally right, layout/allocation differs), `mi_lb_dealwith_collect_cmd` 366 (cold-block layout of the get_pid_task/RenderThread
+error paths, one stp vs str prologue), `file_sequential_get_fileinfo` 275, `init_module` 223, `mi_lb_ioctl` 183 (jump table / get_user layout), `real_timing_lookup_file_index` 124, `mps_hot_pte_range` 74 (unchanged from before),
+`dex_files_for_bitmap_record` 41, `mi_lb_dealwith_preread_size_cmd` 2 (registers only), `mi_lb_dealwith_preread_info_cmd` 37 (stock keeps info+0x130 and isz+0x130 in registers), `mi_lb_dealwith_pte_preread_cmd` 27, small ones (is_real_timing_package: shrink-wrapped null check at the top in stock;
+list functions: register allocation only).
+NOTE for a rebuild into a ROM: values of module parameters now follow the OS4 .data (lb_debug=3, lb_pte_fadvise_enable=0 ...), the old ones were HyperOS 3 values.
+
+## History (HyperOS 3 based rounds)
 
 g4d (17.10.2026): not advanced. ThinLTO emulation vs the OS4 stock (`work/a17/g4d/q.sh lb`): 3 of the 13 new functions are listed MISSING plus `mi_lb_remove_package_info_from_list`, `mi_lb_skip_async_mmap_readahead`, `adjust_readahead`, `adjust_readaround`, `should_skip_fault_around`, `file_sequential_free_one_fileinfo` (about 3.7 KB of new code: sizes `file_sequential_get_fileinfo` 0x594, `real_timing_lookup_file_index` 0x25c, `lb_file_path` 0x1f8, `dex_files_for_bitmap_record` 0x174, `mi_lb_remove_package_info_from_list` 0x16c, `adjust_readaround` 0x16c, `adjust_readahead` 0x150, `mi_lb_skip_async_mmap_readahead` 0x134, `should_skip_fault_around` 0x130, `is_real_timing_package` 0xc8, `real_timing_package_init` 0x120, `file_sequential_free_one_fileinfo` 0x9c, `real_timing_file_range_cmp` 0x40) and 19 shared functions with large diffs (`mi_lb_dealwith_collect_cmd` 446 words, `init_module` 258, `mi_lb_dealwith_preread_info_cmd` 156, `mi_lb_init_manager` 135, `package_info_do_destroy` 135, `lb_collect_show` 125, `mi_lb_add_package_info` 112 ...). Needs a full re-recovery of the real-timing / file-sequential preread features (4 TUs).
 

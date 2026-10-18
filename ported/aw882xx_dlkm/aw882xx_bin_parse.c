@@ -1032,7 +1032,7 @@ static int aw_dev_parse_create_prof_name_list_v_1_0_0_0(struct aw_device *aw_dev
 	return 0;
 }
 
-static int aw_dev_parse_drv_type_v_1_0_0_0(struct aw_device *aw_dev,
+static __always_inline int aw_dev_parse_drv_type_v_1_0_0_0(struct aw_device *aw_dev,
 		struct aw_cfg_hdr *prof_hdr, struct aw_cfg_dde_v_1_0_0_0 *cfg_dde, int *cur_scene_id)
 {
 	int ret = -1;
@@ -1386,8 +1386,8 @@ int aw882xx_dev_set_profile_index(struct aw_device *aw_dev, int index)
 		prof_info->prof_name_list[prof_info->prof_desc[index].id]);
 
 
-	ext_dsp_prof_wr_lock = aw882xx_dev_get_ext_dsp_prof_wr_lock();
-	ext_dsp_prof_write = aw882xx_dev_get_ext_dsp_prof_write();
+	ext_dsp_prof_wr_lock = &g_ext_dsp_prof_wr_lock;
+	ext_dsp_prof_write = &ext_dsp_prof_write;
 
 	mutex_lock(ext_dsp_prof_wr_lock);
 	*ext_dsp_prof_write = AW_EXT_DSP_WRITE_NONE;

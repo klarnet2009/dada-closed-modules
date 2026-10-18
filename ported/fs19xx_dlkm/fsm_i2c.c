@@ -632,6 +632,7 @@ static void __exit fsm_mod_exit(void)
 module_init(fsm_mod_init);
 module_exit(fsm_mod_exit);
 
+MODULE_SOFTDEP("pre: sia91xx_dlkm");
 MODULE_AUTHOR("FourSemi SW <support@foursemi.com>");
 MODULE_DESCRIPTION("FourSemi Smart PA Driver");
 MODULE_VERSION(FSM_CODE_VERSION);

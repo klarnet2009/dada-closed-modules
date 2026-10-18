@@ -1,4 +1,6 @@
-# vip_sched - EQUIVALENT (89 of 89 functions byte-identical; function set, relocations, objects, 19 exports+CRC, 65 imports+CRC, modinfo all OK in the Bazel compare, 17.10.2026 round 3, )
+# vip_sched - EQUIVALENT (strict compare_ko_v2: only metadata differences + cosmetic bug-table line numbers)
+
+Old first line (before the strict recheck G9): # vip_sched - EQUIVALENT (89 of 89 functions byte-identical; function set, relocations, objects, 19 exports+CRC, 65 imports+CRC, modinfo all OK in the Bazel compare, 17.10.2026 round 3, )
 Reference: OS4 stock `vendor_ramdisk/vip_sched.ko` ("MI QOS sched Driver", Shaohua Fan; stock source path kernel/sched/xiaomi_sched/common/vip_sched/vip_sched.c). Template: XRING `dijun-v-oss:xring-modules/drivers/cpu_sched/walt/{vip_sched.c,vip_sched.h,trace_vip_sched.h}` (copies in the package: `xring_orig.c.txt`, `xring_vip_sched.h.txt`, `trace_vip_sched.h`), ported by `g1_tools/gen_vip.py` + hand edits. Build: Kleaf DDK ThinLTO (`g1_tools/bz.sh vip_sched`, package needs `includes=["."]` for the trace header and `ksched/*.h` in srcs); providers plat_common/perf_actuator as generated CRC stubs.
 Port facts (all verified by the compare):
 - plat_common hooks replace the WALT internals: plat_task_util, plat_cpu_halted(int)->bool, plat_cpu_halt_mask()->const cpumask*, plat_capacity_orig_of, plat_find_idle_cpu_in_freq_domain(int cpu)->int, plat_get_group_prefer_cpus/util, plat_migt_enable() (select_task_rq_fair returns early when it is non-zero).
@@ -12,3 +14,6 @@ Round 3 (g1c) closed the last 5 functions (all were source-shape differences, no
 - find_idle_cpu: `if (cpumask_empty(mask)) return -1;` first (stock jump-threads the empty test through the loop).
 - can_migrate_vip: `if (!vip || !env) return 0;` (stock has no `!p` test).
 Tools used: g1c_tools/{q.sh,bz.sh,vv.py (variant tester),pb_bn.sh}.
+## G9 strict recheck (18.10.2026)
+Real difference found by compare_ko_v2: `g_wait_time_thres` / `g_vip_wait_time_thres` are in stock `.data` with initial values 0x02faf080 (50000000) and 0x002dc6c0 (3000000); ours were zero in `.bss`. Fixed with initialisers in vip_sched.c (read from `objdump -s -j .data` at offsets 0x1348/0x1350 of the stock). Real Kleaf build: objects PASS, old compare_ko EQUIVALENT, kCFI preamble 83/83.
+Remaining compare_ko_v2 differences (acceptable): buildmeta (intree/scmversion/built_with), bug-table line numbers (4 entries, cosmetic, only the `__LINE__` stored for BUG()), `depends` (stub names os4_plat_common,os4_perf_actuator: package build rewrites .modinfo to the stock `plat_common,perf_actuator` with modinfo_fix.py).

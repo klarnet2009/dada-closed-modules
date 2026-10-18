@@ -25,8 +25,8 @@
 DEFINE_PER_CPU(struct vip_rq, vip_rq);
 
 DEFINE_MUTEX(vip_update_lock);
-static u64 g_wait_time_thres;
-static u64 g_vip_wait_time_thres;
+static u64 g_wait_time_thres = 50000000; /* stock .data initial value (0x2faf080) */
+static u64 g_vip_wait_time_thres = 3000000; /* stock .data initial value (0x2dc6c0) */
 
 struct vip_stats {
 	atomic_t nr_running;

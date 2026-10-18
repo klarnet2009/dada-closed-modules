@@ -22,7 +22,7 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
   (`git -C ... fetch --depth=1 --filter=blob:none o refs/heads/<branch>:refs/remotes/o/<branch>`, then `git show`).
   Kernel headers: server `<build-dir>` (+ `arch/arm64/include`).
 - Build server (all compiling happens there; NEVER run WSL/heavy builds on this PC):
-  `ssh -i "<workdir>/keys/<ssh-key>" -o BatchMode=yes <user>@<build-server> '<cmd>'`
+  `ssh -i "<ssh-key-file>" -o BatchMode=yes <user>@<build-server> '<cmd>'`
   Workspace `<build-dir>` (Kleaf/Bazel, DDK). Your packages live in `<build-dir>`.
 
 ## Workflow (scripts are in `work/scripts/`, already deployed on the server)
@@ -77,7 +77,7 @@ checked statically. Modules are GPL, so reconstructing them is legitimate; outpu
   type SPELLING match (`unsigned int` vs `u32` vs `uint32_t`, enum enumerators with/without `= N`, hex vs decimal, `unsigned long` vs `u64` all change the CRC): brute-force spellings one function at a time.
 - `#line N` before a log statement pins `__LINE__`. `__attribute__((no_sanitize("bounds")))` removes the local-bounds `brk #1` trap that the stock LTO link folded away.
 
-## KEY: stock modules are ThinLTO builds (agents re-audio + mcaA, verified: tas25xx 117 functions identical; mca_adsp_glink identical except __LINE__)
+## KEY: stock modules are ThinLTO builds
 - Do NOT use `copts = ["-flto=thin"]`. In the module's BUILD.bazel add `defconfig = "<mod>_defconfig"` to `ddk_module`, the file containing exactly two lines:
   `# CONFIG_LTO_NONE is not set` and `CONFIG_LTO_CLANG_THIN=y`. DDK merges it into the module's .config, so the kernel's own CC_FLAGS_LTO (-flto=thin -fsplit-lto-unit) and
   KBUILD_LDFLAGS (-mllvm -import-instr-limit=5) apply; cross-file inlining and which statics get promoted then match stock. It does NOT rebuild the kernel (first build ~9 min, later ~15 s).

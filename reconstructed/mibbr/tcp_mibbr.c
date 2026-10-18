@@ -545,7 +545,8 @@ static void bbr_set_cwnd(struct sock *sk, const struct rate_sample *rs,
 	if (bbr_cwnd_limit_factor) {
 		u32 limit = tcp_packets_in_flight(tp) * bbr_cwnd_limit_factor / 10;
 
-		if (cwnd >= limit && ocwnd >= 128) {
+		/* codegen hint (g4i): 0.35 puts the avoid-burst debug block before the bbr_limit one like the stock */
+		if (__builtin_expect_with_probability(cwnd >= limit && ocwnd >= 128, 1, 0.35)) {
 			if (bbr_enable_debug)
 				printk("bbr_limit,sk=%p,target_cwnd=%u,cwnd=%u,ocwnd=%u,flight=%u,bw=%u,una=%u,nxt=%u\n",
 				       sk, target_cwnd, cwnd, ocwnd, tcp_packets_in_flight(tp), bw,

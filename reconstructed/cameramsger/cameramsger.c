@@ -207,16 +207,16 @@ out:
 static int reg_reader(struct file *file, int len);
 static int snd_message(int len);
 static int find_reader_by_name_or_tgid(const char *name, int tgid);
-int cam_sched_w_pids(struct file *file, char *buf, int len, bool *hit);
-int get_tgid_by_cmdline(struct file *file, char *buf, int len, bool *hit);
-void cam_sched_ioctl(struct file *file, unsigned int cmd, unsigned long arg, bool *hit);
+int cam_sched_w_pids(struct file *file, char *buf, int len, u8 *hit);
+int get_tgid_by_cmdline(struct file *file, char *buf, int len, u8 *hit);
+void cam_sched_ioctl(struct file *file, unsigned int cmd, unsigned long arg, u8 *hit);
 
 struct cam_submodule {
 	void (*init)(void);
-	int (*write)(struct file *file, char *buf, int len, bool *hit);
+	int (*write)(struct file *file, char *buf, int len, u8 *hit);
 	void *read;
 	void *poll;
-	void (*ioctl)(struct file *file, unsigned int cmd, unsigned long arg, bool *hit);
+	void (*ioctl)(struct file *file, unsigned int cmd, unsigned long arg, u8 *hit);
 	void *release;
 };
 
@@ -229,7 +229,7 @@ static const struct cam_submodule submodules[] = {
 
 static ssize_t cameramsger_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
 {
-	bool hit = false;
+	u8 hit = false;
 	int ret = 0, cpy_len, i;
 
 	if (debug(MSGER_DBG_MSGER))
@@ -375,7 +375,7 @@ static int cameramsger_release(struct inode *inode, struct file *file)
 
 static long cameramsger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	bool hit = false;
+	u8 hit = false;
 	int i, k;
 	struct msger_reader *r;
 
@@ -550,7 +550,7 @@ static void xmi_rvh_select_task_rq_fair(void *unused, struct task_struct *p, int
 static void xmi_sched_newidle_balance(void *unused, struct rq *this_rq, struct rq_flags *rf, int *pulled_task,
 				      int *done);
 
-void cam_sched_ioctl(struct file *file, unsigned int cmd, unsigned long arg, bool *hit)
+void cam_sched_ioctl(struct file *file, unsigned int cmd, unsigned long arg, u8 *hit)
 {
 	struct cam_sched_data *cs;
 
@@ -592,7 +592,7 @@ void cam_sched_ioctl(struct file *file, unsigned int cmd, unsigned long arg, boo
 static void clear_cam_sched_data_entity(struct cam_sched_data *cs);
 int find_pid_cmdline(char *cmdline);
 
-int cam_sched_w_pids(struct file *file, char *buf, int len, bool *hit)
+int cam_sched_w_pids(struct file *file, char *buf, int len, u8 *hit)
 {
 	int cpu_val = 0;
 	char *p = buf;
@@ -917,7 +917,7 @@ out:
 	return ret;
 }
 
-int get_tgid_by_cmdline(struct file *file, char *buf, int len, bool *hit)
+int get_tgid_by_cmdline(struct file *file, char *buf, int len, u8 *hit)
 {
 	char *p = buf;
 	char *tok;

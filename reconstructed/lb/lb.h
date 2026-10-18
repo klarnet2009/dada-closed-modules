@@ -40,6 +40,12 @@
 #include <trace/hooks/vendor_hooks.h>
 #include <trace/hooks/mm.h>
 #include <trace/hooks/sched.h>
+#include <linux/list_sort.h>
+#include <linux/cgroup.h>
+#include <linux/kernfs.h>
+#include <linux/pagemap.h>
+#include <linux/dcache.h>
+#include <linux/path.h>
 
 
 /* the stock (LTO) link merges every zero-size lock key into one .bss address: emulate with shared sections */
@@ -63,6 +69,12 @@ struct lb_owner {
 	char package_name[256];
 };
 
+/* the ioctl argument: a mode byte (is_real_timing) in front of the owner */
+struct cmd_app_info {
+	bool is_real_timing;
+	struct lb_owner owner;
+};
+
 enum APP_LAUNCH_CMD {
 	APP_LAUNCH_NONE = 0,
 	APP_COLLECT_START,
@@ -72,17 +84,7 @@ enum APP_LAUNCH_CMD {
 	APP_LAUNCH_MAX,
 };
 
-struct lb_app_list {
-	unsigned int app_nums;
-	struct lb_owner owner[100];
-};
-
-struct lb_app_preread_info_size {
-	struct lb_owner owner;
-	size_t info_size;
-};
-
-struct lb_app_preread_file_info {
+struct lb_file_sequential_file_info {
 	struct timespec64 mtime;
 	unsigned long ino;
 	loff_t nr_pages;
@@ -91,25 +93,73 @@ struct lb_app_preread_file_info {
 	unsigned long bitmaps[];
 };
 
-struct lb_app_preread_info {
-	struct lb_owner owner;
+struct lb_file_sequential_preread_info {
 	unsigned int file_num;
-	size_t file_info_buf_size;
-	struct lb_app_preread_file_info preread_file_info[0];
+	struct lb_file_sequential_file_info file_infos[0];
+};
+
+struct real_timing_readahead_range {
+	unsigned short file_index;
+	unsigned int start;
+	unsigned int end;
+};
+
+struct lb_real_timing_preread_info {
+	unsigned int file_nums;
+	unsigned int paths_buffer_size;
+	unsigned int i_mtimes_buffer_size;
+	unsigned int range_nums;
+	unsigned int ranges_buffer_size;
+};
+
+struct lb_app_preread_info {
+	struct cmd_app_info app_info;
+	size_t preread_info_buf_size;
+	union {
+		struct lb_file_sequential_preread_info file_sequential;
+		struct lb_real_timing_preread_info real_timing;
+	} __attribute__((aligned(8)));
+};
+
+struct lb_app_preread_info_size {
+	struct cmd_app_info app_info;
+	size_t info_size;
 };
 
 /* ---- internal structs ---- */
+struct real_timing_file_info {
+	unsigned int file_nums;
+	unsigned int i_mtime_buffer_size;
+	unsigned int paths_buffer_size;
+	unsigned int *i_mtime_buffer;
+	char *file_paths;
+};
+
+struct reclaimed_file {
+	unsigned int bitmap_longs;
+	unsigned long *bitmaps;
+};
+
 struct package_info {
 	struct list_head app_list;
-	struct list_head file_infos;
+	union {
+		struct {
+			struct list_head file_infos;
+			unsigned int file_num;
+		};
+		struct {
+			struct real_timing_file_info file_info;
+			unsigned int range_nums;
+			unsigned int ranges_buffer_size;
+			struct real_timing_readahead_range *ranges;
+			struct reclaimed_file reclaimed_files[3];
+		};
+	};
 	struct lb_owner owner;
-	struct mutex package_lock;
-	unsigned int file_num;
-	unsigned int total_startup_bytes;
-	unsigned int app_startup_bytes;
-	int hit_rate;
 	unsigned int mm_size;
 	bool is_cleared;
+	bool is_real_timing;
+	bool is_file_page_reclaimed;
 	atomic_t refcount;
 };
 
@@ -129,13 +179,33 @@ struct file_info {
 	unsigned long *bitmaps;
 };
 
+struct real_timing_file_node {
+	struct list_head file_head;
+	bool is_dex_file;
+	unsigned int i_mtime;
+	unsigned long ino;
+	unsigned int dev;
+	unsigned int path_len;
+	char *path;
+};
+
+struct real_timing_range_node {
+	struct list_head list;
+	struct list_head all_list;
+	unsigned short seq;
+	bool valid;
+	unsigned short file_index;
+	unsigned int start;
+	unsigned int end;
+};
+
 struct lb_file_key {
 	unsigned long ino;
 	unsigned int dev;
 	struct file *file;
 };
 
-struct lb_record {
+struct collect_info {
 	struct file *file;
 	unsigned long index;
 	unsigned int nr;
@@ -143,20 +213,26 @@ struct lb_record {
 
 struct lb_manager {
 	spinlock_t lock;
-	struct mutex package_list_lock;
+	struct mutex file_sequential_list_lock;
+	struct mutex real_timing_list_lock;
 	struct task_struct *compiler_thread;
 	char path_buf[4096];
-	struct list_head package_list;
+	struct list_head file_sequential_list;
+	struct list_head real_timing_list;
 	struct lb_file_key files[2048];
 	unsigned short nr_files;
-	struct lb_record *records;
+	struct collect_info *records;
 	unsigned int nr_records;
+	struct collect_info *extra_records;
+	unsigned int nr_extra_records;
 	wait_queue_head_t compiler_wait;
 	struct mutex compiler_lock;
+	struct mutex clear_lock;
 	struct delayed_work compiler_work;
 	unsigned long total_memory;
-	unsigned int app_nums;
 	unsigned long last_jiffies;
+	unsigned char nr_real_timing_apps;
+	unsigned char nr_file_sequential_apps;
 };
 
 struct pte_segment {
@@ -237,11 +313,18 @@ struct mps_rec {
 };
 
 #define MPS_ASSERT(s, m, o) _Static_assert(offsetof(s, m) == (o), #s "." #m)
-MPS_ASSERT(struct package_info, owner, 0x20);
-MPS_ASSERT(struct package_info, package_lock, 0x128);
-MPS_ASSERT(struct package_info, file_num, 0x158);
-MPS_ASSERT(struct package_info, refcount, 0x170);
-_Static_assert(sizeof(struct package_info) == 0x178, "package_info size");
+MPS_ASSERT(struct package_info, owner, 0x70);
+MPS_ASSERT(struct package_info, file_num, 0x20);
+MPS_ASSERT(struct package_info, file_info.i_mtime_buffer, 0x20);
+MPS_ASSERT(struct package_info, file_info.file_paths, 0x28);
+MPS_ASSERT(struct package_info, range_nums, 0x30);
+MPS_ASSERT(struct package_info, ranges, 0x38);
+MPS_ASSERT(struct package_info, reclaimed_files, 0x40);
+MPS_ASSERT(struct package_info, mm_size, 0x178);
+MPS_ASSERT(struct package_info, is_cleared, 0x17c);
+MPS_ASSERT(struct package_info, is_file_page_reclaimed, 0x17e);
+MPS_ASSERT(struct package_info, refcount, 0x180);
+_Static_assert(sizeof(struct package_info) == 0x188, "package_info size");
 MPS_ASSERT(struct file_info, ino, 0x18);
 MPS_ASSERT(struct file_info, path, 0x28);
 MPS_ASSERT(struct file_info, mtime, 0x30);
@@ -250,20 +333,30 @@ MPS_ASSERT(struct file_info, is_moved, 0x50);
 MPS_ASSERT(struct file_info, bitmap_longs, 0x58);
 MPS_ASSERT(struct file_info, bitmaps, 0x60);
 _Static_assert(sizeof(struct file_info) == 0x68, "file_info size");
-MPS_ASSERT(struct lb_manager, package_list_lock, 8);
-MPS_ASSERT(struct lb_manager, compiler_thread, 0x38);
-MPS_ASSERT(struct lb_manager, path_buf, 0x40);
-MPS_ASSERT(struct lb_manager, package_list, 0x1040);
-MPS_ASSERT(struct lb_manager, files, 0x1050);
-MPS_ASSERT(struct lb_manager, nr_files, 0xd050);
-MPS_ASSERT(struct lb_manager, records, 0xd058);
-MPS_ASSERT(struct lb_manager, nr_records, 0xd060);
-MPS_ASSERT(struct lb_manager, compiler_wait, 0xd068);
-MPS_ASSERT(struct lb_manager, compiler_lock, 0xd080);
-MPS_ASSERT(struct lb_manager, compiler_work, 0xd0b0);
-MPS_ASSERT(struct lb_manager, compiler_work.timer, 0xd0e0);
-MPS_ASSERT(struct lb_manager, total_memory, 0xd138);
-_Static_assert(sizeof(struct lb_manager) == 0xd150, "manager size");
+_Static_assert(sizeof(struct real_timing_file_node) == 0x30, "file_node size");
+_Static_assert(sizeof(struct real_timing_range_node) == 0x30, "range_node size");
+_Static_assert(sizeof(struct lb_app_preread_info) == 0x130, "preread_info size");
+_Static_assert(sizeof(struct cmd_app_info) == 0x10c, "cmd_app_info size");
+MPS_ASSERT(struct lb_manager, file_sequential_list_lock, 8);
+MPS_ASSERT(struct lb_manager, real_timing_list_lock, 0x38);
+MPS_ASSERT(struct lb_manager, compiler_thread, 0x68);
+MPS_ASSERT(struct lb_manager, path_buf, 0x70);
+MPS_ASSERT(struct lb_manager, file_sequential_list, 0x1070);
+MPS_ASSERT(struct lb_manager, real_timing_list, 0x1080);
+MPS_ASSERT(struct lb_manager, files, 0x1090);
+MPS_ASSERT(struct lb_manager, nr_files, 0xd090);
+MPS_ASSERT(struct lb_manager, records, 0xd098);
+MPS_ASSERT(struct lb_manager, nr_records, 0xd0a0);
+MPS_ASSERT(struct lb_manager, extra_records, 0xd0a8);
+MPS_ASSERT(struct lb_manager, nr_extra_records, 0xd0b0);
+MPS_ASSERT(struct lb_manager, compiler_wait, 0xd0b8);
+MPS_ASSERT(struct lb_manager, compiler_lock, 0xd0d0);
+MPS_ASSERT(struct lb_manager, clear_lock, 0xd100);
+MPS_ASSERT(struct lb_manager, compiler_work, 0xd130);
+MPS_ASSERT(struct lb_manager, compiler_work.timer, 0xd160);
+MPS_ASSERT(struct lb_manager, total_memory, 0xd1b8);
+MPS_ASSERT(struct lb_manager, nr_real_timing_apps, 0xd1c8);
+_Static_assert(sizeof(struct lb_manager) == 0xd1d0, "manager size");
 MPS_ASSERT(struct lb_hot_mps, seg_cachep, 0x10);
 MPS_ASSERT(struct lb_hot_mps, rec_list, 0x18);
 MPS_ASSERT(struct lb_hot_mps, rec_tree, 0x28);
@@ -307,6 +400,14 @@ extern bool g_pte_fadvise_enable;
 extern bool g_pte_anon_swapin_enable;
 extern unsigned int g_pte_max_active_apps;
 extern unsigned int g_max_pte_segment_count;
+extern bool g_file_page_reclaim_supported;
+extern bool g_real_timing_supported;
+extern unsigned int g_max_gap_range;
+extern unsigned int g_max_merge_range;
+extern unsigned int g_max_real_timing_apps;
+extern unsigned int g_max_file_sequential_apps;
+extern bool g_skip_background_readahead_enable;
+extern bool g_background_faultaround_disable;
 extern struct lb_manager *g_manager;
 extern struct lb_owner debug_owner;
 extern atomic_t collecting_;
@@ -316,13 +417,13 @@ bool package_info_do_destroy(struct package_info *package);
 bool package_info_put(struct package_info *package);
 bool mi_lb_is_in_package_list(struct package_info *package);
 int mi_lb_add_package_info(struct package_info *package);
-struct package_info *mi_lb_get_package_info(struct lb_owner *owner, bool move_to_head);
-struct package_info *mi_lb_get_oldest_package_info(void);
-int mi_lb_dealwith_collect_cmd(enum APP_LAUNCH_CMD cmd, struct lb_owner *owner);
+bool mi_lb_remove_package_info_from_list(struct package_info *package);
+struct package_info *mi_lb_get_package_info(struct cmd_app_info *app_info, bool move_to_head);
+struct package_info *mi_lb_get_oldest_package_info(bool is_real_timing);
+int mi_lb_dealwith_collect_cmd(enum APP_LAUNCH_CMD cmd, struct cmd_app_info *app_info);
 int mi_lb_dealwith_preread_size_cmd(struct lb_app_preread_info_size *app_preread_info_size);
 int mi_lb_dealwith_preread_info_cmd(struct lb_app_preread_info *app_preread_info);
-int mi_lb_dealwith_clear_cmd(struct lb_owner *owner);
-int mi_lb_dealwith_get_app_names(struct lb_app_list *app_list);
+int mi_lb_dealwith_clear_cmd(struct cmd_app_info *app_info);
 int mi_lb_dealwith_pte_clean_cmd(struct lb_owner *owner);
 int mi_lb_dealwith_pte_snapshot_cmd(struct lb_owner *owner);
 int mi_lb_dealwith_pte_preread_cmd(struct lb_owner *owner);
@@ -332,8 +433,11 @@ int mi_lb_init_manager(void);
 int mi_lb_dbg_init(void);
 int lb_hot_init(void);
 void lb_hot_exit(void);
-void free_one_fileinfo(struct package_info *package, struct file_info *file_entry);
 void mi_lb_page_collect_on_readfile(void *data, struct file *file, loff_t pos, size_t size);
 void mi_lb_page_collect_on_pagefault(void *data, struct file *file, pgoff_t orig_start_pgoff, pgoff_t last_pgoff, vm_fault_t ret);
+void adjust_readahead(void *data, struct readahead_control *ractl, unsigned long *max_page);
+void adjust_readaround(void *data, unsigned int ra_pages, pgoff_t pgoff, pgoff_t *start, unsigned int *size, unsigned int *async_size);
+void mi_lb_skip_async_mmap_readahead(void *data, struct vm_fault *vmf, struct folio *folio, bool *skip);
+void should_skip_fault_around(void *data, struct vm_fault *vmf, bool *should_around);
 
 #endif

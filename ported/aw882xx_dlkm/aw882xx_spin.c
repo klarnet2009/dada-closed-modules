@@ -39,7 +39,7 @@ int aw_dev_set_channal_mode(struct aw_device *aw_dev,
 	int ret;
 	struct aw_reg_ch *rx_desc = &spin_desc.rx_desc;
 
-	ret = aw_dev->ops.aw_i2c_write_bits(aw_dev, rx_desc->reg, rx_desc->mask,
+	ret = aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, rx_desc->reg, rx_desc->mask,
 					spin_desc.spin_table[spin_val].rx_val);
 	if (ret < 0) {
 		aw_dev_err(aw_dev->dev, "set rx failed");

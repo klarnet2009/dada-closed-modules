@@ -1,5 +1,7 @@
 # mist - PARTIAL (67 of 70 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4j (17.10.2026): real Kleaf build re-run: function set (70), relocations, objects, exports (44)+CRC, imports (51)+CRCs, modinfo OK; 67 of 70 byte-identical, differing: parse_cluster_node_map, mist_update_rel_freq, mist_dflt_init. No function is missing. Not touched in g4j.
+
 g4d (17.10.2026): real Kleaf build re-run: function set (70), relocations, objects, exports (44) + CRCs, imports (51) + CRCs, modinfo OK; 67 of 70 identical (`parse_cluster_node_map`, `mist_update_rel_freq`, `mist_dflt_init` differ). No change made.
 
 

@@ -210,7 +210,7 @@ struct isc_detect_info {
 	int count;
 	int collect_done;
 	enum isc_state state;
-	struct batterydata isc_data[ISC_DATA_NUM];
+	struct batterydata isc_data[2][5];
 };
 
 struct li_plating_info {
@@ -436,16 +436,14 @@ int onewire_set_shutdown_uisoc(int uisoc);
 void stop_isc_detect_work(struct isc_detect_info *info);
 void stop_isc_detect_2_work(struct isc_detect_info *info);
 void stop_li_plating_detect_work(struct li_plating_info *info);
-void report_isc_data(struct isc_detect_info *info);
-void report_isc_data_2(struct isc_detect_info *info);
 void strategy_isc_detect_work(struct work_struct *work);
 void strategy_isc_detect_2_work(struct work_struct *work);
-void mca_strategy_start_isc_detect_2_work(struct strategy_fg *fg);
+void mca_strategy_start_isc_detect_2_work(void *data);
 void strategy_li_plating_work(struct work_struct *work);
-void mca_strategy_check_li_plating(struct strategy_fg *fg);
+int mca_strategy_check_li_plating(void *data);
 void strategy_batt_overvoltage_dfx_work(struct work_struct *work);
 void strategy_update_vcoutoff_v2_work(struct work_struct *work);
-int mca_battery_shutdown_update_cc_para(void *data, int vcutoff_fw, int vcutoff_shutdown_delay, int vcutoff_sw);
+int mca_battery_shutdown_update_cc_para(void *data, int *vcutoff_fw, int *vcutoff_shutdown_delay, int *vcutoff_sw);
 int strategy_soc_smooth_parse_dt(struct strategy_fg *fg);
 void onewire_check_auth_pass(bool *auth_pass);
 void onewire_check_chip_ok(bool *chip_ok);

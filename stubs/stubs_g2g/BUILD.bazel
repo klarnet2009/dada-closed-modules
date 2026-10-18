@@ -1,0 +1,6 @@
+load("/<build-dir>", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+ddk_module(name = "st_fsa4480_switch_event", srcs = ["stub_fsa4480_switch_event.c"], out = "fsa4480-i2c.ko", kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+ddk_module(name = "st_connector_antiburn_is_triggered", srcs = ["stub_connector_antiburn_is_triggered.c"], out = "mca_connector_antiburn.ko", kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])
+ddk_module(name = "st_lpd_is_charging_limit", srcs = ["stub_lpd_is_charging_limit.c"], out = "mca_lpd_detect.ko", kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

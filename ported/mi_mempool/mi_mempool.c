@@ -131,6 +131,7 @@ static void free_all_proc_nodes_and_caches(void)
  */
 static inline void folio_set_order(struct folio *folio, unsigned int order)
 {
+#line 150 /* stock bug-table line number of this WARN_ON_ONCE (cosmetic) */
 	if (WARN_ON_ONCE(!order || !folio_test_large(folio)))
 		return;
 
@@ -306,6 +307,10 @@ static void tracing_mark_write(char *buf)
 {
 	trace_puts(buf);
 }
+
+/* The stock has a second (zero, relocation-less) __trace_printk_fmt entry `tracing_mark_write.trace_printk_fmt.37`: the trace_puts() static of another copy of
+   tracing_mark_write in the stock link; we cannot produce a second copy, so emit the same object by hand (G9 strict recheck). */
+static const char *tracing_mark_write_fmt_dup __asm__("tracing_mark_write.trace_printk_fmt.37") __used __section("__trace_printk_fmt") = NULL;
 
 /*
  * Based on __zone_watermark_ok() in mm/page_alloc.c since it is not exported.

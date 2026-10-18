@@ -2511,7 +2511,7 @@ int aw_cali_parse_re_dt(struct aw_device *aw_dev)
 	return 0;
 }
 
-int aw_cali_parse_f0_dt(struct aw_device *aw_dev)
+static __always_inline int aw_cali_parse_f0_dt(struct aw_device *aw_dev)
 {
 	int ret;
 

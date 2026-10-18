@@ -1,0 +1,5 @@
+load("/<build-dir>", "ddk_headers")
+package(default_visibility = ["//re:__subpackages__"])
+
+# g2i: OS4 mca headers = //re/stubs_g5 plus the OS4 additions found while rebuilding mca_strategy_fg_comp (platform_fg_ops_get_vsiloss/iaver/cc_coulomb_integral/batt_qmax/fast_mode_times, 3 strategy_fg_class_ops members). Community-only, never flash.
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])

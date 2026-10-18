@@ -446,7 +446,7 @@ dsp_msg_failed:
 	return ret;
 }
 
-static int aw_read_msg_from_dsp_v_1_0_0_0(struct aw_device *aw_dev,
+static noinline int aw_read_msg_from_dsp_v_1_0_0_0(struct aw_device *aw_dev,
 		uint32_t params_id, char *data_ptr, unsigned int len, int num)
 {
 	int ret = 0;
@@ -584,7 +584,7 @@ static int aw_write_msg_to_dsp(struct aw_device *aw_dev,
 	return ret;
 }
 
-static int aw_write_msg_to_dsp_v_1_0_0_0(struct aw_device *aw_dev,
+static noinline int aw_write_msg_to_dsp_v_1_0_0_0(struct aw_device *aw_dev,
 		uint32_t params_id, void *data, unsigned int len, int num)
 {
 	int ret = 0;
@@ -1242,7 +1242,7 @@ int aw882xx_dsp_set_mixer_en(struct aw_device *aw_dev, uint32_t mixer_en)
 
 }
 
-int aw882xx_get_algo_version(struct aw_device *aw_dev, char *algo_ver_buf)
+int aw882xx_dsp_algo_ver(struct aw_device *aw_dev, char *algo_ver_buf)
 {
 	int ret = 0;
 	unsigned int algo_ver = 0;
@@ -1265,7 +1265,7 @@ int aw882xx_get_algo_version(struct aw_device *aw_dev, char *algo_ver_buf)
 	return ret;
 }
 
-void aw882xx_device_parse_topo_id_dt(struct aw_device *aw_dev)
+void aw882xx_dsp_parse_topo_id_dt(struct aw_device *aw_dev)
 {
 	int ret = 0;
 
@@ -1285,7 +1285,7 @@ void aw882xx_device_parse_topo_id_dt(struct aw_device *aw_dev)
 						g_tx_topo_id, g_rx_topo_id);
 }
 
-void aw882xx_device_parse_port_id_dt(struct aw_device *aw_dev)
+void aw882xx_dsp_parse_port_id_dt(struct aw_device *aw_dev)
 {
 	int ret = 0;
 
@@ -1307,3 +1307,30 @@ void aw882xx_device_parse_port_id_dt(struct aw_device *aw_dev)
 
 }
 
+
+/* g3l: voltage offset message (id 0x1f in the stock), 4 byte payload */
+#define AW_MSG_ID_VOL_OFFSET		(0x0000001F)
+
+int aw882xx_dsp_read_vol_offset(struct aw_device *aw_dev, int32_t *vol_offset)
+{
+	int ret;
+
+	ret = aw_read_msg_from_dsp_v_1_0_0_0(aw_dev, AW_MSG_ID_VOL_OFFSET, (char *)vol_offset,
+		sizeof(int32_t), AW_DSP_CHANNEL_DEFAULT_NUM);
+	if (ret)
+		aw_dev_err(aw_dev->dev, "read voltage offset failed %d", ret);
+
+	return ret;
+}
+
+int aw882xx_dsp_write_vol_offset(struct aw_device *aw_dev, int32_t vol_offset)
+{
+	int ret;
+
+	ret = aw_write_msg_to_dsp_v_1_0_0_0(aw_dev, AW_MSG_ID_VOL_OFFSET, &vol_offset,
+		sizeof(int32_t), AW_DSP_CHANNEL_DEFAULT_NUM);
+	if (ret)
+		aw_dev_err(aw_dev->dev, "write voltage offset failed %d", ret);
+
+	return ret;
+}

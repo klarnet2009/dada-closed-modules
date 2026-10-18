@@ -5,6 +5,7 @@
 
 int mca_battery_shutdown_update_vcutoff_para(void *data);
 int mca_battery_shutdown_parse_dt(void *data);
+int mca_battery_shutdown_update_cc_para(void *data, int *vcutoff_fw, int *vcutoff_shutdown_delay, int *vcutoff_sw);
 int mca_battery_shutdown_check_shutdown_delay(void *data, int *ui_soc);
 
 /* temp para */

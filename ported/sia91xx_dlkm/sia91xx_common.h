@@ -65,7 +65,6 @@ int sia91xx_startup(struct snd_pcm_substream *substream, struct snd_soc_dai *dai
 int sia91xx_hw_params(struct snd_pcm_substream *substream,
 							struct snd_pcm_hw_params *params, struct snd_soc_dai *dai);
 int sia91xx_mute(struct snd_soc_dai *dai, int mute, int stream);
-int sia91xx_ext_reset(sipa_dev_t *si_pa);
 void sia91xx_interrupt(struct work_struct *work);
 int sia91xx_codec_probe(struct snd_soc_codec *codec);
 int sia91xx_component_probe(struct snd_soc_component *component);
@@ -74,8 +73,8 @@ int sia91xx_set_fmt(struct snd_soc_dai *dai, unsigned int fmt);
 int sia91xx_append_i2c_address(
 	struct device *dev, struct i2c_client *i2c,	struct snd_soc_dapm_widget *widgets,
 	int num_widgets, struct snd_soc_dai_driver *dai_drv, int num_dai);
-int sia91xx_dsp_start(sipa_dev_t *si_pa, int stream);
-int sia91xx_soft_mute(sipa_dev_t *si_pa);
+int sia91xx_smartpa_start(sipa_dev_t *si_pa, int stream);
+int sia91xx_smartpa_soft_mute(sipa_dev_t *si_pa);
 sipa_dev_t *find_sipa_dev(const char *name,	struct device_node *of_node);
 
 #endif /* _SIA91XX_COMMOMN_H */

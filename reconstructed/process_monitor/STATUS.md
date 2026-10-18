@@ -1,5 +1,7 @@
 # process_monitor - PARTIAL (38 of 42 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+g4j (17.10.2026): real Kleaf build re-run: function set (42), relocations, objects, imports (70)+CRCs, modinfo OK; 38 of 42 byte-identical, differing: signal_record_hook_handle, detect_list_write, init_D_task, init_signal_record. No function is missing. Not touched in g4j (budget went to lb).
+
 g4d (17.10.2026): real Kleaf build re-run: function set (42), relocations, objects, imports (70) + CRCs, modinfo OK; 38 of 42 identical. Tried 7 more orderings of the `h->cur_pos++ / h->total++` updates in `signal_record_hook_handle` (real builds): all worse (diff 132 lines vs 19), so the original order stays.
 
 

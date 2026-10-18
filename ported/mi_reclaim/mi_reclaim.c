@@ -372,6 +372,7 @@ static int refill_worker_fn(void *unused)
 		unsigned long min = ULONG_MAX;
 		int best = -1, cpu;
 
+		unsigned long on = cpu_online_mask->bits[0] & 0xffffffffUL; /* hack: operand order of the stock ands */
 		cpumask_clear(&mask);
 		for_each_cpu(cpu, cpu_online_mask) {
 			unsigned long cap = arch_scale_cpu_capacity(cpu);
@@ -381,7 +382,7 @@ static int refill_worker_fn(void *unused)
 				best = cpu;
 			}
 		}
-		if (best < 0 || !cpumask_and(&mask, cpu_online_mask, topology_cluster_cpumask(best)))
+		if (best < 0 || !(mask.bits[0] = (topology_cluster_cpumask(best)->bits[0] & on)))
 			cpumask_copy(&mask, cpu_online_mask);
 		pr_info("mi_reclaim: refill worker CPUs: %*pbl\n", cpumask_pr_args(&mask));
 	}
@@ -898,6 +899,8 @@ static noinline __used bool has_sufficient_free_memory(void)
 
 #define PS1(c, k)	(&((struct caller_cnt *)((char *)&g_reclaim + 0x250))[(c)].v[(k)])
 #define PS2(c, k)	(&((struct caller_adj *)((char *)&g_reclaim + 0x370))[(c)].v[(k)])
+#define PS1G(c, k)	(&((struct caller_cnt *)((char *)g + 0x250))[(c)].v[(k)])
+#define PS2G(c, k)	(&((struct caller_adj *)((char *)g + 0x370))[(c)].v[(k)])
 #define PS_ON		(mi_reclaim_stats_flags & BIT(6))
 
 static noinline __used bool is_important_process(enum important_proc_caller caller)
@@ -905,66 +908,68 @@ static noinline __used bool is_important_process(enum important_proc_caller call
 	unsigned long flags;
 	bool found = false;
 	int adj, prio, tgid, i, n;
+	struct greclaim *g = &g_reclaim;
 
-	if (in_interrupt()) {
+	OPTIMIZER_HIDE_VAR(g);
+
+	if (unlikely(in_interrupt())) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 7));
+			atomic64_inc(PS1G(caller, 7));
 		return false;
 	}
 	if (current->prio < MAX_RT_PRIO) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 1));
+			atomic64_inc(PS1G(caller, 1));
 		return true;
 	}
 	if (is_qos_task(current)) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 3));
+			atomic64_inc(PS1G(caller, 3));
 		return true;
 	}
 	if (fatal_signal_pending(current) || (current->flags & PF_EXITING)) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 4));
+			atomic64_inc(PS1G(caller, 4));
 		return true;
 	}
 	tgid = current->tgid;
 	spin_lock_irqsave(&g_reclaim.important_lock, flags);
 	n = g_reclaim.important_count;
 	for (i = 0; i < n; i++)
-		if (g_reclaim.important_pids[i] == tgid) {
-			found = true;
+		if (g->important_pids[i] == tgid)
 			break;
-		}
 	spin_unlock_irqrestore(&g_reclaim.important_lock, flags);
+	found = i < n;
 	if (found) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 5));
+			atomic64_inc(PS1G(caller, 5));
 		return true;
 	}
 	if (current->flags & PF_KTHREAD) {
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 0));
+			atomic64_inc(PS1G(caller, 0));
 		return true;
 	}
 	adj = current->signal->oom_score_adj;
 	prio = current->prio;
 	if (adj >= 251) {
 		if (PS_ON)
-			atomic64_inc(PS2(caller, 0));
+			atomic64_inc(PS2G(caller, 0));
 	} else if (adj == -1000 && prio >= 120) {
 		if (PS_ON)
-			atomic64_inc(PS2(caller, 1));
+			atomic64_inc(PS2G(caller, 1));
 	} else if (adj < 0 && prio >= 121) {
 		if (PS_ON)
-			atomic64_inc(PS2(caller, 2));
+			atomic64_inc(PS2G(caller, 2));
 	} else {
 		if (PS_ON)
-			atomic64_inc(PS2(caller, 3));
+			atomic64_inc(PS2G(caller, 3));
 		if (PS_ON)
-			atomic64_inc(PS1(caller, 6));
+			atomic64_inc(PS1G(caller, 6));
 		return true;
 	}
 	if (PS_ON)
-		atomic64_inc(PS1(caller, 8));
+		atomic64_inc(PS1G(caller, 8));
 	return false;
 }
 
@@ -998,6 +1003,7 @@ static void mi_alloc_pages_reclaim_bypass(void *data, gfp_t gfp_mask, int order,
 
 	if (!(en & BIT(1)))
 		return;
+	barrier(); /* hack: keeps the stock order tbz(enable) before cbnz(order) */
 	if (order)
 		return;
 	if (!(*(volatile u32 *)&g_reclaim.efficiency_flags & BIT(0)))

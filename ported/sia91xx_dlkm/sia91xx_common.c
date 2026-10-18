@@ -32,12 +32,9 @@
 #include <linux/kernel.h>
 
 #include "sipa_regmap.h"
-#include "sipa_timer_task.h"
 #include "sia91xx_common.h"
 #include "sipa_parameter_typedef.h"
 #include "sipa_parameter.h"
-#include "sipa_cal_spk.h"
-#include "sipa_tuning_cmd.h"
 
 
 static struct snd_soc_dapm_widget sia91xx_dapm_widgets_common[] = {
@@ -118,11 +115,11 @@ void sia91xx_monitor(struct work_struct *work)
 void sia91xx_interrupt(struct work_struct *work)
 {
 	sipa_dev_t *si_pa = container_of(work, sipa_dev_t, interrupt_work.work);
-	uint16_t IntReg, IntEn, IntVal, regVal;
+	unsigned int IntReg = 0, IntEn = 0, IntVal, regVal = 0;
 	unsigned int i;
 
-	sia91xx_read_reg16(si_pa, SIA91XX_REG_INT_REG, &IntReg);
-	sia91xx_read_reg16(si_pa, SIA91XX_REG_INT_EN, &IntEn);
+	sipa_read_reg(si_pa->regmap, SIA91XX_REG_INT_REG, &IntReg);
+	sipa_read_reg(si_pa->regmap, SIA91XX_REG_INT_EN, &IntEn);
 
 	if (0 == (IntEn & IntReg)) {
 		pr_err("[  err][%s] %s: interrupt source error !!! \r\n",LOG_FLAG, __func__);
@@ -157,12 +154,12 @@ void sia91xx_interrupt(struct work_struct *work)
 	}
 #endif
 
-	sia91xx_read_reg16(si_pa, SIA91XX_REG_INT_STAT, &regVal);
+	sipa_read_reg(si_pa->regmap, SIA91XX_REG_INT_STAT, &regVal);
 	msleep(1);
-	sia91xx_write_reg16(si_pa, SIA91XX_REG_INT_WC_REG, IntVal);
+	sipa_write_reg(si_pa->regmap, SIA91XX_REG_INT_WC_REG, IntVal);
 }
 
-int sia91xx_ext_reset(sipa_dev_t *si_pa)
+static __always_inline int sia91xx_ext_reset(sipa_dev_t *si_pa)
 {
 	if (si_pa && gpio_is_valid(si_pa->rst_pin)) {
 		gpio_set_value_cansleep(si_pa->rst_pin, 1);
@@ -293,54 +290,53 @@ int sia91xx_startup(
 	struct snd_pcm_substream *substream,
 	struct snd_soc_dai *dai)
 {
-	SIPA_PARAM_CAL_SPK cal_spk;
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 17, 19))
-	struct snd_soc_component *component = dai->component;
-	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
-#else
-	struct snd_soc_codec *codec = dai->codec;
-	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
-#endif
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(dai->component);
 
-	if (SNDRV_PCM_STREAM_CAPTURE == substream->stream) {
+	if (NULL == si_pa) {
+		pr_err("[  err][%s] %s: si_pa is NULL\n", "sipa_91xx", __func__);
+		return -EINVAL;
+	}
+
+	if (SNDRV_PCM_STREAM_CAPTURE == substream->stream)
+		return 0;
+
+	pr_debug("[debug][%s] %s: dai:%s, substream:%s, startup, stream = %d \n",
+		"sipa_91xx", __func__, dai->name, substream->name, substream->stream);
+
+	/* g3m: chip types 20/21/23/24 are powered by the reset pin going high (stock mask 0x1b00000) */
+	if (si_pa->chip_type <= 0x18 && ((1u << si_pa->chip_type) & 0x1b00000)) {
+		gpio_set_value(si_pa->rst_pin, 1);
+		usleep_range(5000, 6000);
+	} else if (SIA91XX_DISABLE_LEVEL == gpio_get_value(si_pa->rst_pin)) {
+		gpio_set_value(si_pa->rst_pin, 0);
+		usleep_range(5000, 6000);
+	}
+
+	if (si_pa->mute) {
+		pr_info("[debug][%s] %s: pa is mute on, direct return!\n", "sipa_91xx", __func__);
 		return 0;
 	}
 
-	pr_debug("[debug][%s] %s: startup, stream = %d \r\n",
-			LOG_FLAG, __func__, substream->stream);
-
-	sipa_param_read_spk_calibration(si_pa->channel_num, &cal_spk);
-	if (cal_spk.cal_ok  == SIPA_CAL_SPK_FAIL) {
-		sipa_auto_first_cal_r0(
-			si_pa->timer_task_hdl,
-			si_pa->dyn_ud_vdd_port,
-			si_pa->channel_num);
-	} else {
-		sipa_cal_spk_update_probe(
-			si_pa->timer_task_hdl,
-			si_pa->dyn_ud_vdd_port,
-			si_pa->channel_num
-		);
+	if (si_pa->power_mode) {
+		pr_info("[debug][%s] %s: si_pa->power_mode is true, direct return!\n", "sipa_91xx", __func__);
+		return 0;
 	}
 
-	if (1 == si_pa->spk_model_flag) {
-		sipa_auto_set_spk_model(
-				si_pa->timer_task_hdl,
-				si_pa->dyn_ud_vdd_port,
-				si_pa->channel_num);
+	if (si_pa->chip_type == 0x14)
+		gpio_set_value(si_pa->id_pin, 1);
 
-		sipa_auto_get_spk_model(
-				si_pa->timer_task_hdl,
-				si_pa->dyn_ud_vdd_port,
-				si_pa->channel_num);
-	}
-
-	if (SIA91XX_DISABLE_LEVEL == gpio_get_value(si_pa->rst_pin)) {
-		gpio_set_value(si_pa->rst_pin, 0);
-		mdelay(5);
-	}
 	sipa_reg_init(si_pa);
+	sipa_regmap_write_sram(si_pa);
 
+	if (sia91xx_smartpa_start(si_pa, substream->stream)) {
+		pr_err("[  err][%s] %s: sia91xx_smartpa_start failed \n", "sipa_91xx", __func__);
+		if (si_pa->chip_type == 0x14)
+			gpio_set_value(si_pa->id_pin, 0);
+		return -SIPA_ERROR_SOFT_MUTE;
+	}
+
+	sipa_regmap_check_trimming(si_pa);
+	si_pa->power_mode = 1;
 	return 0;
 }
 
@@ -365,42 +361,33 @@ int sia91xx_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	return 0;
 }
 
-int sia91xx_soft_mute(sipa_dev_t *si_pa)
+int sia91xx_smartpa_soft_mute(sipa_dev_t *si_pa)
 {
-	pr_info("[ info][%s] %s: mute_mode: %d !!! \r\n", 
-		LOG_FLAG, __func__, si_pa->mute_mode);
-
 	if (sipa_regmap_set_chip_off(si_pa))
 		return 0;
 
 	return -1;
 }
 
-int sia91xx_dsp_start(sipa_dev_t *si_pa, int stream)
+int sia91xx_smartpa_start(sipa_dev_t *si_pa, int stream)
 {
 	uint8_t dsp_count = 0;
 
-	while (dsp_count < SIA91XX_MAX_DSP_START_TRY_COUNT) {
-		if (stream == SNDRV_PCM_STREAM_PLAYBACK 
-			&& sipa_regmap_set_chip_on(si_pa)) {
-			break;
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		while (dsp_count < SIA91XX_MAX_DSP_START_TRY_COUNT) {
+			if (sipa_regmap_set_chip_on(si_pa))
+				break;
+			dsp_count++;
 		}
-		dsp_count++;
-	}
 
-	if (dsp_count >= SIA91XX_MAX_DSP_START_TRY_COUNT &&
-		stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			pr_err("[  err][%s] %s: Failed starting device \n",LOG_FLAG, __func__);
+		if (dsp_count >= SIA91XX_MAX_DSP_START_TRY_COUNT) {
+			pr_err("[  err][%s] %s: Failed starting device \n", "sipa_91xx", __func__);
+			mievent_report(0x36007bca, "PA data exception", &si_pa->client->dev);
 			return -SIPA_ERROR_DEV_START;
-	} else {
-		pr_debug("[debug][%s] %s: device start success! \n", LOG_FLAG, __func__);
-#if 0
-		queue_delayed_work(si_pa->sia91xx_wq,
-			&si_pa->monitor_work,
-			1*HZ);
-#endif
+		}
 	}
 
+	pr_debug("[debug][%s] %s: device start success! \n", "sipa_91xx", __func__);
 	return 0;
 }
 
@@ -409,49 +396,48 @@ int sia91xx_mute(
 	int mute,
 	int stream)
 {
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(4, 17, 19))
-	struct snd_soc_component *component = dai->component;
-	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
-#else
-	struct snd_soc_codec *codec = dai->codec;
-	sipa_dev_t *si_pa = snd_soc_codec_get_drvdata(codec);
-#endif
+	static const int g3m_rst_off_level[5] = { 0, 0, 1, 0, 0 };	/* stock .rodata+0x5e84, chip types 20..24 */
+	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(dai->component);
 
-	pr_debug("[debug][%s] %s: mute = %d stream = %d\n", 
-		LOG_FLAG, __func__, mute, stream);
-	if (mute) {
-		if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			si_pa->pstream = 0;
-		} else {
-			si_pa->cstream = 0;
-		}
-
-		if (si_pa->pstream != 0 || si_pa->cstream != 0)
-			return 0;
-
-		sipa_timer_task_stop(si_pa->timer_task_hdl);
-
-		//cancel_delayed_work_sync(&si_pa->monitor_work);
-		if (sia91xx_soft_mute(si_pa)) {
-			gpio_set_value(si_pa->rst_pin, 1);
-			mdelay(5);
-			return -SIPA_ERROR_SOFT_MUTE;
-		}
-	} else {
-		if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-			si_pa->pstream = 1;
-		} else {
-			si_pa->cstream = 1;
-		}
-
-		if (sia91xx_dsp_start(si_pa, stream))
-			return -SIPA_ERROR_SOFT_MUTE;
-
-		sipa_regmap_check_trimming(si_pa);
-
-		sipa_timer_task_start(si_pa->timer_task_hdl);
+	if (NULL == si_pa) {
+		pr_err("[  err][%s] %s: si_pa is NULL\n", "sipa_91xx", __func__);
+		return -EINVAL;
 	}
 
+	pr_debug("[debug][%s] %s: dai:%s,%s mute = %d stream = %d\n",
+		"sipa_91xx", __func__, dai->name, dai->driver->name, mute, stream);
+
+	if (si_pa->mute) {
+		pr_info("[debug][%s] %s: pa is mute on, direct return!\n", "sipa_91xx", __func__);
+		return 0;
+	}
+
+	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
+		return 0;
+
+	if (!mute) {
+		if (si_pa->chip_type == 0x14)
+			pr_debug("[debug][%s] channel = %d, boost_pin_val = %d \n",
+				"sipa_91xx", si_pa->channel_num, gpio_get_value(si_pa->id_pin));
+		return 0;
+	}
+
+	if (!si_pa->power_mode) {
+		pr_info("[debug][%s] %s: si_pa->power_mode is false, direct return!\n", "sipa_91xx", __func__);
+		return 0;
+	}
+
+	si_pa->power_mode = 0;
+	if (sia91xx_smartpa_soft_mute(si_pa)) {
+		int level = (si_pa->chip_type - 0x14 <= 4u) ? g3m_rst_off_level[si_pa->chip_type - 0x14] : 1;
+
+		gpio_set_value(si_pa->rst_pin, level);
+		usleep_range(5000, 6000);
+		pr_err("[  err][%s] %s: sia91xx_smartpa_soft_mute failed \n", "sipa_91xx", __func__);
+		return -SIPA_ERROR_SOFT_MUTE;
+	}
+
+	pr_debug("[debug][%s] %s: device mute success \n", "sipa_91xx", __func__);
 	return 0;
 }
 

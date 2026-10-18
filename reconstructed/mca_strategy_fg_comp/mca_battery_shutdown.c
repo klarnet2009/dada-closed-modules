@@ -230,11 +230,12 @@ int mca_battery_shutdown_parse_dt(void *data)
 
 	fg->support_dod_vcutoff = of_property_read_bool(node, "support-dod-vcutoff");
 	fg->support_dod_vcutoff_gl = of_property_read_bool(node, "support-dod-vcutoff-global");
+	fg->support_dod_vcutoff_v2 = of_property_read_bool(node, "support-dod-vcutoff-v2");
 	if (hwid && fg->support_dod_vcutoff_gl && hwid->country_version != CountryCN)
 		is_gl_dod = true;
 	if (hwid && fg->notsupport_dod_vcutoff_global && hwid->country_version != CountryCN)
 		fg->support_dod_vcutoff = false;
-	if (fg->support_dod_vcutoff) {
+	if (fg->support_dod_vcutoff || fg->support_dod_vcutoff_v2) {
 		if (is_gl_dod) {
 			array_len = mca_parse_dts_count_strings(node, "dod_vcutoff_cfg_gl",
 				BATTERY_TEMP_PARA_MAX_GROUP,
@@ -301,12 +302,21 @@ int mca_battery_shutdown_parse_dt(void *data)
 			}
 		}
 
-		if (is_gl_dod)
+		if (is_gl_dod) {
 			mca_parse_dts_u32_array(node, "weight-global", fg->weight, WEIGHT_LEVEL_MAX);
-		else if (fg->support_cc_unique_cn_nvt)
+		} else if (fg->support_cc_unique_cn_nvt) {
 			mca_parse_dts_u32_array(node, "weight_cn_nvt", fg->weight, WEIGHT_LEVEL_MAX);
-		else
+		} else {
+			if (batt_spec_para_info->temp_para_size < 1) {
+#line 333
+				mca_log_err("temp_para_size is 0, cannot access temp_info[0]\n");
+				kfree(temp_info);
+				return -1;
+			}
+			batt_spec_para_info->total_gear = batt_spec_para_info->temp_info[0].vcutoff_info.vcutoff_para_size;
+			batt_spec_para_info->init_update_siloss = 1;
 			mca_parse_dts_u32_array(node, "weight", fg->weight, WEIGHT_LEVEL_MAX);
+		}
 	}
 
 	fg->support_vpack_low_shutdown = of_property_read_bool(node, "support-vpack-low-shutdown");
@@ -320,6 +330,249 @@ error:
 }
 
 #define ROLLBACK_SHUTDOWN_VOLT_MAX 3000
+int mca_battery_shutdown_update_cc_para(void *data, int *vcutoff_fw, int *vcutoff_shutdown_delay, int *vcutoff_sw)
+{
+	struct strategy_fg *fg = (struct strategy_fg *)data;
+	static int last_temp_index;
+	struct mca_battery_shutdown_vcutoff_para_info *vcutoff_info;
+	struct mca_battery_shutdown_temp_para temp_para;
+	int cur_temp_index = -1, cur_vcuttoff_index = -1;
+	int lock = 0, i, temp;
+
+	if (!fg->support_cc_vcutoff)
+		return 0;
+
+	temp = fg->batt_temperature / 10;
+	for (i = 0; i < fg->batt_health_para.temp_para_size; i++) {
+		if (temp < fg->batt_health_para.temp_info[i].temp_para.temp_high &&
+		    temp >= fg->batt_health_para.temp_info[i].temp_para.temp_low) {
+			cur_temp_index = i;
+			break;
+		}
+	}
+
+	if (cur_temp_index < 0 || cur_temp_index >= fg->batt_health_para.temp_para_size) {
+#line 373
+		mca_log_err("temp over range invalid\n");
+		return -1;
+	}
+
+	temp_para = fg->batt_health_para.temp_info[fg->batt_health_para.cur_temp_index].temp_para;
+	if (cur_temp_index > fg->batt_health_para.cur_temp_index) {
+		if (temp >= temp_para.temp_high + temp_para.high_temp_hysteresis)
+			fg->batt_health_para.cur_temp_index = cur_temp_index;
+	} else if (cur_temp_index < fg->batt_health_para.cur_temp_index) {
+		if (temp < temp_para.temp_low - temp_para.low_temp_hysteresis)
+			fg->batt_health_para.cur_temp_index = cur_temp_index;
+	}
+
+	vcutoff_info = &fg->batt_health_para.temp_info[fg->batt_health_para.cur_temp_index].vcutoff_info;
+	if (fg->support_dod_vcutoff_v2) {
+		if (fg->batt_spec_para.init_update_siloss)
+			last_temp_index = fg->batt_health_para.cur_temp_index;
+		if (fg->batt_rsoc <= 9 && fg->batt_health_para.cur_temp_index > last_temp_index) {
+			vcutoff_info = &fg->batt_health_para.temp_info[last_temp_index].vcutoff_info;
+			lock = 1;
+		} else {
+			last_temp_index = fg->batt_health_para.cur_temp_index;
+		}
+	}
+
+	for (i = 0; i < vcutoff_info->vcutoff_para_size; i++) {
+		if (fg->batt_cyclecount <= vcutoff_info->vcutoff_para[i].range_upper) {
+			cur_vcuttoff_index = i;
+			break;
+		}
+	}
+
+	if (cur_vcuttoff_index < 0 || cur_vcuttoff_index >= vcutoff_info->vcutoff_para_size) {
+#line 408
+		mca_log_err("cyclecount over range invalid\n");
+		return -1;
+	}
+
+	*vcutoff_fw = vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_fw;
+	*vcutoff_shutdown_delay = vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_shutdown_delay;
+	*vcutoff_sw = vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_sw;
+#line 423
+	mca_log_info("BatteryHealth: T_idx(curr/eff/last)=(%d/%d/%d) V(idx/fw/delay/sw)=(%d/%d/%d/%d) Lock=%d\n",
+		     cur_temp_index, fg->batt_health_para.cur_temp_index, last_temp_index, cur_vcuttoff_index,
+		     *vcutoff_fw, *vcutoff_shutdown_delay, *vcutoff_sw, lock);
+	return 0;
+}
+
+void strategy_update_vcoutoff_v2_work(struct work_struct *work)
+{
+	struct strategy_fg *fg = container_of(work, struct strategy_fg, update_vcoutoff_v2_work.work);
+	static int cyclecount;
+	static int last_vcuttoff_index;
+	static int last_temp_index;
+	static time64_t iaver_time;
+	static bool iaver_time_flag;
+	int vcutoff_fw[SHUTDOWN_STRATEGY_MAX] = {0};
+	int vcutoff_shutdown_delay[SHUTDOWN_STRATEGY_MAX] = {0};
+	int vcutoff_sw[SHUTDOWN_STRATEGY_MAX] = {0};
+	struct mca_battery_shutdown_vcutoff_para_info *vcutoff_info;
+	struct mca_battery_shutdown_temp_para temp_para;
+	int vsiloss = 0, iaver = 0;
+	int cur_temp_index = -1, cur_vcuttoff_index, eff_index, v_rt, delta_v, best, dist, d, i, j;
+	int curr_v_index = -1;
+	int temp = fg->batt_temperature;
+	int msecs = 30000, lock = 0, allow_up = 0;
+
+	if (!fg->support_dod_vcutoff_v2 || temp > 599)
+		return;
+
+	mutex_lock(&fg->temp_index_lock);
+	mca_battery_shutdown_update_cc_para(fg, &vcutoff_fw[0], &vcutoff_shutdown_delay[0], &vcutoff_sw[0]);
+
+	if (!fg->support_dod_vcutoff_v2)
+		goto update_result;
+
+	if (!fg->power_present)
+		fg->batt_spec_para.i_aver_gear = 0;
+
+	if (cyclecount == fg->batt_cyclecount && !fg->batt_spec_para.init_update_siloss) {
+		cur_vcuttoff_index = fg->batt_spec_para.cur_vcuttoff_index;
+	} else {
+		cyclecount = fg->batt_cyclecount;
+		if (fg->batt_spec_para.temp_para_size <= 3) {
+#line 588
+			mca_log_err("temp_para_size %d is too small for index %d\n", fg->batt_spec_para.temp_para_size, 3);
+			goto out;
+		}
+		vcutoff_info = &fg->batt_spec_para.temp_info[3].vcutoff_info;
+		for (i = 0; i < vcutoff_info->vcutoff_para_size; i++) {
+			if (fg->dod_count < vcutoff_info->vcutoff_para[i].range_upper)
+				break;
+		}
+		if (i >= vcutoff_info->vcutoff_para_size) {
+#line 601
+			mca_log_err("dod_count over range invalid, current:%d\n", -1);
+			goto out;
+		}
+		cur_vcuttoff_index = i;
+		v_rt = vcutoff_info->vcutoff_para[i].vcutoff_fw;
+		platform_fg_ops_get_vsiloss(0, &vsiloss);
+		delta_v = (vsiloss + v_rt) / 2 - v_rt;
+#line 607
+		mca_log_info("V_Rt:%d, V_siloss:%d, delta_v:%d", v_rt, vsiloss, delta_v);
+		fg->batt_spec_para.cur_vcuttoff_index = cur_vcuttoff_index;
+		if ((unsigned int)delta_v <= 100) {
+			int avg = (vsiloss + v_rt) / 2;
+
+			best = cur_vcuttoff_index;
+			dist = abs(vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_fw - avg);
+			for (j = cur_vcuttoff_index + 1; j < vcutoff_info->vcutoff_para_size; j++) {
+				d = abs(vcutoff_info->vcutoff_para[j].vcutoff_fw - avg);
+				if (d < dist) {
+					best = j;
+					dist = d;
+				}
+			}
+			fg->batt_spec_para.siloss_gear = best - cur_vcuttoff_index;
+		}
+	}
+
+	eff_index = min(fg->batt_spec_para.siloss_gear + cur_vcuttoff_index, fg->batt_spec_para.total_gear - 1);
+
+	temp /= 10;
+	for (i = 0; i < fg->batt_spec_para.temp_para_size; i++) {
+#line 627
+		mca_log_info("temp_para_size:%d, temp: %d, high: %d, low: %d\n", fg->batt_spec_para.temp_para_size, temp,
+			     fg->batt_spec_para.temp_info[i].temp_para.temp_high, fg->batt_spec_para.temp_info[i].temp_para.temp_low);
+		if (temp < fg->batt_spec_para.temp_info[i].temp_para.temp_high &&
+		    temp >= fg->batt_spec_para.temp_info[i].temp_para.temp_low) {
+			cur_temp_index = i;
+			break;
+		}
+	}
+
+	if (cur_temp_index < 0 || cur_temp_index >= fg->batt_spec_para.temp_para_size) {
+#line 637
+		mca_log_err("temp over range invalid, current:%d\n", cur_temp_index);
+		goto out;
+	}
+
+	temp_para = fg->batt_spec_para.temp_info[fg->batt_spec_para.cur_temp_index].temp_para;
+	if (cur_temp_index > fg->batt_spec_para.cur_temp_index) {
+		if (temp >= temp_para.temp_high + temp_para.high_temp_hysteresis)
+			fg->batt_spec_para.cur_temp_index = cur_temp_index;
+	} else if (cur_temp_index < fg->batt_spec_para.cur_temp_index) {
+		if (temp < temp_para.temp_low - temp_para.low_temp_hysteresis)
+			fg->batt_spec_para.cur_temp_index = cur_temp_index;
+	}
+
+	vcutoff_info = &fg->batt_spec_para.temp_info[fg->batt_spec_para.cur_temp_index].vcutoff_info;
+	if (fg->batt_spec_para.init_update_siloss) {
+		fg->batt_spec_para.init_update_siloss = 0;
+		last_vcuttoff_index = eff_index;
+		last_temp_index = fg->batt_spec_para.cur_temp_index;
+	}
+
+	platform_fg_ops_get_iaver(0, &iaver);
+	if (iaver >= -300 && iaver <= 0) {
+		if (!iaver_time_flag) {
+			iaver_time_flag = true;
+			iaver_time = ktime_get_boottime();
+		}
+		if (iaver_time_flag && ktime_get_boottime() - iaver_time >= 64800LL * NSEC_PER_SEC) {
+#line 668
+			mca_log_info("allow i_aver up gear");
+			allow_up = 1;
+		}
+	} else {
+		iaver_time_flag = false;
+	}
+
+	if (fg->batt_rsoc >= 51) {
+		lock = 0;
+		last_temp_index = fg->batt_spec_para.cur_temp_index;
+		msecs = 600000;
+	} else if (fg->batt_rsoc >= 10) {
+		if (allow_up && !fg->batt_spec_para.i_aver_gear) {
+			fg->batt_spec_para.i_aver_gear = 1;
+			eff_index = min(eff_index + 1, fg->batt_spec_para.total_gear - 1);
+		}
+		lock = 0;
+		last_temp_index = fg->batt_spec_para.cur_temp_index;
+	} else {
+		eff_index = last_vcuttoff_index;
+		if (fg->batt_spec_para.cur_temp_index > last_temp_index) {
+			lock = 1;
+			vcutoff_info = &fg->batt_spec_para.temp_info[last_temp_index].vcutoff_info;
+		} else {
+			lock = 0;
+			last_temp_index = fg->batt_spec_para.cur_temp_index;
+		}
+	}
+	curr_v_index = eff_index;
+	vcutoff_fw[1] = vcutoff_info->vcutoff_para[eff_index].vcutoff_fw;
+	vcutoff_shutdown_delay[1] = vcutoff_info->vcutoff_para[eff_index].vcutoff_shutdown_delay;
+	vcutoff_sw[1] = vcutoff_info->vcutoff_para[eff_index].vcutoff_sw;
+	last_vcuttoff_index = eff_index;
+
+update_result:
+	fg->vcutoff_fw = max(vcutoff_fw[0], vcutoff_fw[1]);
+	fg->vcutoff_shutdown_delay = max(vcutoff_shutdown_delay[0], vcutoff_shutdown_delay[1]);
+	fg->vcutoff_sw = max(vcutoff_sw[0], vcutoff_sw[1]);
+#line 705
+	mca_log_info("T_idx(curr/eff/last)=(%d/%d/%d) V_idx(curr/eff/last)=(%d/%d/%d) V(fw/delay/sw)=(%d/%d/%d)\n",
+		     cur_temp_index, fg->batt_spec_para.cur_temp_index, last_temp_index, curr_v_index,
+		     fg->batt_spec_para.cur_vcuttoff_index, last_vcuttoff_index, fg->vcutoff_fw,
+		     fg->vcutoff_shutdown_delay, fg->vcutoff_sw);
+#line 711
+	mca_log_info("Gear(silos/iaver)=(%d/%d) Iaver(val/flag/en)=(%d/%d/%d) Lock=%d\n", fg->batt_spec_para.siloss_gear,
+		     fg->batt_spec_para.i_aver_gear, iaver, iaver_time_flag, allow_up, lock);
+	mutex_unlock(&fg->temp_index_lock);
+	if (!fg->power_present)
+		queue_delayed_work(system_wq, &fg->update_vcoutoff_v2_work, msecs_to_jiffies(msecs));
+	return;
+
+out:
+	mutex_unlock(&fg->temp_index_lock);
+}
+
 int mca_battery_shutdown_update_vcutoff_para(void *data)
 {
 	struct strategy_fg *fg = (struct strategy_fg *)data;
@@ -332,59 +585,9 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 	if (!fg->support_cc_vcutoff && !fg->support_dod_vcutoff)
 		return -1;
 
-	if (fg->support_cc_vcutoff) {
-		int cur_temp_index = -1;
-		int cur_vcuttoff_index = -1;
-		struct mca_battery_shutdown_vcutoff_para_info *vcutoff_info;
-		struct mca_battery_shutdown_temp_para temp_para;
-
-		for (int i = 0; i < fg->batt_health_para.temp_para_size; i++) {
-			if (temp < fg->batt_health_para.temp_info[i].temp_para.temp_high &&
-				temp >= fg->batt_health_para.temp_info[i].temp_para.temp_low) {
-				cur_temp_index = i;
-				break;
-			}
-		}
-
-		if (cur_temp_index < 0 || cur_temp_index >= fg->batt_health_para.temp_para_size) {
-			mca_log_err("temp over range invalid\n");
-			return -1;
-		}
-
-		temp_para = fg->batt_health_para.temp_info[fg->batt_health_para.cur_temp_index].temp_para;
-		if (cur_temp_index > fg->batt_health_para.cur_temp_index) {
-			if (temp >= temp_para.temp_high + temp_para.high_temp_hysteresis)
-				fg->batt_health_para.cur_temp_index = cur_temp_index;
-		} else if (cur_temp_index < fg->batt_health_para.cur_temp_index) {
-			if (temp < temp_para.temp_low - temp_para.low_temp_hysteresis)
-				fg->batt_health_para.cur_temp_index = cur_temp_index;
-		}
-
-		vcutoff_info = &(fg->batt_health_para.temp_info[fg->batt_health_para.cur_temp_index].vcutoff_info);
-
-		for (int i = 0; i < vcutoff_info->vcutoff_para_size; i++) {
-			if (fg->batt_cyclecount <= vcutoff_info->vcutoff_para[i].range_upper) {
-				cur_vcuttoff_index = i;
-				break;
-			}
-		}
-
-		if (cur_vcuttoff_index < 0 || cur_vcuttoff_index > vcutoff_info->vcutoff_para_size) {
-			mca_log_err("cyclecount over range invalid\n");
-			return -1;
-		}
-
-		vcutoff_fw[SHUTDOWN_STRATEGY_BATTERY_HEALTH] =
-			vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_fw;
-		vcutoff_shutdown_delay[SHUTDOWN_STRATEGY_BATTERY_HEALTH] =
-			vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_shutdown_delay;
-		vcutoff_sw[SHUTDOWN_STRATEGY_BATTERY_HEALTH] =
-			vcutoff_info->vcutoff_para[cur_vcuttoff_index].vcutoff_sw;
-
-		mca_log_info("BatteryHealth:cur_temp_index[%d], last_temp_index[%d] cur_vcuttoff_index[%d]\n",
-			cur_temp_index, fg->batt_health_para.cur_temp_index, cur_vcuttoff_index);
-
-	}
+	mutex_lock(&fg->temp_index_lock);
+	/* OS4: the health (CC) strategy is a separate function; its error does not abort the update */
+	mca_battery_shutdown_update_cc_para(fg, vcutoff_fw, vcutoff_shutdown_delay, vcutoff_sw);
 
 	if (fg->support_dod_vcutoff) {
 		int cur_temp_index = -1;
@@ -406,6 +609,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		if (cur_temp_index < 0 || cur_temp_index >= fg->batt_spec_para.temp_para_size) {
 #line 465
 			mca_log_err("temp over range invalid, current:%d\n", cur_temp_index);
+			mutex_unlock(&fg->temp_index_lock);
 			return -1;
 		}
 
@@ -429,6 +633,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 		if (cur_vcuttoff_index < 0 || cur_vcuttoff_index > vcutoff_info->vcutoff_para_size) {
 #line 488
 			mca_log_err("dod_count over range invalid\n");
+			mutex_unlock(&fg->temp_index_lock);
 			return -1;
 		}
 
@@ -458,6 +663,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 
 	if (index  < 0 || index >= SHUTDOWN_STRATEGY_MAX) {
 		mca_log_info("Strategy Optimla Select Invalid\n");
+		mutex_unlock(&fg->temp_index_lock);
 		return 0;
 	}
 
@@ -469,6 +675,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 #line 526
 			mca_log_info("[Enable_Rollback][%d] vcutoff_fw[%d], vcutoff_shutdown_delay[%d], vcutoff_sw[%d]\n",
 				index, fg->vcutoff_fw, fg->vcutoff_shutdown_delay, fg->vcutoff_sw);
+			mutex_unlock(&fg->temp_index_lock);
 			return 0;
 		}
 	}
@@ -486,6 +693,7 @@ int mca_battery_shutdown_update_vcutoff_para(void *data)
 #line 544
 	mca_log_info("Strategy[%d]:vcutoff_fw[%d], vcutoff_shutdown_delay[%d], vcutoff_sw[%d]\n",
 		index, fg->vcutoff_fw, fg->vcutoff_shutdown_delay, fg->vcutoff_sw);
+	mutex_unlock(&fg->temp_index_lock);
 	return 0;
 }
 

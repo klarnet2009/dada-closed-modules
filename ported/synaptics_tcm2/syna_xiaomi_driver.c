@@ -354,6 +354,10 @@ static int syna_ic_self_test(char *type, int *result)
 #endif
 		if (!retval) {
 			LOGE("self test failed, retval = %d\n", retval);
+			if (!strncmp("short", type, 5))
+				xiaomi_touch_mievent_report_int(TOUCH_EVENT_SHORTTEST_FAIL, 0, "TpShortTestFail", "synaptics", 0);
+			else if (!strncmp("open", type, 4))
+				xiaomi_touch_mievent_report_int(TOUCH_EVENT_OPENTEST_FAIL, 0, "TpOpenTestFail", "synaptics", 0);
 			retval = 1;
 			goto out;
 		}
@@ -418,7 +422,9 @@ static int syna_tcm_lockdown_info(void)
 		}
 
 		if (!p) {
+#line 434
 			LOG_ERROR("p pointer is NULL, get rd_data buf is error!!\n");
+#line 426
 			continue;
 		}
 
@@ -994,6 +1000,65 @@ exit:
 	return retval;
 }
 
+static __always_inline int syna_tcm_set_touch_multi_function_timeout(struct tcm_dev *tcm_dev,
+		unsigned char *config, unsigned int config_size, unsigned int timeout_ms)
+{
+	int retval = 0;
+	unsigned char resp_code;
+	unsigned char *data;
+
+	if (!tcm_dev) {
+		LOGE("Invalid tcm device handle\n");
+		return -ERR_INVAL;
+	}
+
+	if ((!config) || (config_size == 0)) {
+		LOGE("Invalid given config data\n");
+		return -ERR_INVAL;
+	}
+
+	if (IS_NOT_APP_FW_MODE(tcm_dev->dev_mode)) {
+		LOGE("Not in application fw mode, mode: %d\n",
+			tcm_dev->dev_mode);
+		return -ERR_INVAL;
+	}
+
+	data = syna_pal_mem_alloc(config_size, sizeof(unsigned char));
+	if (!data) {
+		LOGE("Fail to allocate memory for touch config setting\n");
+		return -ERR_NOMEM;
+	}
+
+	retval = syna_pal_mem_cpy(data,
+			config_size,
+			config,
+			config_size,
+			config_size);
+	if (retval < 0) {
+		LOGE("Fail to copy custom touch config\n");
+		goto exit;
+	}
+
+	retval = tcm_dev->write_message_timeout(tcm_dev,
+			CMD_MultiFunction,
+			data,
+			config_size,
+			config_size,
+			&resp_code,
+			RESP_IN_ATTN,
+			timeout_ms);
+	if (retval < 0) {
+		LOGE("Fail to write command CMD_MultiFunction\n");
+		goto exit;
+	}
+
+exit:
+	if (data)
+		syna_pal_mem_free((void *)data);
+
+	return retval;
+}
+
 static int syna_tcm_set_cmd_noresponse(struct tcm_dev *tcm_dev,
 		unsigned char *config, unsigned int config_size)
 {
@@ -1201,7 +1266,7 @@ static void syna_set_report_rate(int value)
 	default:
 		break;
 	}
-	retval = syna_tcm_set_touch_multi_function(tcm_hcd->tcm_dev, out_buf, sizeof(out_buf));
+	retval = syna_tcm_set_touch_multi_function_timeout(tcm_hcd->tcm_dev, out_buf, sizeof(out_buf), 100);
 	if (retval < 0) {
 		LOGE("%s Failed to write command %s\n", __func__, STR(CMD_MultiFunction));
 	} else {
@@ -1563,18 +1628,25 @@ static void syna_tcm_set_cur_value(int mode, int *value)
 	else
 		LOGD("mode:%d,value:%d\n", mode, value[0]);
 #ifdef TOUCH_THP_SUPPORT
+	if (mode == DATA_MODE_142) {
+		syna_set_ic_mode(SET_THP_BASE_STATUS, value);
+		return;
+	}
 	if (mode == DATA_MODE_51) {
 		syna_set_ic_mode(ENTER_IDLE_MODE, value);
+		return;
+	}
+	if (mode == DATA_MODE_122) {
+		syna_set_ic_mode(UPDATE_IDLE_BASELINE, value);
+		return;
+	}
+	if (mode == TOUCH_FINGERPRINT_AUTHSTATE) {
+		tcm_hcd->fingerprint_authstate = value[0];
 		return;
 	}
 	if (mode == DATA_MODE_52) {
 		if (tcm_hcd->enable_touch_raw)
 			syna_set_fod_downup(tcm_hcd, value[0]);
-		return;
-	}
-	if (mode == DATA_MODE_135) {
-		if (tcm_hcd->enable_touch_raw)
-			syna_set_ic_mode(SET_DOZE_WAKEUP_THRESHOLD, value);
 		return;
 	}
 	if (mode == DATA_MODE_53) {
@@ -1590,26 +1662,13 @@ static void syna_tcm_set_cur_value(int mode, int *value)
 		return;
 	}
 
-	if (mode == DATA_MODE_62) {
-		syna_set_report_rate(value[0]);
-		if (tcm_hcd->pwr_state == PWR_ON && tcm_hcd->hw_if->ops_enable_irq)
-			tcm_hcd->hw_if->ops_enable_irq(tcm_hcd->hw_if, true);
-		return;
-	}
-	if (mode == DATA_MODE_67) {
-		//TODO
-		return;
-	}
-	if (mode == DATA_MODE_122) {
-		syna_set_ic_mode(UPDATE_IDLE_BASELINE, value);
+	if (mode == DATA_MODE_135) {
+		if (tcm_hcd->enable_touch_raw)
+			syna_set_ic_mode(SET_DOZE_WAKEUP_THRESHOLD, value);
 		return;
 	}
 	if (mode == DATA_MODE_137) {
 		syna_set_ic_mode(SET_DYNAMIC_REPORT_RATE, value);
-		return;
-	}
-	if (mode == DATA_MODE_142) {
-		syna_set_ic_mode(SET_THP_BASE_STATUS, value);
 		return;
 	}
 	if (mode == DATA_MODE_143) {
@@ -1631,6 +1690,16 @@ static void syna_tcm_set_cur_value(int mode, int *value)
 			input_report_key(input_dev, KEY_GOTO, 0);
 			input_sync(input_dev);
 		}
+		return;
+	}
+	if (mode == DATA_MODE_62) {
+		syna_set_report_rate(value[0]);
+		if (tcm_hcd->pwr_state == PWR_ON && tcm_hcd->hw_if->ops_enable_irq)
+			tcm_hcd->hw_if->ops_enable_irq(tcm_hcd->hw_if, true);
+		return;
+	}
+	if (mode == DATA_MODE_67) {
+		//TODO
 		return;
 	}
 #endif
@@ -1823,6 +1892,7 @@ static int syna_tcm_touch_log_level_control(bool flag)
 #ifdef SYNAPTICS_DEBUGFS_ENABLE
 static void syna_tcm_dbg_suspend(struct syna_tcm *tcm_hcd, bool enable)
 {
+	tcm_hcd->doze_test = false;
 	if (enable) {
 		schedule_resume_suspend_work(TOUCH_ID, false);
 	} else {
@@ -1887,11 +1957,9 @@ static ssize_t syna_tcm_dbg_write(struct file *file, const char __user *buf,
 	} else if (!strncmp(cmd, "tp-sd-en", 8)) {
 		tcm_hcd->doze_test = true;
 		schedule_resume_suspend_work(TOUCH_ID, false);
-		tcm_hcd->doze_test = false;
 	} else if (!strncmp(cmd, "tp-sd-off", 9)) {
 		tcm_hcd->doze_test = true;
 		schedule_resume_suspend_work(TOUCH_ID, true);
-		tcm_hcd->doze_test = false;
 	} else if (!strncmp(cmd, "tp-suspend-en", 13))
 		syna_tcm_dbg_suspend(tcm_hcd, true);
 	else if (!strncmp(cmd, "tp-suspend-off", 14))
@@ -2129,9 +2197,11 @@ void syna_xiaomi_touch_probe(struct syna_tcm *syna_tcm)
 	memset(hardware_param.config_file_name, 0, 64);
 	memset(hardware_param.driver_version, 0, 64);
 	memset(hardware_param.fw_version, 0, 64);
+#line 2206
 	memcpy(hardware_param.config_file_name,
 		xiaomi_bdata.config_file_name,
 		strlen(xiaomi_bdata.config_file_name));
+#line 2202
 	memcpy(hardware_param.driver_version, SYNAPTICS_DRIVER_VERSION, strlen(SYNAPTICS_DRIVER_VERSION));
 	syna_tcm_fw_version_read(hardware_param.fw_version);
 
@@ -2160,7 +2230,6 @@ void syna_xiaomi_touch_probe(struct syna_tcm *syna_tcm)
 #elif defined(TOUCH_PLATFORM_XRING)
 	hardware_operation.set_thermal_temp = syna_set_thermal_temp;
 #endif
-	hardware_param.temp_change_value = 2;
 #ifdef TOUCH_THP_SUPPORT
 	hardware_operation.enable_touch_raw = syna_tcm_enable_touch_raw;
 #ifdef TOUCH_THP_DEBUG

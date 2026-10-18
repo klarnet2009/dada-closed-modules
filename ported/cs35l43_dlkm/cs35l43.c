@@ -124,6 +124,9 @@ static const struct snd_kcontrol_new dre_ctrl =
 static const struct snd_kcontrol_new amp_enable_ctrl =
 	SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 1, 0);
 
+static const struct snd_kcontrol_new amc_enable_ctrl =
+	SOC_DAPM_SINGLE("Switch", SND_SOC_NOPM, 0, 1, 0);
+
 static const char * const cs35l43_pcm_sftramp_text[] =  {
 	"Off", ".5ms", "1ms", "2ms", "4ms", "8ms", "15ms", "30ms"};
 
@@ -1189,6 +1192,8 @@ static const struct snd_kcontrol_new cs35l43_aud_controls[] = {
 #endif
 	SOC_SINGLE_EXT("Enable RCV Pin Control", SND_SOC_NOPM, 0, 1, 0,
 			cs35l43_rcv_switch_pinctrl_get, cs35l43_rcv_switch_pinctrl_put),
+	SOC_SINGLE("CLASSH CONFIG", CS35L43_CLASSH_CONFIG, 0, 0x7FFFFF, 0),
+	SOC_SINGLE("PCM Invert", CS35L43_AMP_CTRL, CS35L43_AMP_INV_PCM_SHIFT, 1, 0),
 /*
 	SND_SOC_BYTES_TLV("AMP WR Registers", REG_VALUE_SIZE,
                      cs35l43_rw_registers_get, cs35l43_rw_registers_put),
@@ -2460,6 +2465,7 @@ static const struct snd_soc_dapm_widget cs35l43_dapm_widgets[] = {
 	SND_SOC_DAPM_ADC("TEMPMON ADC", NULL, CS35L43_BLOCK_ENABLES,
 					CS35L43_TEMPMON_EN_SHIFT, 0),
 	SND_SOC_DAPM_SWITCH("AMP Enable", SND_SOC_NOPM, 0, 1, &amp_enable_ctrl),
+	SND_SOC_DAPM_SWITCH("AMC Enable", SND_SOC_NOPM, 0, 0, &amc_enable_ctrl),
 	SND_SOC_DAPM_SWITCH("DRE", SND_SOC_NOPM, 0, 0, &dre_ctrl),
 };
 
@@ -2555,7 +2561,8 @@ static const struct snd_soc_dapm_route cs35l43_audio_map[] = {
 	{"ASP TX2 Source", "DSP FS2", "DSP1"},
 	{"ASP TX3 Source", "DSP FS2", "DSP1"},
 	{"ASP TX4 Source", "DSP FS2", "DSP1"},
-	{"ASPTX1", NULL, "ASP TX1 Source"},
+	{"AMC Enable", "Switch", "ASP TX1 Source"},
+	{"ASPTX1", NULL, "AMC Enable"},
 	{"ASPTX2", NULL, "ASP TX2 Source"},
 	{"ASPTX3", NULL, "ASP TX3 Source"},
 	{"ASPTX4", NULL, "ASP TX4 Source"},
@@ -3431,7 +3438,7 @@ static const struct snd_soc_dai_ops cs35l43_compress_ops = {
 
 static struct snd_soc_dai_driver cs35l43_dai[] = {
 	{
-		.name = "xring-spk",
+		.name = "cs35l43",
 		.id = 0,
 		.playback = {
 			.stream_name = "AMP Playback",
@@ -3506,7 +3513,7 @@ static const struct snd_soc_component_driver soc_component_dev_cs35l43 = {
 
 #ifdef PROBE_FAILED_REGISTER_DUMMY_DAI
 static struct snd_soc_dai_driver dummy_dai = {
-	.name = "xring-spk",
+	.name = "cs35l43",
 	.id = 0,
 	.playback = {
 	.stream_name = "AMP Playback",

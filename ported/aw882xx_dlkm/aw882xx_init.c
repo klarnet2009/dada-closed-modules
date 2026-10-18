@@ -42,149 +42,6 @@
 #include "aw882xx_pid_2308_reg.h"
 #include "aw882xx_log.h"
 
-int aw882xx_dev_i2c_write_bits(struct aw_device *aw_dev,
-	unsigned char reg_addr, unsigned int mask, unsigned int reg_data)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	return aw882xx_i2c_write_bits(aw882xx, reg_addr, mask, reg_data);
-}
-
-int aw882xx_dev_i2c_write(struct aw_device *aw_dev,
-	unsigned char reg_addr, unsigned int reg_data)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	return aw882xx_i2c_write(aw882xx, reg_addr, reg_data);
-}
-
-int aw882xx_dev_i2c_read(struct aw_device *aw_dev,
-	unsigned char reg_addr, unsigned int *reg_data)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	return aw882xx_i2c_read(aw882xx, reg_addr, reg_data);
-}
-
-void aw882xx_dev_set_algo_en(struct aw_device *aw_dev)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	aw882xx_kcontorl_set(aw882xx);
-}
-
-/* [7 : 4]: -6DB ; [3 : 0]: 0.5DB  real_value = value * 2 : 0.5db --> 1 */
-static unsigned int aw_pid_1852_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 4) * AW_PID_1852_VOL_STEP_DB + (value & 0x0f));
-}
-
-/* [7 : 4]: -6DB ; [3 : 0]: -0.5DB reg_value = value / step << 4 + value % step ; step = 6 * 2 */
-static unsigned int aw_pid_1852_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_1852_VOL_STEP_DB) << 4) + (value % AW_PID_1852_VOL_STEP_DB));
-}
-
-static int aw_pid_1852_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_1852_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_1852_HAGCCFG4_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/* 15 : 8] volume */
-	real_value = (real_value << 8) | (reg_value & 0x00ff);
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_1852_HAGCCFG4_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_1852_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_1852_HAGCCFG4_REG, &reg_value);
-
-	/* [15 : 8] volume */
-	real_value = reg_value >> 8;
-
-	real_value = aw_pid_1852_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_1852_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_1852_REG_MAX)
-		return false;
-
-
-	if (aw_pid_1852_reg_access[reg] & AW_PID_1852_REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_1852_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_1852_REG_MAX)
-		return false;
-
-
-	if (aw_pid_1852_reg_access[reg] & AW_PID_1852_REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_1852_get_reg_num(void)
-{
-	return AW_PID_1852_REG_MAX;
-}
-
-static unsigned int aw_pid_1852_get_irq_type(struct aw_device *aw_dev,
-				unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-	/* UVL0 */
-	if (value & (~AW_PID_1852_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_1852_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_1852_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_1852_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-}
-
 static int aw_pid_1852_dev_init(struct aw882xx *aw882xx)
 {
 	int ret;
@@ -206,17 +63,17 @@ static int aw_pid_1852_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_1852_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_1852_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_1852_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_1852_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_1852_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_1852_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_1852_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P5_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P5_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_1852_HAGCCFG4_REG;
+	aw_pa->vol_shift = 8;
+	aw_pa->vol_mask = 0xff00;
+	aw_pa->reg_access = aw_pid_1852_reg_access;
+	aw_pa->reg_max = AW_PID_1852_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_1852_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_1852_SYSINTM_DEFAULT;
@@ -320,7 +177,7 @@ static int aw_pid_1852_dev_init(struct aw882xx *aw882xx)
 	aw_pa->mpd_desc.reg = AW_REG_NONE;
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
@@ -331,124 +188,13 @@ static int aw_pid_1852_dev_init(struct aw882xx *aw882xx)
  * A2013 init
  *
  ******************************************************/
-/*[9 : 6]: -6DB ; [5 : 0]: 0.125DB  real_value = value * 8 : 0.125db --> 1*/
-static unsigned int aw_pid_2013_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2013_VOL_STEP_DB + (value & 0x003f));
-}
-
-/*[9 : 6]: -6DB ; [5 : 0]: -0.125DB reg_value = value / step << 6 + value % step ; step = 6 * 8*/
-static unsigned int aw_pid_2013_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2013_VOL_STEP_DB) << 6) + (value % AW_PID_2013_VOL_STEP_DB));
-}
-
-static int aw_pid_2013_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2013_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2013_SYSCTRL2_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/*9 : 0] volume*/
-	real_value = real_value | (reg_value & 0xfc00);
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2013_SYSCTRL2_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_2013_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2013_SYSCTRL2_REG, &reg_value);
-
-	/*[9 : 0] volume*/
-	real_value = reg_value & 0x03ff;
-
-	real_value = aw_pid_2013_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2013_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2013_REG_MAX)
-		return false;
-
-	if (aw_pid_2013_reg_access[reg] & AW_PID_2013_REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_2013_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2013_REG_MAX)
-		return false;
-
-	if (aw_pid_2013_reg_access[reg] & AW_PID_2013_REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_2013_get_reg_num(void)
-{
-	return AW_PID_2013_REG_MAX;
-}
-
-static unsigned int aw_pid_2013_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/*UVL0*/
-	if (value & (~AW_PID_2013_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/*BSTOCM*/
-	if (value & (~AW_PID_2013_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/*OCDI*/
-	if (value & (~AW_PID_2013_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/*OTHI*/
-	if (value & (~AW_PID_2013_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-}
-
 static void aw_pid_2013_efver_check(struct aw_device *aw_dev)
 {
 	unsigned int reg_val = 0;
 	unsigned int efverh = 0;
 	unsigned int efverl = 0;
 
-	aw_dev->ops.aw_i2c_read(aw_dev,
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c,
 			AW_PID_2013_EFRM1_REG, &reg_val);
 
 	efverh = (((reg_val & (~AW_PID_2013_EFVERH_MASK)) >>
@@ -493,17 +239,17 @@ static int aw_pid_2013_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2013_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2013_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2013_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2013_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2013_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2013_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2013_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2013_SYSCTRL2_REG;
+	aw_pa->vol_shift = 0;
+	aw_pa->vol_mask = 0x03ff;
+	aw_pa->reg_access = aw_pid_2013_reg_access;
+	aw_pa->reg_max = AW_PID_2013_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2013_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_2013_SYSINTM_DEFAULT;
@@ -617,7 +363,7 @@ static int aw_pid_2013_dev_init(struct aw882xx *aw882xx)
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
 	aw_pid_2013_efver_check(aw_pa);
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
@@ -628,118 +374,6 @@ static int aw_pid_2013_dev_init(struct aw882xx *aw882xx)
  * A2032 init
  *
  ******************************************************/
-/*[7 : 4]: -6DB ; [3 : 0]: 0.5DB  real_value = value * 2 : 0.5db --> 1*/
-static unsigned int aw_pid_2032_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2032_VOL_STEP_DB + (value & 0x3f));
-}
-
-/* [7 : 4]: -6DB ; [3 : 0]: -0.5DB reg_value = value / step << 4 + value % step ; step = 6 * 2 */
-static unsigned int aw_pid_2032_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2032_VOL_STEP_DB) << 6) + (value % AW_PID_2032_VOL_STEP_DB));
-}
-
-
-static int aw_pid_2032_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2032_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2032_SYSCTRL2_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/* [15 : 6] volume */
-	real_value = (real_value << 6) | (reg_value & 0x003f);
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2032_SYSCTRL2_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_2032_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2032_SYSCTRL2_REG, &reg_value);
-
-	/* [15 : 6] volume */
-	real_value = reg_value >> 6;
-
-	real_value = aw_pid_2032_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2032_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2032_REG_MAX)
-		return false;
-
-	if (aw_pid_2032_reg_access[reg] & AW_PID_2032_REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_2032_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2032_REG_MAX)
-		return false;
-
-	if (aw_pid_2032_reg_access[reg] &
-			AW_PID_2032_REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_2032_get_reg_num(void)
-{
-	return AW_PID_2032_REG_MAX;
-}
-
-static unsigned int aw_pid_2032_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2032_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2032_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2032_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2032_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-}
 
 static int aw_pid_2032_dev_init(struct aw882xx *aw882xx)
 {
@@ -762,17 +396,17 @@ static int aw_pid_2032_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2032_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2032_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2032_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2032_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2032_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2032_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2032_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2032_SYSCTRL2_REG;
+	aw_pa->vol_shift = 6;
+	aw_pa->vol_mask = 0xffc0;
+	aw_pa->reg_access = aw_pid_2032_reg_access;
+	aw_pa->reg_max = AW_PID_2032_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2032_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_2032_SYSINTM_DEFAULT;
@@ -876,123 +510,9 @@ static int aw_pid_2032_dev_init(struct aw882xx *aw882xx)
 	aw_pa->mpd_desc.reg = AW_REG_NONE;
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
-	return ret;
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB  real_value = value * 8 : 0.125db --> 1 */
-static unsigned int aw_pid_2055a_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2055A_VOL_STEP_DB + (value & 0x3f));
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB reg_value = value / step << 6 + value % step ; step = 6 * 8 */
-static unsigned int aw_pid_2055a_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2055A_VOL_STEP_DB) << 6) + (value % AW_PID_2055A_VOL_STEP_DB));
-}
-
-static int aw_pid_2055a_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2055a_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2055A_SYSCTRL2_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/*[9 : 0] volume*/
-	real_value = (real_value | (reg_value & 0xfc00));
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2055A_SYSCTRL2_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_2055a_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2055A_SYSCTRL2_REG, &reg_value);
-
-	/* [9 : 0] volume */
-	real_value = (reg_value & 0x03ff);
-
-	real_value = aw_pid_2055a_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2055a_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2055A_REG_MAX)
-		return false;
-
-
-	if (aw_pid_2055a_reg_access[reg] & AW_PID_2055A_REG_RD_ACCESS)
-		return true;
-
-	return false;
-
-}
-
-static bool aw_pid_2055a_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2055A_REG_MAX)
-		return false;
-
-	if (aw_pid_2055a_reg_access[reg] &
-			AW_PID_2055A_REG_WR_ACCESS)
-		return true;
-
-	return false;
-}
-
-static int aw_pid_2055a_get_reg_num(void)
-{
-	return AW_PID_2055A_REG_MAX;
-}
-
-static unsigned int aw_pid_2055a_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2055A_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2055A_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2055A_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2055A_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
 	return ret;
 }
 
@@ -1019,17 +539,17 @@ static int aw_pid_2055a_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2055a_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2055a_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2055a_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2055a_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2055a_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2055a_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2055a_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2055A_SYSCTRL2_REG;
+	aw_pa->vol_shift = 0;
+	aw_pa->vol_mask = 0x03ff;
+	aw_pa->reg_access = aw_pid_2055a_reg_access;
+	aw_pa->reg_max = AW_PID_2055A_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2055A_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_2055A_SYSINTM_DEFAULT;
@@ -1113,129 +633,16 @@ static int aw_pid_2055a_dev_init(struct aw882xx *aw882xx)
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
 	usleep_range(AW_2000_US, AW_2000_US + 10);
-	aw_pa->ops.aw_i2c_write(aw_pa, AW_PID_2055A_INIT_CHECK_REG,
+	aw_pa->ops.aw_i2c_write(aw_pa->i2c, AW_PID_2055A_INIT_CHECK_REG,
 					AW_PID_2055A_INIT_CHECK_VALUE);
 	usleep_range(AW_3000_US, AW_3000_US + 10);
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
 }
 
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB  real_value = value * 8 : 0.125db --> 1 */
-static unsigned int aw_pid_2055_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2055_VOL_STEP_DB + (value & 0x3f));
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB reg_value = value / step << 6 + value % step ; step = 6 * 8 */
-static unsigned int aw_pid_2055_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2055_VOL_STEP_DB) << 6) + (value % AW_PID_2055_VOL_STEP_DB));
-}
-
-static int aw_pid_2055_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2055_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2055_SYSCTRL2_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/*[9 : 0] volume*/
-	real_value = (real_value | (reg_value & 0xfc00));
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2055_SYSCTRL2_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_2055_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2055_SYSCTRL2_REG, &reg_value);
-
-	/* [9 : 0] volume */
-	real_value = (reg_value & 0x03ff);
-
-	real_value = aw_pid_2055_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2055_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2055_REG_MAX)
-		return false;
-
-
-	if (aw_pid_2055_reg_access[reg] & AW_PID_2055_REG_RD_ACCESS)
-		return true;
-
-	return false;
-}
-
-static bool aw_pid_2055_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2055_REG_MAX)
-		return false;
-
-	if (aw_pid_2055_reg_access[reg] &
-			AW_PID_2055_REG_WR_ACCESS)
-		return true;
-
-	return false;
-}
-
-static int aw_pid_2055_get_reg_num(void)
-{
-	return AW_PID_2055_REG_MAX;
-}
-
-static unsigned int aw_pid_2055_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2055_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2055_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2055_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2055_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-}
 
 static int aw_pid_2055_dev_init(struct aw882xx *aw882xx)
 {
@@ -1258,17 +665,17 @@ static int aw_pid_2055_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2055_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2055_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2055_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2055_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2055_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2055_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2055_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2055_SYSCTRL2_REG;
+	aw_pa->vol_shift = 0;
+	aw_pa->vol_mask = 0x03ff;
+	aw_pa->reg_access = aw_pid_2055_reg_access;
+	aw_pa->reg_max = AW_PID_2055_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2055_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_2055_SYSINTM_DEFAULT;
@@ -1363,11 +770,11 @@ static int aw_pid_2055_dev_init(struct aw882xx *aw882xx)
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
 	usleep_range(AW_2000_US, AW_2000_US + 10);
-	aw_pa->ops.aw_i2c_write(aw_pa, AW_PID_2055_INIT_CHECK_REG,
+	aw_pa->ops.aw_i2c_write(aw_pa->i2c, AW_PID_2055_INIT_CHECK_REG,
 					AW_PID_2055_INIT_CHECK_VALUE);
 	usleep_range(AW_3000_US, AW_3000_US + 10);
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
@@ -1391,118 +798,6 @@ static int aw_pid_2055_dev_check(struct aw882xx *aw882xx)
 	return -EINVAL;
 }
 
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB  real_value = value * 8 : 0.125db --> 1 */
-static unsigned int aw_pid_2071_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2071_VOL_STEP_DB + (value & 0x3f));
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB reg_value = value / step << 6 + value % step ; step = 6 * 8 */
-static unsigned int aw_pid_2071_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2071_VOL_STEP_DB) << 6) + (value % AW_PID_2071_VOL_STEP_DB));
-}
-
-static int aw_pid_2071_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2071_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2071_SYSCTRL2_REG, &reg_value);
-
-	aw_dev_dbg(aw882xx->dev, "value %d , 0x%x", value, real_value);
-
-	/* [15 : 6] volume */
-	real_value = (real_value << 6) | (reg_value & 0x003f);
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2071_SYSCTRL2_REG, real_value);
-	return 0;
-}
-
-static int aw_pid_2071_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2071_SYSCTRL2_REG, &reg_value);
-
-	/* [15 : 6] volume */
-	real_value = reg_value >> 6;
-
-	real_value = aw_pid_2071_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2071_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2071_REG_MAX)
-		return false;
-
-	if (aw_pid_2071_reg_access[reg] & AW_PID_2071_REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_2071_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2071_REG_MAX)
-		return false;
-
-	if (aw_pid_2071_reg_access[reg] &
-			AW_PID_2071_REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_2071_get_reg_num(void)
-{
-	return AW_PID_2071_REG_MAX;
-}
-
-static unsigned int aw_pid_2071_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2071_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2071_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2071_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2071_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-}
-
 static int aw_pid_2071_dev_init(struct aw882xx *aw882xx)
 {
 	int ret = 0;
@@ -1524,17 +819,17 @@ static int aw_pid_2071_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2071_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2071_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2071_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2071_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2071_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2071_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2071_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2071_SYSCTRL2_REG;
+	aw_pa->vol_shift = 6;
+	aw_pa->vol_mask = 0xffc0;
+	aw_pa->reg_access = aw_pid_2071_reg_access;
+	aw_pa->reg_max = AW_PID_2071_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2071_SYSINTM_REG;
 	aw_pa->int_desc.mask_default = AW_PID_2071_SYSINTM_DEFAULT;
@@ -1643,123 +938,9 @@ static int aw_pid_2071_dev_init(struct aw882xx *aw882xx)
 	aw_pa->mpd_desc.reg = AW_REG_NONE;
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
-	return ret;
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB  real_value = value * 8 : 0.125db --> 1 */
-static unsigned int aw_pid_2113_reg_val_to_db(unsigned int value)
-{
-	return ((value >> 6) * AW_PID_2113_VOL_STEP_DB + (value & 0x3f));
-}
-
-/* [9 : 6]: -6DB ; [5 : 0]: 0.125DB reg_value = value / step << 6 + value % step ; step = 6 * 8 */
-static unsigned int aw_pid_2113_db_val_to_reg(unsigned int value)
-{
-	return (((value / AW_PID_2113_VOL_STEP_DB) << 6) + (value % AW_PID_2113_VOL_STEP_DB));
-}
-
-static int aw_pid_2113_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2113_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	aw_dev_dbg(aw882xx->dev, "value:%d, min_val: %d, real_value: 0x%x",
-			value, AW_GET_MIN_VALUE(value, vol_desc->mute_volume), real_value);
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2113_SYSCTRL2_REG, &reg_value);
-
-	/*[9 : 0] volume*/
-	real_value = (real_value | (reg_value & 0xfc00));
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2113_SYSCTRL2_REG, real_value);
-
-	return 0;
-}
-
-static int aw_pid_2113_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2113_SYSCTRL2_REG, &reg_value);
-
-	/* [9 : 0] volume */
-	real_value = (reg_value & 0x03ff);
-
-	real_value = aw_pid_2113_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2113_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2113_REG_MAX)
-		return false;
-
-	if (aw_pid_2113_reg_access[reg] & AW_PID_2113_REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_2113_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2113_REG_MAX)
-		return false;
-
-	if (aw_pid_2113_reg_access[reg] &
-			AW_PID_2113_REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_2113_get_reg_num(void)
-{
-	return AW_PID_2113_REG_MAX;
-}
-
-static unsigned int aw_pid_2113_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2113_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2113_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2113_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2113_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
 	return ret;
 }
 
@@ -1770,11 +951,11 @@ static int aw_pid_2113_frcset_check(struct aw_device *aw_dev)
 	uint16_t teml = 0;
 	uint16_t tem = 0;
 
-	aw_dev->ops.aw_i2c_read(aw_dev,
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c,
 			AW_PID_2113_EFRH3_REG, &reg_val);
 	temh = ((uint16_t)reg_val & (~AW_PID_2113_TEMH_MASK));
 
-	aw_dev->ops.aw_i2c_read(aw_dev,
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c,
 			AW_PID_2113_EFRL3_REG, &reg_val);
 	teml = ((uint16_t)reg_val & (~AW_PID_2113_TEML_MASK));
 
@@ -1799,22 +980,22 @@ static void aw_pid_2113_reg_force_set(struct aw_device *aw_dev)
 
 	if (aw_dev->frcset_en == AW_FRCSET_ENABLE) {
 		/*set FORCE_PWM*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL3_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL3_REG,
 				AW_PID_2113_FORCE_PWM_MASK, AW_PID_2113_FORCE_PWM_FORCEMINUS_PWM_VALUE);
 		/*set BOOST_OS_WIDTH*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL5_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL5_REG,
 				AW_PID_2113_BST_OS_WIDTH_MASK, AW_PID_2113_BST_OS_WIDTH_50NS_VALUE);
 		/*set BURST_LOOPR*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL6_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL6_REG,
 				AW_PID_2113_BST_LOOPR_MASK, AW_PID_2113_BST_LOOPR_340K_VALUE);
 		/*set RSQN_DLY*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL7_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL7_REG,
 				AW_PID_2113_RSQN_DLY_MASK, AW_PID_2113_RSQN_DLY_35NS_VALUE);
 		/*set BURST_SSMODE*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL8_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL8_REG,
 				AW_PID_2113_BURST_SSMODE_MASK, AW_PID_2113_BURST_SSMODE_FAST_VALUE);
 		/*set BST_BURST*/
-		aw_dev->ops.aw_i2c_write_bits(aw_dev, AW_PID_2113_BSTCTRL9_REG,
+		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, AW_PID_2113_BSTCTRL9_REG,
 				AW_PID_2113_BST_BURST_MASK, AW_PID_2113_BST_BURST_30MA_VALUE);
 		aw_dev_dbg(aw_dev->dev, "force set reg done!");
 	} else {
@@ -1843,17 +1024,17 @@ static int aw_pid_2113_dev_init(struct aw882xx *aw882xx)
 	aw_pa->i2c = aw882xx->i2c;
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2113_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2113_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2113_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2113_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2113_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2113_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2113_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_6_0P125_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_6_0P125_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2113_SYSCTRL2_REG;
+	aw_pa->vol_shift = 0;
+	aw_pa->vol_mask = 0x03ff;
+	aw_pa->reg_access = aw_pid_2113_reg_access;
+	aw_pa->reg_max = AW_PID_2113_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 	aw_pa->ops.aw_reg_force_set = aw_pid_2113_reg_force_set;
 	aw_pa->ops.aw_frcset_check = aw_pid_2113_frcset_check;
 
@@ -1962,7 +1143,7 @@ static int aw_pid_2113_dev_init(struct aw882xx *aw882xx)
 	aw_pa->soft_rst.reg_value = AW882XX_SOFT_RESET_VALUE;
 
 	usleep_range(AW_2000_US, AW_2000_US + 10);
-	aw_pa->ops.aw_i2c_write(aw_pa, AW_PID_2113_INIT_CHECK_REG,
+	aw_pa->ops.aw_i2c_write(aw_pa->i2c, AW_PID_2113_INIT_CHECK_REG,
 					AW_PID_2113_INIT_CHECK_VALUE);
 	usleep_range(AW_3000_US, AW_3000_US + 10);
 
@@ -1985,124 +1166,10 @@ static int aw_pid_2113_dev_init(struct aw882xx *aw882xx)
 	aw_pa->mpd_desc.reg = AW_REG_NONE;
 	aw_pa->dsmzth_desc.reg = AW_REG_NONE;
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
-}
-
-/* [9 : 0]: -0.0940625DB*/
-static unsigned int aw_pid_2308_reg_val_to_db(unsigned int value)
-{
-	return value;
-}
-
-/* [9 : 0]: -0.0940625DB*/
-static unsigned int aw_pid_2308_db_val_to_reg(unsigned int value)
-{
-	return value;
-}
-
-static int aw_pid_2308_set_volume(struct aw_device *aw_dev, unsigned int value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-	struct aw_volume_desc *vol_desc = &aw882xx->aw_pa->volume_desc;
-
-	real_value = aw_pid_2308_db_val_to_reg(AW_GET_MIN_VALUE(value, vol_desc->mute_volume));
-
-	aw_dev_dbg(aw882xx->dev, "value:%d, min_val: %d, real_value: 0x%x",
-			value, AW_GET_MIN_VALUE(value, vol_desc->mute_volume), real_value);
-
-	/* cal real value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2308_SYSCTRL2_REG, &reg_value);
-
-	/*[9 : 0] volume*/
-	real_value = (real_value | (reg_value & 0xfc00));
-
-	/* write value */
-	aw882xx_i2c_write(aw882xx, AW_PID_2308_SYSCTRL2_REG, real_value);
-
-	return 0;
-}
-
-static int aw_pid_2308_get_volume(struct aw_device *aw_dev, unsigned int *value)
-{
-	unsigned int reg_value = 0;
-	unsigned int real_value = 0;
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
-	/* read value */
-	aw882xx_i2c_read(aw882xx, AW_PID_2308_SYSCTRL2_REG, &reg_value);
-
-	/* [9 : 0] volume */
-	real_value = (reg_value & 0x03ff);
-
-	real_value = aw_pid_2308_reg_val_to_db(real_value);
-	*value = real_value;
-
-	return 0;
-}
-
-static bool aw_pid_2308_check_rd_access(int reg)
-{
-	if (reg >= AW_PID_2308_REG_MAX)
-		return false;
-
-	if (aw_pid_2308_reg_access[reg] & REG_RD_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static bool aw_pid_2308_check_wr_access(int reg)
-{
-	if (reg >= AW_PID_2308_REG_MAX)
-		return false;
-
-	if (aw_pid_2113_reg_access[reg] & REG_WR_ACCESS)
-		return true;
-	else
-		return false;
-}
-
-static int aw_pid_2308_get_reg_num(void)
-{
-	return AW_PID_2308_REG_MAX;
-}
-
-static unsigned int aw_pid_2308_get_irq_type(struct aw_device *aw_dev,
-					unsigned int value)
-{
-	unsigned int ret = INT_TYPE_NONE;
-
-	/* UVL0 */
-	if (value & (~AW_PID_2308_UVLI_MASK)) {
-		aw_dev_info(aw_dev->dev, "UVLO: occur");
-		ret |= INT_TYPE_UVLO;
-	}
-
-	/* BSTOCM */
-	if (value & (~AW_PID_2308_BSTOCI_MASK)) {
-		aw_dev_info(aw_dev->dev, "BSTOCI: occur");
-		ret |= INT_TYPE_BSTOC;
-	}
-
-	/* OCDI */
-	if (value & (~AW_PID_2308_OCDI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OCDI: occur");
-		ret |= INT_TYPE_OCDI;
-	}
-
-	/* OTHI */
-	if (value & (~AW_PID_2308_OTHI_MASK)) {
-		aw_dev_info(aw_dev->dev, "OTHI: occur");
-		ret |= INT_TYPE_OTHI;
-	}
-
-	return ret;
-
 }
 
 /* 9bit signed int val */
@@ -2148,17 +1215,17 @@ static int aw_pid_2308_dev_init(struct aw882xx *aw882xx)
 
 	aw_pa->ops.aw_get_version = aw882xx_get_version;
 	aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
-	aw_pa->ops.aw_set_algo = aw882xx_dev_set_algo_en;
-	aw_pa->ops.aw_i2c_read = aw882xx_dev_i2c_read;
-	aw_pa->ops.aw_i2c_write = aw882xx_dev_i2c_write;
-	aw_pa->ops.aw_i2c_write_bits = aw882xx_dev_i2c_write_bits;
-	aw_pa->ops.aw_get_hw_volume = aw_pid_2308_get_volume;
-	aw_pa->ops.aw_set_hw_volume = aw_pid_2308_set_volume;
-	aw_pa->ops.aw_reg_val_to_db = aw_pid_2308_reg_val_to_db;
-	aw_pa->ops.aw_check_rd_access = aw_pid_2308_check_rd_access;
-	aw_pa->ops.aw_check_wr_access = aw_pid_2308_check_wr_access;
-	aw_pa->ops.aw_get_reg_num = aw_pid_2308_get_reg_num;
-	aw_pa->ops.aw_get_irq_type = aw_pid_2308_get_irq_type;
+	aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
+	aw_pa->ops.aw_reg_val_to_db = aw_direct_reg_val_to_db;
+	aw_pa->ops.aw_db_val_to_reg = aw_direct_db_val_to_reg;
+	aw_pa->vol_reg = AW_PID_2308_SYSCTRL2_REG;
+	aw_pa->vol_shift = 0;
+	aw_pa->vol_mask = 0x03ff;
+	aw_pa->reg_access = aw_pid_2308_reg_access;
+	aw_pa->reg_max = AW_PID_2308_REG_MAX;
+	aw_pa->ops.aw_get_irq_type = aw_get_irq_type;
 	aw_pa->ops.aw_get_voltage_offset = aw_pid_2308_get_voltage_offset;
 
 	aw_pa->int_desc.mask_reg = AW_PID_2308_SYSINTM_REG;
@@ -2266,15 +1333,25 @@ static int aw_pid_2308_dev_init(struct aw882xx *aw882xx)
 	aw_pa->dsmzth_desc.enable = AW_PID_2308_DSMZTH_21P33MS_VALUE;
 	aw_pa->dsmzth_desc.disable = AW_PID_2308_DSMZTH_NO_RESET_VALUE;
 
-	ret = aw882xx_device_probe(aw_pa);
+	ret = aw882xx_dev_probe(aw_pa);
 
 	aw882xx->aw_pa = aw_pa;
 	return ret;
 }
 
-int aw882xx_init(struct aw882xx *aw882xx)
+#include <asm/unaligned.h>
+void aw_dev_init_cmm(struct aw_device *aw_dev);
+#include "g3n_cmm.inc.h"
+
+void aw_dev_init_cmm(struct aw_device *aw_dev);
+int aw882xx_init(struct aw_device *aw_dev)
 {
-	switch (aw882xx->aw_pa->chip_id) {
+	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
+
+	/* g3n: the stock calls aw_dev_init_cmm first */
+	aw_dev_init_cmm(aw_dev);
+
+	switch (aw_dev->chip_id) {
 	case PID_1852_ID:
 		return aw_pid_1852_dev_init(aw882xx);
 	case PID_2013_ID:
@@ -2297,3 +1374,4 @@ int aw882xx_init(struct aw882xx *aw882xx)
 	return -EINVAL;
 }
 
+#include "g3k_aw_init.inc.h"

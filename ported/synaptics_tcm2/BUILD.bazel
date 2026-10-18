@@ -42,6 +42,7 @@ ddk_module(
         "CONFIG_QCOM_PANEL_EVENT_NOTIFIER=1",
         "CONFIG_MIEV=1",
         "TOUCH_SPI_CS_CLK_DELAY",
+        "TOUCH_SEC_DP_PANEL",
         "TOUCH_STYLUS_SUPPORT=1",
         "TOUCH_FOD_SUPPORT=1",
         "TOUCH_THP_SUPPORT=1",
@@ -52,10 +53,10 @@ ddk_module(
     deps = [
         ":syna_headers",
         "//re/xt_g3g:xiaomi_touch",
-        "//re/stubs_g3g:os4_gh_irq_lend",
-        "//re/stubs_g3g:os4_gh_mem_notifier",
-        "//re/stubs_g3g:os4_gh_rm_drv",
-        "//re/stubs_g3g:os4_pinctrl-msm",
+        "//re/stubs_g3i:gh_irq_lend",
+        "//re/stubs_g3i:gh_mem_notifier",
+        "//re/stubs_g3i:gh_rm_drv",
+        "//re/stubs_g3i:pinctrl-msm",
         "//common:all_headers_aarch64",
     ],
 )

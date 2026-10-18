@@ -216,18 +216,19 @@ struct aw882xx {
 	int fpga_notify_reg_success;
 #endif /* OPLUS_ARCH_EXTENDS */
 	struct mutex lock;
+	int spksw_gpio;		/* g3k: stock +0x24 (appended: layout of the template kept) */
+	int spksw_level;	/* g3k: stock +0x28 */
 };
 
-void aw882xx_kcontorl_set(struct aw882xx *aw882xx);
 int aw882xx_get_version(char *buf, int size);
 int aw882xx_get_dev_num(void);
-int aw882xx_i2c_write(struct aw882xx *aw882xx,
+int aw882xx_i2c_write(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int reg_data);
-int aw882xx_i2c_read(struct aw882xx *aw882xx,
+int aw882xx_i2c_read(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int *reg_data);
-int aw882xx_i2c_write_bits(struct aw882xx *aw882xx,
+int aw882xx_i2c_write_bits(struct i2c_client *i2c,
 	unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
-int aw882xx_init(struct aw882xx *aw882xx);
+int aw882xx_init(struct aw_device *aw_dev);
 int aw882xx_hw_reset(struct aw882xx *aw882xx);
 
 

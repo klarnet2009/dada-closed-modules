@@ -250,9 +250,6 @@ static int syna_tcm_save_flash_block_data(struct image_info *image_info,
 	image_info->data[area].id = (unsigned char)area;
 	image_info->data[area].available = true;
 
-	LOGI("%s area - address:0x%08x (%d), size:%d\n",
-		AREA_ID_STR(area), offset, offset, size);
-
 	return 0;
 }
 
