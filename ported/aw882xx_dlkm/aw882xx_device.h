@@ -110,17 +110,26 @@ enum AW_ALGO_AUTH_STATUS {
 };
 
 struct aw_device_ops {
+	int (*aw_get_version)(char *buf, int size);
+	int (*aw_get_dev_num)(void);
 	int (*aw_i2c_write)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int reg_data);
 	int (*aw_i2c_read)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int *reg_data);
 	int (*aw_i2c_write_bits)(struct i2c_client *i2c, unsigned char reg_addr, unsigned int mask, unsigned int reg_data);
 	unsigned int (*aw_reg_val_to_db)(unsigned int value);
 	unsigned int (*aw_db_val_to_reg)(unsigned int value);
-	int (*aw_get_version)(char *buf, int size);
-	int (*aw_get_dev_num)(void);
 	unsigned int (*aw_get_irq_type)(struct aw_device *aw_dev, unsigned int value);
 	void (*aw_reg_force_set)(struct aw_device *aw_dev);
 	int (*aw_frcset_check)(struct aw_device *aw_dev);
 	int (*aw_get_voltage_offset)(struct aw_device *aw_dev, int *offset);
+};
+
+/* g3s: stock bit-field descriptor {name, reg, mask, enable, disable} (0x18 bytes), see aw_dev_switch() */
+struct aw_btn_desc {
+	const char *name;
+	unsigned int reg;
+	unsigned int mask;
+	unsigned int enable;
+	unsigned int disable;
 };
 
 struct aw_int_desc {
@@ -142,26 +151,11 @@ struct aw_soft_rst {
 	int reg_value;
 };
 
-struct aw_pwd_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_pwd_desc aw_btn_desc
 
-struct aw_amppd_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_amppd_desc aw_btn_desc
 
-struct aw_bop_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disbale;
-};
+#define aw_bop_desc aw_btn_desc
 
 struct aw_vcalb_desc {
 	unsigned int icalk_reg;
@@ -189,19 +183,9 @@ struct aw_vcalb_desc {
 	int vcal_factor;
 };
 
-struct aw_mute_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_mute_desc aw_btn_desc
 
-struct aw_uls_hmute_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_uls_hmute_desc aw_btn_desc
 
 struct aw_txen_desc {
 	unsigned int reg;
@@ -304,38 +288,15 @@ struct aw_ef_lock_desc {
 	struct aw_ef_lock_item item[2];
 };
 
-struct aw_dither_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_dither_desc aw_btn_desc
 
-struct aw_noise_gate_desc {
-	unsigned int reg;
-	unsigned int mask;
-};
+#define aw_noise_gate_desc aw_btn_desc
 
-struct aw_psm_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_psm_desc aw_btn_desc
 
-struct aw_mpd_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_mpd_desc aw_btn_desc
 
-struct aw_dsmzth_desc {
-	unsigned int reg;
-	unsigned int mask;
-	unsigned int enable;
-	unsigned int disable;
-};
+#define aw_dsmzth_desc aw_btn_desc
 
 struct aw_auth_desc {
 	uint8_t reg_in;
@@ -361,75 +322,92 @@ struct algo_auth_data {
 
 
 struct aw_device {
-	int status;
-	unsigned int chip_id;
-	unsigned int monitor_start;
-	int bstcfg_enable;
-	int frcset_en;
-	int bop_en;
-	int efuse_check;
-	int fade_en;
-	unsigned int mute_st;
-	unsigned int amppd_st;
-	unsigned int dither_st;
-	unsigned int txen_st;
+	int status;				/* +0x00 */
+	unsigned int chip_id;			/* +0x04 */
+	unsigned int monitor_start;		/* +0x08 */
+	int frcset_en;				/* +0x0c */
+	int bop_en;				/* +0x10 */
+	int efuse_check;			/* +0x14 */
+	int fade_en;				/* +0x18 */
+	int reg_max;				/* +0x1c */
+	unsigned int mute_st;			/* +0x20 */
+	unsigned int amppd_st;			/* +0x24 */
+	unsigned int dither_st;			/* +0x28 */
+	unsigned int txen_st;			/* +0x2c */
 
-	unsigned char cur_prof;  /*current profile index*/
-	unsigned char set_prof;  /*set profile index*/
-	unsigned int channel;    /*pa channel select*/
-	unsigned int vol_step;
-	unsigned int re_max;
-	unsigned int re_min;
-	unsigned int f0_max;
-	unsigned int f0_min;
-	int voltage_offset_debug;
-	int32_t voltage_offset;
-	bool pll_check_disable;	/* g3r: DT "pll-check-disable", stock byte +0x4c */
+	unsigned char cur_prof;			/* +0x30 current profile index */
+	unsigned char set_prof;			/* +0x31 set profile index */
+	unsigned int channel;			/* +0x34 pa channel select */
+	unsigned int vol_step;			/* +0x38 */
+	unsigned int re_max;			/* +0x3c */
+	unsigned int re_min;			/* +0x40 */
+	int voltage_offset_debug;		/* +0x44 */
+	int32_t voltage_offset;			/* +0x48 */
+	bool pll_check_disable;			/* +0x4c g3r: DT "pll-check-disable" */
 
-	struct device *dev;
-	struct i2c_client *i2c;
-	char monitor_name[AW_NAME_MAX];
-	void *private_data;
+	struct device *dev;			/* +0x50 */
+	struct i2c_client *i2c;			/* +0x58 */
+	char monitor_name[AW_NAME_MAX];		/* +0x60 */
+	struct workqueue_struct *work_queue;	/* +0x98: g3u: the stock keeps the (monitor/fw) workqueue here, set in codec_probe */
 
-	struct aw_int_desc int_desc;
-	struct aw_work_mode work_mode;
-	struct aw_pwd_desc pwd_desc;
-	struct aw_amppd_desc amppd_desc;
-	struct aw_mute_desc mute_desc;
-	struct aw_uls_hmute_desc uls_hmute_desc;
-	struct aw_txen_desc txen_desc;
-	struct aw_vcalb_desc vcalb_desc;
-	struct aw_sysst_desc sysst_desc;
-	struct aw_profctrl_desc profctrl_desc;
-	struct aw_bstctrl_desc bstctrl_desc;
-	struct aw_cco_mux_desc cco_mux_desc;
-	struct aw_voltage_desc voltage_desc;
-	struct aw_temperature_desc temp_desc;
-	struct aw_ipeak_desc ipeak_desc;
-	struct aw_volume_desc volume_desc;
-	struct aw_prof_info prof_info;
-	struct aw_cali_desc cali_desc;
-	struct aw_monitor_desc monitor_desc;
-	struct aw_soft_rst soft_rst;
-	struct aw_spin_desc spin_desc;
-	struct aw_bop_desc bop_desc;
-	struct aw_efcheck_desc efcheck_desc;
-	struct aw_ef_lock_desc ef_lock_desc;
-	struct aw_dither_desc dither_desc;
-	struct aw_noise_gate_desc noise_gate_desc;
-	struct aw_psm_desc psm_desc;
-	struct aw_mpd_desc mpd_desc;
-	struct aw_dsmzth_desc dsmzth_desc;
-	struct aw_auth_desc auth_desc;
-	/* g3m: data driven replacements of the per-pid volume/access/num functions */
-	int reg_max;
-	unsigned int vol_reg;
-	unsigned int vol_shift;
-	unsigned int vol_mask;
-	struct aw_device_ops ops;
-	struct list_head list_node;
-	unsigned char g3n_cmm[0x498];	/* g3n: overlay of the stock layout written by aw_dev_init_cmm (unused otherwise) */
+	struct aw_ef_lock_desc ef_lock_desc;	/* +0xa0 */
+	struct aw_efcheck_desc efcheck_desc;	/* +0xbc */
+	struct aw_profctrl_desc profctrl_desc;	/* +0xcc */
+	struct aw_bstctrl_desc bstctrl_desc;	/* +0xdc */
+	struct aw_int_desc int_desc;		/* +0xf0 */
+	struct aw_work_mode work_mode;		/* +0x100 */
+	struct aw_pwd_desc pwd_desc;		/* +0x110 */
+	struct aw_amppd_desc amppd_desc;	/* +0x128 */
+	struct aw_mute_desc mute_desc;		/* +0x140 (hmute) */
+	struct aw_uls_hmute_desc uls_hmute_desc;/* +0x158 */
+	struct aw_txen_desc txen_desc;		/* +0x170 */
+	struct aw_vcalb_desc vcalb_desc;	/* +0x184 */
+	struct aw_sysst_desc sysst_desc;	/* +0x1d8 */
+	struct aw_cco_mux_desc cco_mux_desc;	/* +0x1ec */
+	struct aw_voltage_desc voltage_desc;	/* +0x1fc */
+	struct aw_temperature_desc temp_desc;	/* +0x208 */
+	struct aw_ipeak_desc ipeak_desc;	/* +0x214 */
+	struct aw_volume_desc volume_desc;	/* +0x21c */
+	struct aw_prof_info prof_info;		/* +0x238 */
+	struct aw_cali_desc cali_desc;		/* +0x250 */
+	struct aw_monitor_desc monitor_desc;	/* +0x268 */
+	struct aw_soft_rst soft_rst;		/* +0x388 */
+	struct aw_spin_desc spin_desc;		/* +0x390 */
+	struct aw_bop_desc bop_desc;		/* +0x3b0 */
+	struct aw_dither_desc dither_desc;	/* +0x3c8 */
+	struct aw_noise_gate_desc noise_gate_desc;	/* +0x3e0 */
+	struct aw_psm_desc psm_desc;		/* +0x3f8 */
+	struct aw_mpd_desc mpd_desc;		/* +0x410 */
+	struct aw_dsmzth_desc dsmzth_desc;	/* +0x428 */
+	struct aw_auth_desc auth_desc;		/* +0x440 */
+	struct aw_device_ops ops;		/* +0x458 */
+	struct list_head list_node;		/* +0x4b0 */
 };
+
+#define AW_DEV_OFF_CHECK(f, o) static_assert(offsetof(struct aw_device, f) == (o), "aw_device." #f)
+AW_DEV_OFF_CHECK(pll_check_disable, 0x4c);
+AW_DEV_OFF_CHECK(monitor_name, 0x60);
+AW_DEV_OFF_CHECK(ef_lock_desc, 0xa0);
+AW_DEV_OFF_CHECK(profctrl_desc, 0xcc);
+AW_DEV_OFF_CHECK(bstctrl_desc, 0xdc);
+AW_DEV_OFF_CHECK(int_desc, 0xf0);
+AW_DEV_OFF_CHECK(pwd_desc, 0x110);
+AW_DEV_OFF_CHECK(txen_desc, 0x170);
+AW_DEV_OFF_CHECK(vcalb_desc, 0x184);
+AW_DEV_OFF_CHECK(sysst_desc, 0x1d8);
+AW_DEV_OFF_CHECK(cco_mux_desc, 0x1ec);
+AW_DEV_OFF_CHECK(volume_desc, 0x21c);
+AW_DEV_OFF_CHECK(prof_info, 0x238);
+AW_DEV_OFF_CHECK(cali_desc, 0x250);
+AW_DEV_OFF_CHECK(monitor_desc, 0x268);
+AW_DEV_OFF_CHECK(soft_rst, 0x388);
+AW_DEV_OFF_CHECK(spin_desc, 0x390);
+AW_DEV_OFF_CHECK(bop_desc, 0x3b0);
+AW_DEV_OFF_CHECK(dsmzth_desc, 0x428);
+AW_DEV_OFF_CHECK(auth_desc, 0x440);
+AW_DEV_OFF_CHECK(ops, 0x458);
+AW_DEV_OFF_CHECK(list_node, 0x4b0);
+static_assert(sizeof(struct aw_device) == 0x4c0, "sizeof(struct aw_device)");
 
 #define AW_REG_RD_ACCESS	(1 << 0)
 #define AW_REG_WR_ACCESS	(1 << 1)

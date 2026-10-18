@@ -14,9 +14,9 @@
 #define CMM_PTR(o, s) put_unaligned((unsigned long)(s), (unsigned long *)(p + (o)))
 #define CMM_FN(o, f) put_unaligned((unsigned long)(f), (unsigned long *)(p + (o)))
 
-void aw_dev_init_cmm(struct aw_device *aw_dev)
+noinline void aw_dev_init_cmm(struct aw_device *aw_dev)
 {
-	u8 *p = aw_dev->g3n_cmm;
+	u8 *p = (u8 *)aw_dev;
 
 	CMM_FN(0x480, aw_direct_reg_val_to_db); /* .text+0x10af8 */
 	CMM_FN(0x488, aw_direct_db_val_to_reg); /* .text+0x10b00 */

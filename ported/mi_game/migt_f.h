@@ -20,10 +20,10 @@ static unsigned long ceiling_next_update;
 static unsigned int render_pid = -1U;	/* stock .data value 0xffffffff (G1ah) */
 
 /* cmd 1: the game signals a frame ("boost coming") */
-static __always_inline void migt_ioctl_boost(void)
+static __always_inline void migt_ioctl_boost(struct task_struct *cur)
 {
-	unsigned int uid = current_uid().val;
-	int thresh;
+	unsigned int uid = cur->cred->uid.val;
+	long thresh;
 
 	trigger_mist_load_tracking(migt_wq);
 	if (uid != last_traced_uid) {
@@ -41,28 +41,28 @@ static __always_inline void migt_ioctl_boost(void)
 	}
 	debugfs_walt_features = (debugfs_walt_features & ~1) | !!migt_walt_features;
 	if (migt_boost_policy) {
-		update_render_info(current, 0);
+		update_render_info(cur, 0);
 		if (migt_enabled && migt_boost_policy) {
-			thresh = migt_thresh;
+			thresh = (int)migt_thresh;
 			notify_gflt_frame_period_thresh(thresh);
 			sys_migt_count++;
 			if (sys_migt_count > first_lunch_fps && migt_boost_policy >= 2) {
-				if (sys_migt_count % itask_detect_interval == 0 || current->pid != render_pid) {
+				if (__builtin_expect_with_probability(sys_migt_count % itask_detect_interval == 0 || cur->pid != render_pid, 1, 0.1)) {
 					glk_freq_limit_start = 1;
-					if (current->pid != render_pid) {
+					if (cur->pid != render_pid) {
 						if (unlikely(migt_debug))
 							printk(KERN_INFO "migt: render pid change from %d to %d\n", render_pid,
-							       current->pid);
+							       cur->pid);
 						if (!render_update)
 							goto after_add;
 					}
-					add_work_to_migt(current_uid().val);
+					add_work_to_migt(cur->cred->uid.val);
 				}
 			}
 after_add:
 			if (sys_migt_count <= first_lunch_fps)
 				glk_freq_limit_start = 0;
-			render_pid = current->pid;
+			render_pid = cur->pid;
 			{
 				u64 now = sched_clock();
 
@@ -103,66 +103,43 @@ after_add:
 		migt_item_index = (u32)atomic_inc_return((atomic_t *)&migt_item_index) % 10;
 }
 
-/* cmd 4: remember the traced uid in the 10-entry ceiling user list (oldest dropped) */
+/* cmd 4: remember the traced uid in the 10-entry ceiling user list (oldest dropped); G1al: signed ints + plain loops (the stock compiler unrolls them fully) */
 static __always_inline void migt_ioctl_ceiling_user(void)
 {
-	unsigned int n = ceiling_users[10], uid = last_traced_uid, cnt = min(n, 10U), i;
+	int n = ceiling_users[10], uid = last_traced_uid, cnt = min(n, 10), i;
 
 	if (unlikely(migt_debug)) {
 		printk(KERN_INFO "--------ceiling_user list--------\n");
-		/* the stock has the 10 prints unrolled with an exit test after each */
-#define CU_PRINT(k) do { if ((k) < n) printk(KERN_INFO "%d ", ceiling_users[k]); else goto printed; } while (0)
-		CU_PRINT(0); CU_PRINT(1); CU_PRINT(2); CU_PRINT(3); CU_PRINT(4);
-		CU_PRINT(5); CU_PRINT(6); CU_PRINT(7); CU_PRINT(8); CU_PRINT(9);
-#undef CU_PRINT
+		for (i = 0; i < cnt; i++)
+			printk(KERN_INFO "%d ", ceiling_users[i]);
 	}
-printed:
 	for (i = 0; i < cnt; i++)
 		if (ceiling_users[i] == uid)
 			return;
 	if (unlikely(migt_debug))
 		printk(KERN_INFO "\nadd uid %d to ceiling users\n", uid);
 	if (n >= 10) {
-		unsigned int m = n - 1;
-
-		/* the stock shifts the list down with an unrolled copy that stops after m entries */
-#define CU_SHIFT(k) do { ceiling_users[k] = ceiling_users[(k) + 1]; if (m == (k) + 1) goto shifted; } while (0)
-		if (n >= 2) {
-			CU_SHIFT(0); CU_SHIFT(1); CU_SHIFT(2); CU_SHIFT(3); CU_SHIFT(4); CU_SHIFT(5); CU_SHIFT(6); CU_SHIFT(7);
-			ceiling_users[8] = ceiling_users[9];
-		}
-#undef CU_SHIFT
-shifted:
+		for (i = 0; i < cnt - 1; i++)
+			ceiling_users[i] = ceiling_users[i + 1];
 		ceiling_users[9] = uid;
 		return;
 	}
-	ceiling_users[cnt] = uid;
+	ceiling_users[i] = uid;
 	ceiling_users[10]++;
 }
 
 static __used long migt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	struct frame_sf sf = {};
+	struct task_struct *cur = current;
 	int v = 0;
+	struct frame_sf sf = {};
 
 	if (unlikely(migt_debug))
-		printk(KERN_ERR "migt: migt boost comming. uid %d %d %d %llu", current_uid().val, 1117, cmd & 0xff,
+		printk(KERN_ERR "migt: migt boost comming. uid %d %d %d %llu", cur->cred->uid.val, 1117, cmd & 0xff,
 		       ktime_to_us(ktime_get()));
 	switch (cmd & 0xff) {
 	case 1:
-		migt_ioctl_boost();
-		break;
-	case 3:
-		update_render_info(current, 1);
-		break;
-	case 4:
-		migt_ioctl_ceiling_user();
-		break;
-	case 7:
-		flt_adjust_dequeue();
-		break;
-	case 8:
-		flt_update_gpu(arg);
+		migt_ioctl_boost(cur);
 		break;
 	case 9:
 		if ((cmd & 0x3fff0000) != 0x200000)
@@ -173,6 +150,9 @@ static __used long migt_ioctl(struct file *file, unsigned int cmd, unsigned long
 			break;
 		flt_update_fps_time(sf.vsyncPeriod);
 		flt_update_sf(&sf);
+		break;
+	case 3:
+		update_render_info(cur, 1);
 		break;
 	case 10:
 		if (copy_from_user(&v, (void __user *)arg, sizeof(v)))
@@ -186,6 +166,15 @@ static __used long migt_ioctl(struct file *file, unsigned int cmd, unsigned long
 		if (unlikely(migt_debug))
 			printk_deferred("FENCE_PENDING\n");
 		flt_update_fence_pending();
+		break;
+	case 4:
+		migt_ioctl_ceiling_user();
+		break;
+	case 7:
+		flt_adjust_dequeue();
+		break;
+	case 8:
+		flt_update_gpu(arg);
 		break;
 	default:
 		break;

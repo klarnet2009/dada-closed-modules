@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _fd12.sh <func...>: disassembly diff stock vs ThinLTO emulation (server g12c); env OB=1 -> multiset diff (opb.py, V=1 shows lines, MIN=n), HEADN=n lines
+# _fd12.sh <func...>: disassembly diff stock vs ThinLTO emulation (server g12d); env OB=1 -> multiset diff (opb.py, V=1 shows lines, MIN=n), HEADN=n lines
 S="ssh -i <ssh-key-file> -o BatchMode=yes <user>@<build-server>"
 if [ -n "$OB" ]; then
  ssh -i "<ssh-key-file>" -o BatchMode=yes <user>@<build-server> "cd <work-dir> && MOD=mitee_dlkm MIN='$MIN' V='$V' python3 tools2/opb.py $*"

@@ -83,18 +83,23 @@ int aw882xx_dev_algo_auth_get(struct aw_device *aw_dev, struct algo_auth_data *a
 int aw882xx_dev_check_ef_lock(struct aw_device *aw_dev)
 {
 	unsigned int val = 0;
-	unsigned int i;
+	struct aw_ef_lock_desc *desc = &aw_dev->ef_lock_desc;
 
-	if (!aw_dev->ef_lock_desc.num)
+	/* stock (unrolled): every item must match (reg value & ~mask) == value; num > 2 traps (array bound, brk 0x5512 in the stock) */
+	if (!desc->num)
 		return 0;
 
-	for (i = 0; i < aw_dev->ef_lock_desc.num && i < ARRAY_SIZE(aw_dev->ef_lock_desc.item); i++) {
-		struct aw_ef_lock_item *it = &aw_dev->ef_lock_desc.item[i];
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->item[0].reg, &val);
+	if ((val & ~desc->item[0].mask) != desc->item[0].value)
+		return -EINVAL;
+	if (desc->num < 2)
+		return 0;
 
-		aw_dev->ops.aw_i2c_read(aw_dev->i2c, it->reg, &val);
-		if ((val & ~it->mask) != it->value)
-			return -EINVAL;
-	}
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c, desc->item[1].reg, &val);
+	if ((val & ~desc->item[1].mask) != desc->item[1].value)
+		return -EINVAL;
+	if (desc->num >= 3)
+		__builtin_trap();
 	return 0;
 }
 
@@ -508,14 +513,10 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 	int i = 0;
 	unsigned int reg_addr = 0;
 	unsigned int reg_val = 0;
-	unsigned int read_val = 0;
-	unsigned int read_vol = 0;
-	unsigned int efcheck_val = 0;
 	struct aw_int_desc *int_desc = &aw_dev->int_desc;
 	struct aw_profctrl_desc *profctrl_desc = &aw_dev->profctrl_desc;
 	struct aw_bstctrl_desc *bstctrl_desc = &aw_dev->bstctrl_desc;
 	struct aw_work_mode *work_mode = &aw_dev->work_mode;
-	struct aw_cali_desc *cali_desc = &aw_dev->cali_desc;
 	struct aw_volume_desc *vol_desc = &aw_dev->volume_desc;
 	struct aw_sec_data_desc *reg_data;
 	int16_t *data;
@@ -544,97 +545,56 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 			reg_val = int_desc->mask_default;
 		}
 
-		if (aw_dev->bstcfg_enable) {
-			if (reg_addr == profctrl_desc->reg) {
-				profctrl_desc->cfg_prof_mode =
-					reg_val & (~profctrl_desc->mask);
-			}
+		if (profctrl_desc->reg != AW_REG_NONE) {
+			if (reg_addr == profctrl_desc->reg)
+				profctrl_desc->cfg_prof_mode = reg_val & (~profctrl_desc->mask);
 
-			if (reg_addr == bstctrl_desc->reg) {
-				bstctrl_desc->cfg_bst_type =
-					reg_val & (~bstctrl_desc->mask);
-			}
+			if (reg_addr == bstctrl_desc->reg)
+				bstctrl_desc->cfg_bst_type = reg_val & (~bstctrl_desc->mask);
 		}
 
-		/*keep amppd status*/
+		/* g3s: the stock forces amppd / pwd / hmute / uls hmute to the "enable" (off) value while loading the table */
 		if (reg_addr == aw_dev->amppd_desc.reg) {
-			aw_dev->amppd_st = reg_val & (~aw_dev->amppd_desc.mask);
-			aw_dev_info(aw_dev->dev, "amppd_st=0x%04x", aw_dev->amppd_st);
-			aw_dev->ops.aw_i2c_read(aw_dev->i2c,
-			(unsigned char)reg_addr,
-			(unsigned int *)&read_val);
-			read_val &= (~aw_dev->amppd_desc.mask);
 			reg_val &= aw_dev->amppd_desc.mask;
-			reg_val |= read_val;
+			reg_val |= aw_dev->amppd_desc.enable;
 		}
 
-		if (reg_addr == aw_dev->efcheck_desc.reg) {
-			efcheck_val = reg_val & (~aw_dev->efcheck_desc.mask);
-			if (efcheck_val == aw_dev->efcheck_desc.or_val)
-				aw_dev->efuse_check = AW_EF_OR_CHECK;
-			else
-				aw_dev->efuse_check = AW_EF_AND_CHECK;
-
+		if (aw_dev->efcheck_desc.reg != AW_REG_NONE && reg_addr == aw_dev->efcheck_desc.reg) {
+			aw_dev->efuse_check = (reg_val & (~aw_dev->efcheck_desc.mask)) == aw_dev->efcheck_desc.or_val;
 			aw_dev_info(aw_dev->dev, "efuse check: %d", aw_dev->efuse_check);
 		}
 
-		if (reg_addr == work_mode->reg) {
-			if ((reg_val & (~work_mode->mask)) == work_mode->rcv_val)
-				aw_dev->monitor_start = false;
-			else
-				aw_dev->monitor_start = true;
-		}
+		if (reg_addr == work_mode->reg)
+			aw_dev->monitor_start = (reg_val & (~work_mode->mask)) != work_mode->rcv_val;
 
-		/*keep pwd status*/
 		if (reg_addr == aw_dev->pwd_desc.reg) {
-			aw_dev->ops.aw_i2c_read(aw_dev->i2c,
-			(unsigned char)reg_addr,
-			(unsigned int *)&read_val);
-			read_val &= (~aw_dev->pwd_desc.mask);
 			reg_val &= aw_dev->pwd_desc.mask;
-			reg_val |= read_val;
-		}
-		/*keep mute status*/
-		if (reg_addr == aw_dev->mute_desc.reg) {
-			/*get bin value*/
-			aw_dev->mute_st = reg_val & (~aw_dev->mute_desc.mask);
-			aw_dev_info(aw_dev->dev, "mute_st=0x%04x", aw_dev->mute_st);
-			aw_dev->ops.aw_i2c_read(aw_dev->i2c,
-			(unsigned char)reg_addr,
-			(unsigned int *)&read_val);
-			read_val &= (~aw_dev->mute_desc.mask);
-			reg_val &= aw_dev->mute_desc.mask;
-			reg_val |= read_val;
+			reg_val |= aw_dev->pwd_desc.enable;
 		}
 
-		/*enable uls hmute*/
+		if (reg_addr == aw_dev->mute_desc.reg) {
+			reg_val &= aw_dev->mute_desc.mask;
+			reg_val |= aw_dev->mute_desc.enable;
+		}
+
 		if (reg_addr == aw_dev->uls_hmute_desc.reg) {
 			reg_val &= aw_dev->uls_hmute_desc.mask;
 			reg_val |= aw_dev->uls_hmute_desc.enable;
 		}
 
-		if ((cali_desc->mode == AW_CALI_MODE_NONE) &&
-				(reg_addr == aw_dev->txen_desc.reg)) {
-			aw_dev->txen_desc.reserve_val = reg_val & (~aw_dev->txen_desc.mask);
-			aw_dev_info(aw_dev->dev, "reserve_val = 0x%04x",
-						aw_dev->txen_desc.reserve_val);
-		}
-
 		if (reg_addr == aw_dev->txen_desc.reg) {
-			/*get bin value*/
-			aw_dev->txen_st = reg_val & (~aw_dev->txen_desc.mask);
-			aw_dev_dbg(aw_dev->dev, "txen_st=0x%04x", aw_dev->txen_st);
-
+			aw_dev->txen_desc.reserve_val = reg_val & (~aw_dev->txen_desc.mask);
+			aw_dev_info(aw_dev->dev, "cfg_val = 0x%04x", aw_dev->txen_desc.reserve_val);
 			reg_val &= aw_dev->txen_desc.mask;
 			reg_val |= aw_dev->txen_desc.disable;
 		}
 
-		if (reg_addr == aw_dev->volume_desc.reg) {
-			read_vol = (reg_val & (~aw_dev->volume_desc.mask)) >>
-				aw_dev->volume_desc.shift;
-			aw_dev->volume_desc.init_volume =
-				aw_dev->ops.aw_reg_val_to_db(read_vol);
+		if (reg_addr == vol_desc->reg) {
+			if (aw_dev->ops.aw_reg_val_to_db)
+				vol_desc->init_volume = aw_dev->ops.aw_reg_val_to_db(
+						(reg_val & (~vol_desc->mask)) >> vol_desc->shift);
 		}
+
 		if (reg_addr == aw_dev->dither_desc.reg) {
 			aw_dev->dither_st = reg_val & (~aw_dev->dither_desc.mask);
 			aw_dev_info(aw_dev->dev, "dither_st=0x%04x", aw_dev->dither_st);
@@ -643,8 +603,6 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 		if (reg_addr == aw_dev->vcalb_desc.vcalb_reg)
 			continue;
 
-		aw_dev_dbg(aw_dev->dev, "reg=0x%04x, val = 0x%04x",
-			(uint16_t)reg_addr, (uint16_t)reg_val);
 		ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c,
 			(unsigned char)reg_addr,
 			(unsigned int)reg_val);
@@ -663,7 +621,6 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 		/*clear control volume when PA change profile*/
 		vol_desc->ctl_volume = 0;
 
-
 	if (aw_dev->fade_en) {
 		/*keep min volume*/
 		aw882xx_dev_set_volume(aw_dev, vol_desc->mute_volume);
@@ -676,46 +633,34 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 
 int aw882xx_dev_set_volume(struct aw_device *aw_dev, unsigned int set_vol)
 {
-	int ret = -1;
-	unsigned int hw_vol = 0;
 	struct aw_volume_desc *vol_desc = &aw_dev->volume_desc;
+	unsigned int hw_vol = 0;
+	unsigned int reg_value = 0;
 
-	hw_vol = set_vol + vol_desc->init_volume;
+	/* g3s: as the stock: clamp, optional dB -> reg conversion, read-modify-write of volume_desc.reg */
+	hw_vol = AW_GET_MIN_VALUE(vol_desc->init_volume + set_vol, (unsigned int)vol_desc->mute_volume);
+	if (aw_dev->ops.aw_db_val_to_reg)
+		hw_vol = aw_dev->ops.aw_db_val_to_reg(hw_vol);
 
-	{
-		unsigned int reg_value = 0;
-		unsigned int real_value = aw_dev->ops.aw_db_val_to_reg(AW_GET_MIN_VALUE(hw_vol, vol_desc->mute_volume));
-
-		aw_dev->ops.aw_i2c_read(aw_dev->i2c, aw_dev->vol_reg, &reg_value);
-		real_value = (real_value << aw_dev->vol_shift) | (reg_value & ~aw_dev->vol_mask);
-		aw_dev->ops.aw_i2c_write(aw_dev->i2c, aw_dev->vol_reg, real_value);
-		ret = 0;
-	}
-	if (ret < 0) {
-		aw_dev_err(aw_dev->dev, "set volume failed");
-		return ret;
-	}
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c, vol_desc->reg, &reg_value);
+	aw_dev->ops.aw_i2c_write(aw_dev->i2c, vol_desc->reg,
+			(vol_desc->mask & reg_value) | (hw_vol << vol_desc->shift));
 
 	return 0;
 }
 
 int aw882xx_dev_get_volume(struct aw_device *aw_dev, unsigned int *get_vol)
 {
-	int ret = -1;
-	unsigned int hw_vol = 0;
 	struct aw_volume_desc *vol_desc = &aw_dev->volume_desc;
+	unsigned int hw_vol = 0;
+	unsigned int reg_value = 0;
 
-	{
-		unsigned int reg_value = 0;
-
-		aw_dev->ops.aw_i2c_read(aw_dev->i2c, aw_dev->vol_reg, &reg_value);
-		hw_vol = aw_dev->ops.aw_reg_val_to_db((reg_value & aw_dev->vol_mask) >> aw_dev->vol_shift);
-		ret = 0;
-	}
-	if (ret < 0) {
-		aw_dev_err(aw_dev->dev, "read volume failed");
-		return ret;
-	}
+	/* g3s: as the stock (clamp to mute_volume first, then the optional reg -> dB conversion) */
+	aw_dev->ops.aw_i2c_read(aw_dev->i2c, vol_desc->reg, &reg_value);
+	hw_vol = (reg_value & ~vol_desc->mask) >> vol_desc->shift;
+	hw_vol = AW_GET_MIN_VALUE(hw_vol, (unsigned int)vol_desc->mute_volume);
+	if (aw_dev->ops.aw_reg_val_to_db)
+		hw_vol = aw_dev->ops.aw_reg_val_to_db(hw_vol);
 
 	*get_vol = hw_vol - vol_desc->init_volume;
 
@@ -775,40 +720,22 @@ static void aw_dev_fade_out(struct aw_device *aw_dev)
 	}
 }
 
+/* g3s: the common switch of the stock (local, inlined everywhere): {name, reg, mask, enable, disable} + "%s set %d done" */
+static __always_inline void aw_dev_switch(struct aw_device *aw_dev, struct aw_btn_desc *btn, bool state)
+{
+	aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, btn->reg, btn->mask,
+				state ? btn->enable : btn->disable);
+	aw_dev_info(aw_dev->dev, "%s set %d done", btn->name, state);
+}
+
 static void aw_dev_pwd(struct aw_device *aw_dev, bool pwd)
 {
-	struct aw_pwd_desc *pwd_desc = &aw_dev->pwd_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, pwd: %d", pwd);
-
-	if (pwd) {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, pwd_desc->reg,
-				pwd_desc->mask,
-				pwd_desc->enable);
-	} else {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, pwd_desc->reg,
-				pwd_desc->mask,
-				pwd_desc->disable);
-	}
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->pwd_desc, pwd);
 }
 
 static void aw_dev_amppd(struct aw_device *aw_dev, bool amppd)
 {
-	struct aw_amppd_desc *amppd_desc = &aw_dev->amppd_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, amppd: %d", amppd);
-
-	if (amppd) {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, amppd_desc->reg,
-				amppd_desc->mask,
-				amppd_desc->enable);
-	} else {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, amppd_desc->reg,
-				amppd_desc->mask,
-				amppd_desc->disable);
-	}
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->amppd_desc, amppd);
 }
 
 void aw882xx_dev_mute(struct aw_device *aw_dev, bool mute)
@@ -835,99 +762,27 @@ void aw882xx_dev_mute(struct aw_device *aw_dev, bool mute)
 
 static void aw_dev_uls_hmute(struct aw_device *aw_dev, bool uls_hmute)
 {
-	struct aw_uls_hmute_desc *uls_hmute_desc = &aw_dev->uls_hmute_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, uls_hmute: %d", uls_hmute);
-
-	if (uls_hmute_desc->reg == AW_REG_NONE)
-		return;
-
-	if (uls_hmute) {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, uls_hmute_desc->reg,
-				uls_hmute_desc->mask,
-				uls_hmute_desc->enable);
-	} else {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, uls_hmute_desc->reg,
-				uls_hmute_desc->mask,
-				uls_hmute_desc->disable);
-	}
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->uls_hmute_desc, uls_hmute);
 }
 
 static void aw_dev_set_dither(struct aw_device *aw_dev, bool dither)
 {
-	struct aw_dither_desc *dither_desc = &aw_dev->dither_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, dither: %d", dither);
-
-	if (dither_desc->reg == AW_REG_NONE)
-		return;
-
-	if (dither) {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, dither_desc->reg,
-				dither_desc->mask,
-				dither_desc->enable);
-	} else {
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, dither_desc->reg,
-				dither_desc->mask,
-				dither_desc->disable);
-	}
-
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->dither_desc, dither);
 }
 
 static void aw_dev_set_psm(struct aw_device *aw_dev, bool psm)
 {
-	struct aw_psm_desc *desc = &aw_dev->psm_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, psm: %d", psm);
-	if (desc->reg == AW_REG_NONE)
-		return;
-
-	if (psm)
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->enable);
-	else
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->disable);
-
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->psm_desc, psm);
 }
 
 static void aw_dev_set_mpd(struct aw_device *aw_dev, bool mpd)
 {
-	struct aw_mpd_desc *desc = &aw_dev->mpd_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, mpd: %d", mpd);
-	if (desc->reg == AW_REG_NONE)
-		return;
-
-	if (mpd)
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->enable);
-	else
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->disable);
-
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->mpd_desc, mpd);
 }
 
 static void aw_dev_set_dsmzth(struct aw_device *aw_dev, bool dsmzth)
 {
-	struct aw_dsmzth_desc *desc = &aw_dev->dsmzth_desc;
-
-	aw_dev_dbg(aw_dev->dev, "enter, dsmzth: %d", dsmzth);
-	if (desc->reg == AW_REG_NONE)
-		return;
-
-	if (dsmzth)
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->enable);
-	else
-		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, desc->reg,
-			desc->mask, desc->disable);
-
-	aw_dev_info(aw_dev->dev, "done");
+	aw_dev_switch(aw_dev, &aw_dev->dsmzth_desc, dsmzth);
 }
 
 void aw882xx_dev_iv_forbidden_output(struct aw_device *aw_dev, bool power_waste)
@@ -966,14 +821,15 @@ void aw882xx_dev_clear_int_status(struct aw_device *aw_dev)
 int aw882xx_dev_set_intmask(struct aw_device *aw_dev, bool flag)
 {
 	struct aw_int_desc *desc = &aw_dev->int_desc;
-	int ret = -1;
+	int ret;
 
-	if (flag)
-		ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c, desc->mask_reg,
-					desc->int_mask);
-	else
-		ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c, desc->mask_reg,
-					desc->mask_default);
+	if (flag && aw_dev->status != AW_DEV_PW_OFF) {
+		ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c, desc->mask_reg, desc->int_mask);
+	} else {
+		if (flag)
+			aw_dev_info(aw_dev->dev, "PA is OFF, close intmask");
+		ret = aw_dev->ops.aw_i2c_write(aw_dev->i2c, desc->mask_reg, desc->mask_default);
+	}
 	aw_dev_info(aw_dev->dev, "done");
 	return ret;
 }
@@ -1284,7 +1140,7 @@ static void aw_dev_boost_type_set(struct aw_device *aw_dev)
 
 	aw_dev_dbg(aw_dev->dev, "enter");
 
-	if (aw_dev->bstcfg_enable) {
+	if (profctrl_desc->reg != AW_REG_NONE && bstctrl_desc->reg != AW_REG_NONE) {
 		/*set spk mode*/
 		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, profctrl_desc->reg,
 				profctrl_desc->mask, profctrl_desc->spk_mode);
@@ -1305,7 +1161,7 @@ static void aw_dev_boost_type_recover(struct aw_device *aw_dev)
 
 	aw_dev_dbg(aw_dev->dev, "enter");
 
-	if (aw_dev->bstcfg_enable) {
+	if (profctrl_desc->reg != AW_REG_NONE && bstctrl_desc->reg != AW_REG_NONE) {
 		/*set transprant*/
 		aw_dev->ops.aw_i2c_write_bits(aw_dev->i2c, bstctrl_desc->reg,
 				bstctrl_desc->mask, bstctrl_desc->tsp_type);
@@ -1349,10 +1205,24 @@ void aw_dev_i2s_enable(struct aw_device *aw_dev, bool flag)
 }
 
 
+static void aw_dev_vol_offset_update(struct aw_device *aw_dev)
+{
+	int32_t offset = -1;
+
+	if (!aw_dev->ops.aw_get_voltage_offset) {
+		aw_dev_info(aw_dev->dev, "unsupport, ignore voltage offset update");
+		return;
+	}
+
+	aw_dev->ops.aw_get_voltage_offset(aw_dev, &offset);
+	if (aw_dev->voltage_offset_debug)
+		offset = aw_dev->voltage_offset;
+	aw882xx_dsp_write_vol_offset(aw_dev, offset);
+}
+
 int aw882xx_device_start(struct aw_device *aw_dev)
 {
 	int ret;
-	struct aw_dither_desc *dither_desc = &aw_dev->dither_desc;
 
 	aw_dev_dbg(aw_dev->dev, "enter");
 
@@ -1405,12 +1275,7 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 	aw_dev_boost_type_recover(aw_dev);
 
 	/*enable tx feedback*/
-	if (aw_dev->txen_st)
-		aw_dev_i2s_enable(aw_dev, true);
-
-	if (aw_dev->amppd_st)
-		aw_dev_amppd(aw_dev, true);
-
+	aw_dev_i2s_enable(aw_dev, true);
 
 	if (aw_dev->ops.aw_reg_force_set)
 		aw_dev->ops.aw_reg_force_set(aw_dev);
@@ -1418,17 +1283,11 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 	/*close uls hmute*/
 	aw_dev_uls_hmute(aw_dev, false);
 
-	if (aw_dev->dither_st == dither_desc->enable)
+	if (aw_dev->dither_st)
 		aw_dev_set_dither(aw_dev, true);
 
-
-	if (!aw_dev->mute_st) {
-		/*close mute*/
-		if (aw882xx_cali_check_result(&aw_dev->cali_desc))
-			aw882xx_dev_mute(aw_dev, false);
-		else
-			aw882xx_dev_mute(aw_dev, true);
-	}
+	/* g3s: stock: no mute_st / amppd_st / txen_st handling any more */
+	aw882xx_dev_mute(aw_dev, !aw882xx_cali_check_result(&aw_dev->cali_desc));
 
 	/*clear inturrupt*/
 	aw882xx_dev_clear_int_status(aw_dev);
@@ -1437,9 +1296,7 @@ int aw882xx_device_start(struct aw_device *aw_dev)
 
 	aw882xx_monitor_start(&aw_dev->monitor_desc);
 	aw_dev_cali_re_update(aw_dev);
-#ifdef AW_ALGO_AUTH_DSP
-	aw882xx_dev_algo_authentication(aw_dev);
-#endif
+	aw_dev_vol_offset_update(aw_dev);
 	aw_dev->status = AW_DEV_PW_ON;
 	aw_dev_info(aw_dev->dev, "done");
 	return 0;

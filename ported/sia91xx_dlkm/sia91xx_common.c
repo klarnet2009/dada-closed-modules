@@ -427,29 +427,30 @@ int sia91xx_mute(
 	if (stream != SNDRV_PCM_STREAM_PLAYBACK)
 		return 0;
 
-	if (!mute) {
-		if (si_pa->chip_type == 0x14)
-			pr_debug("[debug][%s] channel = %d, boost_pin_val = %d \n",
-				"sipa_91xx", si_pa->channel_num, gpio_get_value(si_pa->boost_pin));
-		return 0;
+	/* g3t: stock structure: the boost pin debug line (type 0x14) is the common tail of the unmute path AND of a successful mute */
+	if (mute) {
+		if (!si_pa->power_mode) {
+			pr_info("[debug][%s] %s: si_pa->power_mode is false, direct return!\n", "sipa_91xx", __func__);
+			return 0;
+		}
+
+		si_pa->power_mode = 0;
+		if (sia91xx_smartpa_soft_mute(si_pa)) {
+			int idx = (int)si_pa->chip_type - 0x14;
+			int level = ((unsigned int)idx <= 4u) ? g3m_rst_off_level[idx] : 1;
+
+			gpio_set_value(si_pa->rst_pin, level);
+			usleep_range(5000, 6000);
+			pr_err("[  err][%s] %s: sia91xx_smartpa_soft_mute failed \n", "sipa_91xx", __func__);
+			return -SIPA_ERROR_SOFT_MUTE;
+		}
+
+		pr_debug("[debug][%s] %s: device mute success \n", "sipa_91xx", __func__);
 	}
 
-	if (!si_pa->power_mode) {
-		pr_info("[debug][%s] %s: si_pa->power_mode is false, direct return!\n", "sipa_91xx", __func__);
-		return 0;
-	}
-
-	si_pa->power_mode = 0;
-	if (sia91xx_smartpa_soft_mute(si_pa)) {
-		int level = (si_pa->chip_type - 0x14 <= 4u) ? g3m_rst_off_level[si_pa->chip_type - 0x14] : 1;
-
-		gpio_set_value(si_pa->rst_pin, level);
-		usleep_range(5000, 6000);
-		pr_err("[  err][%s] %s: sia91xx_smartpa_soft_mute failed \n", "sipa_91xx", __func__);
-		return -SIPA_ERROR_SOFT_MUTE;
-	}
-
-	pr_debug("[debug][%s] %s: device mute success \n", "sipa_91xx", __func__);
+	if (si_pa->chip_type == 0x14)
+		pr_debug("[debug][%s] %s: channel = %d, boost_pin_val = %d \n",
+			"sipa_91xx", __func__, si_pa->channel_num, gpio_get_value(si_pa->boost_pin));
 	return 0;
 }
 

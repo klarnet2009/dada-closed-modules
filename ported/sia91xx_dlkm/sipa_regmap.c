@@ -397,7 +397,7 @@ void sipa_regmap_defaults(
 		LOG_FLAG, __func__, chip_type, channel_num);
 
 	if (NULL == regmap) {
-		pr_warn("[ warn][%s] %s: NULL == regmap \n",
+		pr_err("[  err][%s] %s: NULL == regmap \n",
 			LOG_FLAG, __func__);
 		return;
 	}
@@ -433,7 +433,7 @@ void sipa_regmap_defaults(
 
 	init_regs = (SIPA_REG_COMMON *)(data + init_list->offset);
 	for (i = 0; i < init_list->num; i++) {
-		ret = regmap_write(regmap, init_regs[i].addr, init_regs[i].val[scene]);
+		ret = sipa_write_reg(regmap, init_regs[i].addr, init_regs[i].val[scene]);
 		if (0 != ret) {
 			pr_warn("[ warn][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
 				LOG_FLAG, __func__, ret, chip_type, regmap, init_regs[i].addr);
@@ -627,8 +627,10 @@ bool sipa_regmap_get_chip_en(
 	uint8_t *data;
 	const SIPA_REG *reg_en = NULL;
 
-	if (NULL == si_pa)
+	if (NULL == si_pa) {
+		pr_err("[  err][%s] %s: si_pa is null \n", LOG_FLAG, __func__);
 		return false;
+	}
 
 	if (0 != verify_chip_type(si_pa->channel_num, si_pa->chip_type))
 		return false;
@@ -641,14 +643,17 @@ bool sipa_regmap_get_chip_en(
 	if (SIPA_MAX_REG_ADDR <= reg_en->addr)
 		return false;
 
-	// can use SIPA_REG_CHECK action to do this
-	if (0 != regmap_read(si_pa->regmap, reg_en->addr, &val))
+	/* g3t: stock: sipa_read_reg (5 retries) and an info line on a mismatch */
+	if (0 != sipa_read_reg(si_pa->regmap, reg_en->addr, &val))
 		return false;
-	
-	if ((val & reg_en->mask) == (reg_en->val & reg_en->mask))
-		return true;
 
-	return false;
+	if ((val ^ reg_en->val) & reg_en->mask) {
+		pr_info("[ info][%s] %s: addr:0x%x val:0x%x mask:%x  fw_val:%x  \n",
+			LOG_FLAG, __func__, reg_en->addr, val, reg_en->mask, reg_en->val);
+		return false;
+	}
+
+	return true;
 }
 
 void sipa_regmap_set_pvdd_limit(

@@ -1,5 +1,8 @@
 # mist - PARTIAL (67 of 70 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
 
+## G1ak (18.10.2026) - ThinLTO emulation now builds (first line unchanged)
+- Emulation: `DEFS="-DCONFIG_QCOM_DCVS=1 -DCONFIG_QCOM_PMU_LIB=1 -DCONFIG_QTI_SCMI_VENDOR_PROTOCOL=1 -DPERFC_FORGE_CRC=1" INCS="-I<src>/mist/include -I<build-dir>" q.sh mist` (the earlier failure was the missing include path of soc/qcom/mist_ext.h). Result: 3 of 76 functions differ (parse_cluster_node_map 13, mist_dflt_init 7 = `cmp #0x1f; b.hi` vs `#0x20; b.hs`, mist_update_rel_freq); mist_frame_load_history_update is identical. No global-vs-constant difference (ldst.py: 0 functions).
+
 g4j (17.10.2026): real Kleaf build re-run: function set (70), relocations, objects, exports (44)+CRC, imports (51)+CRCs, modinfo OK; 67 of 70 byte-identical, differing: parse_cluster_node_map, mist_update_rel_freq, mist_dflt_init. No function is missing. Not touched in g4j.
 
 g4d (17.10.2026): real Kleaf build re-run: function set (70), relocations, objects, exports (44) + CRCs, imports (51) + CRCs, modinfo OK; 67 of 70 identical (`parse_cluster_node_map`, `mist_update_rel_freq`, `mist_dflt_init` differ). No change made.

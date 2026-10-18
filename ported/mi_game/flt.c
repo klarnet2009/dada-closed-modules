@@ -976,8 +976,16 @@ static void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_
 			c += 7;
 			goto publish;
 		}
-		d = get_scale_exec_time(min(since, period), cpu, TASK_WTS(p));
-		c += curr == p ? (since >= period ? 5 : 4) : (since >= period ? 3 : 2);
+		if (curr == p) {
+			d = get_scale_exec_time(min(since, period), cpu, TASK_WTS(p));
+			c += since >= period ? 5 : 4;
+		} else if (since >= period) {
+			c += 3;
+			d = get_scale_exec_time(period, cpu, TASK_WTS(p));
+		} else {
+			c += 2;
+			d = get_scale_exec_time(since, cpu, TASK_WTS(p));
+		}
 		mrq->prev_frame_load.exec += d;
 		if (new_task)
 			mrq->nt_prev_frame_load.exec += d;

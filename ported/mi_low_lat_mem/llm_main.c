@@ -503,11 +503,11 @@ static void do_alloc_pages_big_order(void *data, gfp_t gfp_mask, int order, int 
 static ssize_t stats_history_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	/* G1w, from the stock disassembly: table of the (up to 30) pre-compact history records of mci (0x48 bytes each, fields from +0x78), oldest first */
-	int idx[30] = {};
 	char tbuf[20] = {};
 	struct tm tm = {};
-	ssize_t len;
-	unsigned int n, cnt = 0, i, j, k;
+	size_t len;
+	unsigned int n, cnt = 0;
+	unsigned long i, j, k;
 
 	if (!mci.hist_cnt)
 		return sysfs_emit(buf, "No statistics data available\n");
@@ -515,31 +515,33 @@ static ssize_t stats_history_show(struct kobject *kobj, struct kobj_attribute *a
 			    "Index         Time           Mem(MB)    Frag4    Frag%d    T4    A4    T%d    A%d    Rate4 Rate%d Remain4  Remain%d  Dur(us)  Success\n",
 			    9, 9, 9, 9, 9);
 	n = mci.hist_cnt < 30 ? mci.hist_cnt : 30;
+	if (!n)
+		return len;
+	int idx[30] = {};
+
 	for (i = 0; i < n; i++)
 		if (mci.hist[i].time)
 			idx[cnt++] = i;
-	if (!cnt)
-		return len;
-	for (i = 0; i + 1 < cnt; i++)
-		for (j = 0; j < cnt - 1 - i; j++) {
-			u64 a = mci.hist[idx[j]].time, b = mci.hist[idx[j + 1]].time;
+	if (cnt >= 2)
+		for (i = 0; i < cnt - 1; i++)
+			for (j = 0; j < (unsigned int)(cnt - 1 - i); j++) {
+				u64 a = mci.hist[idx[j]].time, b;
 
-			if (a > b)
-				swap(idx[j], idx[j + 1]);
-		}
+				if (a && (b = mci.hist[idx[j + 1]].time) && a > b)
+					swap(idx[j], idx[j + 1]);
+			}
 	for (k = 0; k < cnt; k++) {
 		struct pc_rec *r = &mci.hist[idx[k]];
-		u32 t4 = r->t4, t9 = r->t9;
-		u32 b4 = r->c4, b9 = r->c9, n4 = r->n4, n9 = r->n9;
-		u32 a4 = n4 < b4 ? 0 : n4 - b4, a9 = n9 < b9 ? 0 : n9 - b9;
-		u32 rate4 = t4 ? a4 * 100 / t4 : 100, rate9 = t9 ? a9 * 100 / t9 : 100;
+		u32 b4 = r->c4, b9 = r->c9;
+		u32 a4 = r->n4 < b4 ? 0 : r->n4 - b4, a9 = r->n9 < b9 ? 0 : r->n9 - b9;
+		u32 rate4 = r->t4 ? a4 * 100 / r->t4 : 100, rate9 = r->t9 ? a9 * 100 / r->t9 : 100;
 
 		time64_to_tm(r->time / 1000000000, 28800, &tm);
 		snprintf(tbuf, sizeof(tbuf), "%02d-%02d %02d:%02d:%02d", tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 		len += sysfs_emit_at(buf, len,
 				     "%-9u %-19s %-9lu %u-%-5u %u-%-5u %-5u %-5u %-5u %-5u %-3u%s  %-3u%s  %-8u %-8u %-8lu %s\n",
-				     k + 1, tbuf, (unsigned long)(r->pages >> 8), r->f4, r->f4a,
-				     r->f9, r->f9a, t4, a4, t9, a9, rate4, "%", rate9, "%", n4, n9,
+				     (unsigned int)k + 1, tbuf, (unsigned long)((r->pages * 4) >> 10), r->f4, r->f4a,
+				     r->f9, r->f9a, r->t4, a4, r->t9, a9, rate4, "%", rate9, "%", r->n4, r->n9,
 				     (unsigned long)(r->dur / 1000), r->success ? "true" : "false");
 		if (len > 3895)
 			break;
@@ -1050,9 +1052,9 @@ static unsigned long cma_pool_shrink_count(struct shrinker *shrinker, struct shr
 
 	if (!READ_ONCE(llm_enable))
 		return 0;
-	/* next_zone() is not exported: the stock open-codes the walk over the single node */
-	for (zone = NODE_DATA(0)->node_zones; zone < NODE_DATA(0)->node_zones + MAX_NR_ZONES - 1; zone++) {
-		if (!managed_zone(zone))
+	/* next_zone() is not exported: the stock open-codes the walk over the single node (node_id == 0 filter like pre_do_compact) */
+	llm_for_each_zone(zone) {
+		if (contig_page_data.node_id || !managed_zone(zone))
 			continue;
 		free += zone_page_state(zone, NR_FREE_PAGES);
 		reserve += min_wmark_pages(zone);
@@ -1267,6 +1269,7 @@ noinline __used int predo_store_call(void *unused)
 		if (!mutex_trylock(&pending_lock))
 			continue;
 		predo_pending = 1;
+		{
 		char buf[128] = {};
 
 		if (val == 301) {
@@ -1312,7 +1315,7 @@ noinline __used int predo_store_call(void *unused)
 			avg = (rec[0] + rec[1] + rec[2] + 3) / 3;
 			t0 = sched_clock();
 			mi_smart_refill_dynamic_page_pool_refill(i, avg);
-			snprintf(buf, sizeof(buf), "I|%d|i:%d avg:%d refill_duration:%lu ms\n", current->pid, i, avg,
+			snprintf(buf, sizeof(buf), "I|%d|i:%d avg:%d refill_duration:%lu ms\n", current->tgid, i, avg,
 				 (unsigned long)((sched_clock() - t0) / 1000000));
 			tracing_mark_write(buf);
 			pr_info("low_lat_mem: low_lat_mem prdo dmabuf: %d, avg: %d.\n", val, avg);
@@ -1322,6 +1325,7 @@ noinline __used int predo_store_call(void *unused)
 		pr_info("low_lat_mem: low_lat_mem premigrate.\n");
 done:
 		sys_predo = 0;
+		}
 done_keep:
 		predo_pending = 0;
 		mutex_unlock(&pending_lock);

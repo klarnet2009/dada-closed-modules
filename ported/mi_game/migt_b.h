@@ -48,7 +48,7 @@ static DEFINE_PER_CPU(struct freq_qos_request, qos_req_max);
 struct workqueue_struct *migt_wq;
 struct task_struct *migt_thread;
 static unsigned int migt_boost_policy;		/* local in the stock (migt TU) */
-static u8 migt_enabled;
+u8 migt_enabled;
 static unsigned int boost_cycle;
 static u8 ceiling_freq_limit_work;
 static unsigned int ceiling_users[11];	/* [0..9] uids, [10] count */

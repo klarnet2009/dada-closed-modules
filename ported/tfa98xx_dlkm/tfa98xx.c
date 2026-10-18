@@ -2740,46 +2740,51 @@ static noinline void *tfa98xx_devm_kstrdup(struct device *dev, char *buf)
 	return str;
 }
 
-static noinline int tfa98xx_append_i2c_address(struct device *dev,
+/* g3t: the stock has two pieces: the dai rename (one dai, a real function called from the i2c probe, with the
+ * "%s(): tfa98xx_append_i2c_address()  dai_drv[%d]..." prints) and the widget rename inlined into tfa98xx_probe */
+static noinline void tfa98xx_append_i2c_address(struct device *dev,
+				struct i2c_client *i2c,
+				struct snd_soc_dai_driver *dai_drv)
+{
+	char buf[50] = { 0 };
+	int i2cbus = i2c->adapter->nr;
+	int addr = i2c->addr;
+
+	snprintf(buf, 50, "%s-%x-%x",
+		dai_drv->name,
+		i2cbus, addr);
+	dai_drv->name = tfa98xx_devm_kstrdup(dev, buf);
+	pr_info("%s(): tfa98xx_append_i2c_address()  dai_drv[%d].name = [%s]\n",
+		__func__, 0, dai_drv->name);
+
+	memset(buf, 0x00, sizeof(buf));
+	snprintf(buf, 50, "%s-%x-%x",
+		dai_drv->playback.stream_name,
+		i2cbus, addr);
+	dai_drv->playback.stream_name =
+		tfa98xx_devm_kstrdup(dev, buf);
+	pr_info("%s(): tfa98xx_append_i2c_address()  dai_drv[%d].playback.stream_name = [%s]\n",
+		__func__, 0, dai_drv->playback.stream_name);
+
+	memset(buf, 0x00, sizeof(buf));
+	snprintf(buf, 50, "%s-%x-%x",
+		dai_drv->capture.stream_name,
+		i2cbus, addr);
+	dai_drv->capture.stream_name =
+		tfa98xx_devm_kstrdup(dev, buf);
+	pr_info("%s(): tfa98xx_append_i2c_address()  dai_drv[%d].capture.stream_name = [%s]\n",
+		__func__, 0, dai_drv->capture.stream_name);
+}
+
+static __always_inline void tfa98xx_append_i2c_widgets(struct device *dev,
 				struct i2c_client *i2c,
 				struct snd_soc_dapm_widget *widgets,
-				int num_widgets,
-				struct snd_soc_dai_driver *dai_drv,
-				int num_dai)
+				int num_widgets)
 {
 	char buf[50];
 	int i;
 	int i2cbus = i2c->adapter->nr;
 	int addr = i2c->addr;
-
-	if (dai_drv && num_dai > 0)
-		for (i = 0; i < num_dai; i++) {
-			memset(buf, 0x00, sizeof(buf));
-			snprintf(buf, 50, "%s-%x-%x",
-				dai_drv[i].name,
-				i2cbus, addr);
-			dai_drv[i].name = tfa98xx_devm_kstrdup(dev, buf);
-			pr_info("dai_drv[%d].name = [%s]\n",
-				i, dai_drv[i].name);
-
-			memset(buf, 0x00, sizeof(buf));
-			snprintf(buf, 50, "%s-%x-%x",
-				dai_drv[i].playback.stream_name,
-				i2cbus, addr);
-			dai_drv[i].playback.stream_name =
-				tfa98xx_devm_kstrdup(dev, buf);
-			pr_info("dai_drv[%d].playback.stream_name = [%s]\n",
-				i, dai_drv[i].playback.stream_name);
-
-			memset(buf, 0x00, sizeof(buf));
-			snprintf(buf, 50, "%s-%x-%x",
-				dai_drv[i].capture.stream_name,
-				i2cbus, addr);
-			dai_drv[i].capture.stream_name =
-				tfa98xx_devm_kstrdup(dev, buf);
-			pr_info("dai_drv[%d].capture.stream_name = [%s]\n",
-				i, dai_drv[i].capture.stream_name);
-		}
 
 	/* the idea behind this is convert:
 	 * SND_SOC_DAPM_AIF_IN("AIF IN", "AIF Playback", 0, SND_SOC_NOPM, 0, 0),
@@ -2799,8 +2804,6 @@ static noinline int tfa98xx_append_i2c_address(struct device *dev,
 					tfa98xx_devm_kstrdup(dev, buf);
 			}
 		}
-
-	return 0;
 }
 
 static struct snd_soc_dapm_widget tfa98xx_dapm_widgets_common[] = {
@@ -2882,12 +2885,10 @@ static void tfa98xx_add_widgets(struct tfa98xx *tfa98xx)
 			sizeof(struct snd_soc_dapm_widget) *
 				ARRAY_SIZE(tfa98xx_dapm_widgets_common));
 
-	tfa98xx_append_i2c_address(&tfa98xx->i2c->dev,
+	tfa98xx_append_i2c_widgets(&tfa98xx->i2c->dev,
 				tfa98xx->i2c,
 				widgets,
-				num_dapm_widgets,
-				NULL,
-				0);
+				num_dapm_widgets);
 
 	snd_soc_dapm_new_controls(dapm, widgets,
 				ARRAY_SIZE(tfa98xx_dapm_widgets_common));
@@ -3064,11 +3065,14 @@ enum Tfa98xx_Error tfa98xx_read_data(struct tfa_device *tfa,
 	struct i2c_client *tfa98xx_client;
 	int err;
 	int tries = 0;
+	/* g3t: stock: the register byte is sent from a kmalloc'ed 1-byte buffer (DMA safe), -ENOMEM when it fails,
+	 * the "No device available" prints carry the function name, the dev_dbg / ftrace register traces are not there */
+	unsigned char *regbuf = kmalloc(1, GFP_DMA);	/* stock: kmalloc_trace(dma cache, 1, 1) = GFP_DMA */
 	struct i2c_msg msgs[] = {
 		{
 			.flags = 0,
 			.len = 1,
-			.buf = &reg,
+			.buf = NULL,
 		}, {
 			.flags = I2C_M_RD,
 			.len = len,
@@ -3076,14 +3080,19 @@ enum Tfa98xx_Error tfa98xx_read_data(struct tfa_device *tfa,
 		},
 	};
 
+	if (!regbuf)
+		return -ENOMEM;
+	*regbuf = reg;
+	msgs[0].buf = regbuf;
+
 	if (tfa == NULL) {
-		pr_err("No device available\n");
-		return Tfa98xx_Error_Fail;
+		pr_err("%s(): No device available\n", __func__);
+		return Tfa98xx_Error_Fail;	/* stock leaks regbuf here */
 	}
 
 	tfa98xx = (struct tfa98xx *)tfa->data;
-	if (tfa98xx->i2c) {
-		tfa98xx_client = tfa98xx->i2c;
+	tfa98xx_client = tfa98xx->i2c;
+	if (tfa98xx_client) {
 		msgs[0].addr = tfa98xx_client->addr;
 		msgs[1].addr = tfa98xx_client->addr;
 
@@ -3099,17 +3108,11 @@ enum Tfa98xx_Error tfa98xx_read_data(struct tfa_device *tfa,
 									err);
 			error = Tfa98xx_Error_Fail;
 		}
-
-		if (tfa98xx_kmsg_regs)
-			dev_dbg(&tfa98xx_client->dev, "RD-DAT reg=0x%02x, len=%d\n",
-								reg, len);
-		if (tfa98xx_ftrace_regs)
-			tfa98xx_trace_printk("\t\tRD-DAT reg=0x%02x, len=%d\n",
-					reg, len);
 	} else {
-		pr_err("No device available\n");
+		pr_err("%s(): No device available\n", __func__);
 		error = Tfa98xx_Error_Fail;
 	}
+	kfree(regbuf);
 	return error;
 }
 
@@ -4114,9 +4117,7 @@ static void tfa98xx_remove(struct snd_soc_component *component)
 {
 	struct tfa98xx *tfa98xx = snd_soc_component_get_drvdata(component);
 
-	pr_debug("\n");
-	tfa98xx_interrupt_enable(tfa98xx, false);
-
+	/* g3t: stock: no tfa98xx_interrupt_enable(false) here, and nmodeupdate_work is cancelled too */
 	tfa98xx_inputdev_unregister(tfa98xx);
 
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
@@ -4126,6 +4127,7 @@ static void tfa98xx_remove(struct snd_soc_component *component)
 	cancel_delayed_work_sync(&tfa98xx->interrupt_work);
 	cancel_delayed_work_sync(&tfa98xx->monitor_work);
 	cancel_delayed_work_sync(&tfa98xx->init_work);
+	cancel_delayed_work_sync(&tfa98xx->nmodeupdate_work);
 
 	if (tfa98xx->tfa98xx_wq)
 		destroy_workqueue(tfa98xx->tfa98xx_wq);
@@ -4585,7 +4587,7 @@ static int tfa98xx_i2c_probe(struct i2c_client *i2c)
 		return -ENOMEM;
 	memcpy(dai, tfa98xx_dai, sizeof(tfa98xx_dai));
 
-	tfa98xx_append_i2c_address(&i2c->dev, i2c, NULL, 0, dai, ARRAY_SIZE(tfa98xx_dai));
+	tfa98xx_append_i2c_address(&i2c->dev, i2c, dai);
 
 	ret = devm_snd_soc_register_component(&i2c->dev, &soc_codec_dev_tfa98xx, dai, ARRAY_SIZE(tfa98xx_dai));
 	if (ret < 0) {
@@ -4629,10 +4631,7 @@ void tfa98xx_i2c_remove(struct i2c_client *i2c)
 {
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
 
-	pr_info("addr=0x%x\n", i2c->addr);
-
-	tfa98xx_interrupt_enable(tfa98xx, false);
-
+	/* g3t: stock: no "addr=" print and no tfa98xx_interrupt_enable(false) in the i2c remove */
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
 	/* Add for smartpa err feedback*/
 	oplus_tfa98xx_exit_check_work(tfa98xx);

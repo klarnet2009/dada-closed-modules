@@ -134,6 +134,59 @@ struct mitee_secmem {
 
 static struct mitee_msgq_dev *g_msgq_dev;
 
+/* the stock inlines two helpers with their own vmid arrays (stack slots shared by stack colouring) */
+static inline int assign_sgt_perm_to_peer(struct mitee_msgq_dev *qdev, struct sg_table *sgt)
+{
+	u32 srcvm[1];
+	int dstvm[2];
+	int dstperm[2];
+	int ret;
+
+	srcvm[0] = qdev->this_vmid;
+	dstvm[0] = qdev->this_vmid;
+	dstvm[1] = qdev->peer_vmid;
+	dstperm[0] = 6;
+	dstperm[1] = 6;
+	ret = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 2);
+	if (ret)
+		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm", ret);
+	return ret;
+}
+
+static inline int assign_sgt_perm_from_peer(struct mitee_msgq_dev *qdev, struct sg_table *sgt)
+{
+	u32 srcvm[2];
+	int dstvm[1];
+	int dstperm[1];
+	int ret;
+
+	srcvm[0] = qdev->this_vmid;
+	srcvm[1] = qdev->peer_vmid;
+	dstvm[0] = qdev->this_vmid;
+	dstperm[0] = 7;
+	ret = hyp_assign_table(sgt, srcvm, 2, dstvm, dstperm, 1);
+	if (ret)
+		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm", ret);
+	return ret;
+}
+
+/* "assign_sgt_perm_lend": move a lent buffer between the VMs, vmid arrays are locals of the inlined helper */
+static inline int assign_sgt_perm_lend(struct sg_table *sgt, u16 src, u16 dst)
+{
+	u32 srcvm[1];
+	int dstvm[1];
+	int dstperm[1];
+	int ret;
+
+	srcvm[0] = src;
+	dstvm[0] = dst;
+	dstperm[0] = 7;
+	ret = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 1);
+	if (ret)
+		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm_lend", ret);
+	return ret;
+}
+
 static const struct rhashtable_params shm_rhash_params = {
 	.key_len = sizeof(u64),
 	.key_offset = offsetof(struct mitee_shm_entry, handle),
@@ -150,7 +203,7 @@ static struct gh_sgl_desc *sgt_to_gh_sgl_desc(struct sg_table *sgt, u32 nents)
 {
 	struct gh_sgl_desc *desc;
 	struct scatterlist *sg;
-	u32 i;
+	int i;
 
 	if (sgt->orig_nents < nents) {
 		pr_err("mitee msgq: generate sgl_desc failed, invalid arg");
@@ -181,8 +234,11 @@ static void mitee_shm_rem_mem_handle(struct mitee_msgq_dev *qdev, u64 handle)
 
 	mutex_lock(&qdev->shm_mutex);
 	entry = rhashtable_lookup_fast(&qdev->shm_ht, &handle, shm_rhash_params);
-	if (entry)
-		rhashtable_remove_fast(&qdev->shm_ht, &entry->node, shm_rhash_params);
+	if (!entry) {
+		mutex_unlock(&qdev->shm_mutex);
+		return;
+	}
+	rhashtable_remove_fast(&qdev->shm_ht, &entry->node, shm_rhash_params);
 	mutex_unlock(&qdev->shm_mutex);
 	kfree(entry);
 }
@@ -351,12 +407,12 @@ static int mitee_recv_task_fn(void *data)
 				pr_err("mitee msgq: unknown server id");
 				break;
 			}
-			if (msg->msg_id == 2) {
+			if (__builtin_expect_with_probability(msg->msg_id == 2, 1, 0.1)) {
 				if (msg->len)
 					pr_err("mitee msgq: incorrect msg length");
 				qdev->vm_state = MITEE_MSGQ_STATE_READY;
 				break;
-			} else if (msg->msg_id == 1) {
+			} else if (__builtin_expect_with_probability(msg->msg_id == 1, 1, 0.1)) {
 				if (msg->len)
 					pr_err("mitee msgq: incorrect msg length");
 				msg->ids = flags | MSGQ_SRC_REE;
@@ -381,7 +437,10 @@ static int mitee_recv_task_fn(void *data)
 				msg->len = MSGQ_HDR_SIZE;
 				gh_msgq_send(qdev->msgq, msg, MSGQ_MSG_SIZE, 0);
 				break;
-			} else if (msg->msg_id == 0) {
+			} else if (__builtin_expect_with_probability(msg->msg_id != 0, 1, 0.1)) {
+				pr_info("mitee msgq: unknown msg_id 0x%x\n", msg->msg_id);
+				break;
+			} else {
 				if (qdev->vm_state >= MITEE_MSGQ_STATE_UP)
 					dev_err(qdev->dev, "mitee msgq: msgq state error");
 				if (msg->len) {
@@ -391,9 +450,6 @@ static int mitee_recv_task_fn(void *data)
 				msg->ids |= MSGQ_SRC_REE;
 				gh_msgq_send(qdev->msgq, msg, MSGQ_HDR_SIZE, 0);
 				qdev->vm_state = MITEE_MSGQ_STATE_UP;
-				break;
-			} else {
-				pr_info("mitee msgq: unknown msg_id 0x%x\n", msg->msg_id);
 				break;
 			}
 			break;
@@ -668,16 +724,14 @@ int mitee_msgq_to_msg_param(struct optee_msg_param *mp, const struct tee_param *
 int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 				   struct page **pages, size_t num_pages, unsigned long start)
 {
-	struct mitee_msgq_dev *qdev = g_msgq_dev;
+	struct mitee_msgq_dev *qdev;
 	struct optee *optee = tee_get_drvdata(ctx->teedev);
 	struct mitee_shm_entry *entry;
 	struct gh_acl_desc *acl;
 	struct gh_sgl_desc *sgl;
 	struct sg_table *sgt;
-	u32 srcvm[1];
-	int dstvm[2];
-	int dstperm[2];
 	u32 handle = 0;
+	u64 h64;
 	u32 nents;
 	int ret;
 
@@ -686,6 +740,7 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 		return -EACCES;
 	}
 
+	qdev = g_msgq_dev;
 	ret = optee_check_mem_type(start, num_pages);
 	if (ret)
 		return ret;
@@ -714,17 +769,10 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 	acl->acl_entries[1].vmid = qdev->peer_vmid;
 	acl->acl_entries[1].perms = 6;
 
-	srcvm[0] = qdev->this_vmid;
-	dstvm[0] = qdev->this_vmid;
-	dstvm[1] = qdev->peer_vmid;
-	dstperm[0] = 6;
-	dstperm[1] = 6;
-	ret = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 2);
-	if (ret)
-		/* the stock ignores the failure after logging it (inlined assign_sgt_perm) */
-		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm", ret);
+	/* the stock ignores the failure after logging it */
+	assign_sgt_perm_to_peer(qdev, sgt);
 
-	sgl = sgt_to_gh_sgl_desc(sgt, nents);
+	sgl =sgt_to_gh_sgl_desc(sgt, nents);
 	if (!sgl) {
 		ret = -ENOMEM;
 		kfree(acl);
@@ -741,12 +789,13 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 	if (ret)
 		goto reclaim;
 
+	h64 = handle;
 	ret = -ENOMEM;
 	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
 	if (entry) {
 		entry->shm = shm;
 		entry->sgt = sgt;
-		entry->handle = handle;
+		entry->handle = h64;
 
 		mutex_lock(&qdev->shm_mutex);
 		ret = rhashtable_lookup_insert_fast(&qdev->shm_ht, &entry->node, shm_rhash_params);
@@ -758,16 +807,12 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 		goto reclaim;
 	}
 
-	shm->sec_world_id = handle;
+	shm->sec_world_id = h64;
 	return 0;
 
 reclaim:
 	ghd_rm_mem_reclaim(handle, 0);
-	srcvm[0] = qdev->this_vmid;
-	dstvm[0] = qdev->this_vmid;
-	dstvm[1] = qdev->peer_vmid;
-	dstperm[0] = 7;
-	hyp_assign_table(sgt, (u32 *)dstvm, 2, (int *)srcvm, dstperm, 1);
+	assign_sgt_perm_from_peer(qdev, sgt);
 free_table:
 	sg_free_table(sgt);
 free_sgt:
@@ -782,11 +827,8 @@ int mitee_msgq_shm_unregister(struct tee_context *ctx, struct tee_shm *shm)
 	struct mitee_shm_entry *entry;
 	struct optee_msg_arg *msg_arg;
 	struct sg_table *sgt;
-	u32 srcvm[2];
-	int dstvm[1];
-	int dstperm[1];
 	u64 handle = shm->sec_world_id;
-	int rc, rc2;
+	int rc;
 
 	msg_arg = kzalloc(sizeof(*msg_arg) + sizeof(struct optee_msg_param), GFP_KERNEL);
 	if (!msg_arg)
@@ -811,13 +853,7 @@ int mitee_msgq_shm_unregister(struct tee_context *ctx, struct tee_shm *shm)
 	if (rc)
 		pr_err("mitee msgq mem_reclaim: failed with 0x%llx %d", handle, rc);
 
-	srcvm[0] = qdev->this_vmid;
-	srcvm[1] = qdev->peer_vmid;
-	dstvm[0] = qdev->this_vmid;
-	dstperm[0] = 7;
-	rc2 = hyp_assign_table(sgt, srcvm, 2, dstvm, dstperm, 1);
-	if (rc2)
-		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm", rc2);
+	assign_sgt_perm_from_peer(qdev, sgt);
 	sg_free_table(sgt);
 	kfree(sgt);
 	kfree(msg_arg);
@@ -829,11 +865,8 @@ int mitee_msgq_shm_unregister_supp(struct tee_context *ctx, struct tee_shm *shm)
 	struct mitee_msgq_dev *qdev = g_msgq_dev;
 	struct mitee_shm_entry *entry;
 	struct sg_table *sgt;
-	u32 srcvm[2];
-	int dstvm[1];
-	int dstperm[1];
 	u64 handle = shm->sec_world_id;
-	int rc, rc2;
+	int rc;
 
 	mutex_lock(&qdev->shm_mutex);
 	entry = rhashtable_lookup_fast(&qdev->shm_ht, &handle, shm_rhash_params);
@@ -845,13 +878,7 @@ int mitee_msgq_shm_unregister_supp(struct tee_context *ctx, struct tee_shm *shm)
 	if (rc)
 		pr_err("mitee msgq mem_reclaim: failed with 0x%llx %d", handle, rc);
 
-	srcvm[0] = qdev->this_vmid;
-	srcvm[1] = qdev->peer_vmid;
-	dstvm[0] = qdev->this_vmid;
-	dstperm[0] = 7;
-	rc2 = hyp_assign_table(sgt, srcvm, 2, dstvm, dstperm, 1);
-	if (rc2)
-		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm", rc2);
+	assign_sgt_perm_from_peer(qdev, sgt);
 	sg_free_table(sgt);
 	kfree(sgt);
 	return rc;
@@ -863,26 +890,22 @@ int mitee_msgq_secmem_lend(u64 *handle_out, struct sg_table *sgt, u32 size)
 	struct mitee_secmem *sm;
 	struct gh_acl_desc *acl;
 	struct gh_sgl_desc *sgl;
-	u32 srcvm[1];
-	int dstvm[1];
-	int dstperm[1];
 	u32 handle = 0;
 	u32 nents;
-	int ret, rc2;
+	int ret;
 
 	acl = kmalloc(struct_size(acl, acl_entries, 1), GFP_KERNEL | __GFP_ZERO);
-	if (!acl)
-		return -ENOMEM;
+	if (!acl) {
+		/* stock: revert path (hyp_assign back, free the sgt pages), not a plain return */
+		ret = -ENOMEM;
+		goto revert;
+	}
 	nents = sgt->orig_nents;
 	acl->n_acl_entries = 1;
 	acl->acl_entries[0].vmid = qdev->peer_vmid;
 	acl->acl_entries[0].perms = 7;
-	srcvm[0] = qdev->this_vmid;
-	dstvm[0] = qdev->peer_vmid;
-	dstperm[0] = 7;
-	ret = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 1);
+	ret = assign_sgt_perm_lend(sgt, qdev->this_vmid, qdev->peer_vmid);
 	if (ret) {
-		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm_lend", ret);
 		kfree(acl);
 		goto revert;
 	}
@@ -916,12 +939,7 @@ int mitee_msgq_secmem_lend(u64 *handle_out, struct sg_table *sgt, u32 size)
 			ghd_rm_mem_reclaim(handle, 0);
 	}
 revert:
-	srcvm[0] = qdev->peer_vmid;
-	dstvm[0] = qdev->this_vmid;
-	dstperm[0] = 7;
-	rc2 = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 1);
-	if (rc2)
-		pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n", "assign_sgt_perm_lend", rc2);
+	assign_sgt_perm_lend(sgt, qdev->peer_vmid, qdev->this_vmid);
 	mitee_free_memory_sgt(size, sgt);
 	return ret;
 }
@@ -930,13 +948,14 @@ static u32 mitee_msgq_rpc_callback(struct optee_msg_param_value *value, void *bu
 				   u32 size_in, u32 *size_out)
 {
 	struct mitee_msgq_dev *qdev = g_msgq_dev;
-	struct sg_table *sgt = NULL;
 	u64 handle = 0;
-	u32 size;
-	int ret = 0;
 
 	switch (value->a) {
-	case OPTEE_REE_CALLBACK_ALLOCATE_SECMEM:
+	case OPTEE_REE_CALLBACK_ALLOCATE_SECMEM: {
+		struct sg_table *sgt = NULL;
+		u32 size;
+		int ret;
+
 		if (value->b != 0)
 			return 0xffff0006;
 		size = value->c;
@@ -949,8 +968,12 @@ static u32 mitee_msgq_rpc_callback(struct optee_msg_param_value *value, void *bu
 		value->a = handle;
 		value->b = size;
 		return 0;
+	}
 	case OPTEE_REE_CALLBACK_FREE_SECMEM: {
 		struct mitee_secmem *sm;
+		struct sg_table *sgt;
+		u32 size;
+		int ret;
 
 		handle = value->c;
 		if (value->b != 0)
@@ -969,16 +992,7 @@ static u32 mitee_msgq_rpc_callback(struct optee_msg_param_value *value, void *bu
 		ret = ghd_rm_mem_reclaim(handle, 0);
 		if (ret)
 			pr_err("mitee msgq mem_reclaim: failed with 0x%llx %d", handle, ret);
-		{
-			u32 srcvm[1] = { qdev->peer_vmid };
-			int dstvm[1] = { qdev->this_vmid };
-			int dstperm[1] = { 7 };
-
-			ret = hyp_assign_table(sgt, srcvm, 1, dstvm, dstperm, 1);
-			if (ret)
-				pr_err("mitee msgq %s: hyp_assign_table mem failed with err=%d\n",
-				       "assign_sgt_perm_lend", ret);
-		}
+		assign_sgt_perm_lend(sgt, qdev->peer_vmid, qdev->this_vmid);
 		kfree(sm);
 		mitee_free_memory_sgt(size, sgt);
 		return 0;
@@ -1126,6 +1140,7 @@ static struct platform_driver mitee_msgq_driver = {
 	.remove = mitee_msgq_remove,
 	.driver = {
 		.name = "mitee_ipc",
+		.probe_type = PROBE_FORCE_SYNCHRONOUS, /* stock .data +0x54 == 2 */
 		.of_match_table = mitee_msgq_match,
 	},
 };

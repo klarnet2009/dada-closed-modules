@@ -650,7 +650,7 @@ static void strategy_wireless_get_qc_enable(struct strategy_wireless_dev *info, 
 	if (info->force_vout_6v || !info->proc_data.epp || !info->proc_data.fc_flag ||
 		!info->proc_data.qc_enable || !info->proc_data.pre_fastchg || input_suspend) {
 		*enable = false;
-#line 689
+#line 687
 		mca_log_err("can't enable quick charge, force_vout_6v:%d  epp:%d  fc:%d  qc_enable:%d "
 			"pre_fastchg:%d, input_suspned %d\n", info->force_vout_6v, info->proc_data.epp, info->proc_data.fc_flag,
 			info->proc_data.qc_enable, info->proc_data.pre_fastchg, input_suspend);
@@ -778,13 +778,11 @@ static int strategy_wireless_set_auth_30w_ichg(struct mca_votable *votable,
 		return -1;
 
 	/* OS4: 40 W adapter without magnet TX, or (any other adapter) the special UUID 0x0e0e0205 on a FUDA1661 in 2:1 mode */
-	auth30 = false;
-	if (info->proc_data.adapter_type == ADAPTER_XIAOMI_PD_40W) {
-		auth30 = !info->proc_data.magnet_tx_flag;
-	} else if (info->proc_data.uuid_value == 0x0e0e0205 && info->project_vendor == WLS_CHIP_VENDOR_FUDA1661) {
-		if (!info->proc_data.is_4_1_mode)
-			auth30 = true;
-	}
+	/* stock +0x14..+0x80 ORs both conditions (G13h: was if/else-if, lost the case 40 W + magnet TX + UUID) */
+	auth30 = info->proc_data.adapter_type == ADAPTER_XIAOMI_PD_40W && !info->proc_data.magnet_tx_flag;
+	if (info->proc_data.uuid_value == 0x0e0e0205 && info->project_vendor == WLS_CHIP_VENDOR_FUDA1661 &&
+		!info->proc_data.is_4_1_mode)
+		auth30 = true;
 
 	if (effective_result && auth30) {
 		mca_vote(info->charge_limit_voter, "wireless_thermal_30w", true, effective_result);
@@ -1189,6 +1187,9 @@ static void strategy_wireless_update_soc_to_tx(struct strategy_wireless_dev *inf
 
 static void strategy_wireless_get_target_vout_iwls(struct strategy_wireless_dev *info)
 {
+	/* OS4 stock: the input_suspend voter forces the RX to 6 V; the XIAOMI adapters always use 11 V */
+	int input_suspend = mca_get_effective_result(info->input_suspend_voter);
+
 	switch (info->proc_data.adapter_type) {
 	case ADAPTER_QC2:
 		info->proc_data.target_vout = BPP_QC2_VOUT;
@@ -1236,21 +1237,13 @@ static void strategy_wireless_get_target_vout_iwls(struct strategy_wireless_dev 
 	case ADAPTER_XIAOMI_PD_50W:
 	case ADAPTER_XIAOMI_PD_60W:
 	case ADAPTER_XIAOMI_PD_100W:
-		if (info->proc_data.fc_flag) {
-			info->proc_data.target_vout = EPP_PLUS_VOUT;
+		info->proc_data.target_vout = EPP_DEFAULT_VOUT;
+		if (info->proc_data.fc_flag || info->proc_data.tx_max_power == 15)
 			info->proc_data.target_iwls = 1300;
-		} else {
-			info->proc_data.target_vout = EPP_DEFAULT_VOUT;
-			if (info->proc_data.tx_max_power == 15)
-				info->proc_data.target_iwls = 1300;
-			else
-				info->proc_data.target_iwls = 850;
-		}
+		else
+			info->proc_data.target_iwls = 850;
 		break;
-	default:if (info->proc_data.tx_max_power == 15)
-					info->proc_data.target_iwls = 1300;
-				else
-					info->proc_data.target_iwls = 850;
+	default:
 		if (info->proc_data.epp) {
 			info->proc_data.target_vout = EPP_DEFAULT_VOUT;
 			if (info->proc_data.tx_max_power == 15)
@@ -1264,7 +1257,11 @@ static void strategy_wireless_get_target_vout_iwls(struct strategy_wireless_dev 
 		break;
 	}
 
-	mca_log_info("initial target vout: %u, target iwls: %u\n", info->proc_data.target_vout, info->proc_data.target_iwls);
+	if (input_suspend)
+		info->proc_data.target_vout = BPP_DEFAULT_VOUT;
+
+#line 1255
+	mca_log_info("initial target vout: %u, target iwls: %u, input_suspend %d\n", info->proc_data.target_vout, info->proc_data.target_iwls, input_suspend);
 }
 
 static int strategy_wireless_get_chgr_stage(struct strategy_wireless_dev *info, enum XM_WLS_CHGR_STAGE *chg_stage)
@@ -1391,6 +1388,7 @@ static int strategy_wireless_send_vout_range_request(struct strategy_wireless_de
 static int strategy_wireless_transparent_success(struct strategy_wireless_dev *info)
 {
 	int ret = 0;
+	const struct mca_hwid *hwid = mca_get_hwid_info();
 	info->proc_data.set_tx_voltage_cnt = 0;
 
 	switch (info->proc_data.current_for_tx_cmd) {
@@ -1400,18 +1398,23 @@ static int strategy_wireless_transparent_success(struct strategy_wireless_dev *i
 #line 1379
 			mca_log_info("voltage_range not set 32V\n");
 		else {
-			info->proc_data.tx_voltage = 32000;
+			/* stock +0x10a8: 20 V on platform_version 3 with TX uuid 0x09010a01, else 32 V (G13h: was always 32 V) */
+			info->proc_data.tx_voltage = (hwid && hwid->platform_version == 3 && info->proc_data.uuid_value == 0x09010a01) ? 20000 : 32000;
 			strategy_wireless_add_trans_task_to_queue(info, TRANS_DATA_FLAG_VOUT_RANGE, info->proc_data.tx_voltage);
 #line 1386
 			mca_log_info("voltage_range 32V\n");
 		}
 		break;
 	case TX_CMD_TYPE_VOLTAGE:
-		if (0) {
+		/* OS4 stock: CP 2:1 mode for TX uuid 0x09010a01 at hwid platform_version 3, and for the 30 W magnet TX (uuid 0x0e0e0205) on
+		 * FUDA1661 while ss_voltage < 6700; every other TX runs 4:1 (the template had `if (0)` = always 4:1) */
+		info->proc_data.is_2_1_mode = false;
+		if ((hwid && hwid->platform_version == 3 && info->proc_data.uuid_value == 0x09010a01) ||
+			(info->proc_data.uuid_value == 0x0e0e0205 && info->project_vendor == WLS_CHIP_VENDOR_FUDA1661 &&
+				info->proc_data.ss_voltage < 6700)) {
 			info->proc_data.is_2_1_mode = true;
 			info->proc_data.is_4_1_mode = false;
 		} else {
-			info->proc_data.is_2_1_mode = false;
 			info->proc_data.is_4_1_mode = true;
 		}
 		info->proc_data.pre_fastchg = true;
@@ -1426,6 +1429,33 @@ static int strategy_wireless_transparent_success(struct strategy_wireless_dev *i
 	}
 
 	return ret;
+}
+
+/* OS4 stock (inlined in process_irq, after a successful TX frequency step): a low Q value of a low-inductance / magnet TX
+ * (tx_q <= tx_q2 of its kind, if that kind's support_q switch is set) lowers the RX voltage to 11 V (6 V at full stage) */
+static void strategy_wireless_q_value_reduce_voltage_func(struct strategy_wireless_dev *info, int num)
+{
+	int tx_q2 = 0;
+
+	if (info->proc_data.current_for_tx_cmd != TX_CMD_TYPE_VOLTAGE || num == -1)
+		return;
+
+	if (info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_50W])
+		tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_50W];
+	else if (info->uuid_adapter_info[num].compatible_info.low_inductance_80w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_80W])
+		tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_80W];
+	else if (info->uuid_adapter_info[num].compatible_info.magnet_30w_tx && info->support_q[ADAPTER_MAGNET_TX_30W])
+		tx_q2 = info->tx_q2[ADAPTER_MAGNET_TX_30W];
+
+	if (info->proc_data.tx_q > tx_q2)
+		return;
+
+	if (info->proc_data.chgr_stage == WLS_FULL_MODE)
+		strategy_wireless_set_rx_vout(info, BPP_DEFAULT_VOUT);
+	else
+		strategy_wireless_set_rx_vout(info, EPP_DEFAULT_VOUT);
+#line 1429
+	mca_log_info("q_value=%d < tx_q2=%d reduce voltage\n", info->proc_data.tx_q, tx_q2);
 }
 
 static int strategy_wireless_cmd_type_f5_func(struct strategy_wireless_dev *info, bool en)
@@ -1772,8 +1802,12 @@ static void strategy_wireless_epp_standard_work(struct strategy_wireless_dev *in
 
 static void strategy_wireless_epp_plus_work(struct strategy_wireless_dev *info)
 {
+	int quick_sts = 0;
+
 #line 1760
 	mca_log_info("enter epp plus work\n");
+	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_QUICK_WIRELESS,
+				STRATEGY_STATUS_TYPE_QC_START_FLAG, &quick_sts);
 	if (info->proc_data.chgr_stage == WLS_FULL_MODE) {
 		info->proc_data.target_vout = 6000;
 		info->proc_data.target_iwls = 300;
@@ -1788,7 +1822,8 @@ static void strategy_wireless_epp_plus_work(struct strategy_wireless_dev *info)
 			strategy_wireless_stepper_pmic_icl(info, info->proc_data.pre_iwls, info->proc_data.target_iwls, 100, 50);
 	}
 
-	if (info->proc_data.target_vout != info->proc_data.pre_vout) {
+	/* OS4 stock: no RX vout / ICL change while the quick-wireless (CP) charge is running */
+	if (info->proc_data.target_vout != info->proc_data.pre_vout && !quick_sts) {
 #line 1778
 		mca_log_info("epp plus, set new vout: %u, pre vout: %u\n",
 			info->proc_data.target_vout, info->proc_data.pre_vout);
@@ -1797,7 +1832,7 @@ static void strategy_wireless_epp_plus_work(struct strategy_wireless_dev *info)
 		info->proc_data.pre_vout = info->proc_data.target_vout;
 	}
 
-	if (info->proc_data.target_iwls != info->proc_data.pre_iwls) {
+	if (info->proc_data.target_iwls != info->proc_data.pre_iwls && !quick_sts) {
 #line 1786
 		mca_log_info("epp plus, set new iwls: %u, pre iwls: %u\n",
 			info->proc_data.target_iwls, info->proc_data.pre_iwls);
@@ -1807,7 +1842,7 @@ static void strategy_wireless_epp_plus_work(struct strategy_wireless_dev *info)
 
 	if (info->proc_data.batt_soc >= 70 && info->proc_data.high_soc_fcc_set == false) {
 		info->proc_data.high_soc_fcc_set = true;
-		strategy_wireless_fcc_setting(info, true, 6000);
+		strategy_wireless_fcc_setting(info, true, info->soc_limit_fcc);
 	}
 }
 
@@ -1947,12 +1982,14 @@ static void strategy_wireless_get_charging_info(struct strategy_wireless_dev *in
 	int pmic_status = MCA_BATT_CHGR_STATUS_CHARGING_DISABLED;
 	bool chg_en = false;
 	int enable_quickchg = 0;
+	u8 brg_status = 0;
 
 	(void)platform_class_wireless_get_vout(WIRELESS_ROLE_MASTER, &vout);
 	(void)platform_class_wireless_get_vrect(WIRELESS_ROLE_MASTER, &vrect);
 	(void)platform_class_wireless_get_iout(WIRELESS_ROLE_MASTER, &iout);
 	(void)platform_class_buckchg_ops_get_wls_curr(MAIN_BUCK_CHARGER, &iwls);
 	(void)platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &pmic_status);
+	(void)platform_class_wireless_get_rx_brg_status(WIRELESS_ROLE_MASTER, &brg_status);
 	info->proc_data.batt_soc = strategy_class_fg_ops_get_soc();
 	strategy_wireless_add_trans_task_to_queue(info, TRANS_DATA_FLAG_SOC, 0);
 	strategy_wireless_get_batt_chgr_status(info, &info->proc_data.chgr_status);
@@ -1972,21 +2009,28 @@ static void strategy_wireless_get_charging_info(struct strategy_wireless_dev *in
 			info->proc_data.start_vout_check_flag = true;
 #line 1956
 			mca_log_info("after epp fastcharge, no enter quick_chg mode, set vout 11V\n");
-			if (!info->proc_data.magnet_tx_flag || !info->audio_phone_sts)
+			if (!info->proc_data.magnet_tx_flag || !info->audio_phone_sts) {
 				strategy_wireless_set_rx_vout(info, EPP_DEFAULT_VOUT);
+				info->proc_data.pre_vout = EPP_DEFAULT_VOUT;
+			}
 		}
 	}
 
 	if (!enable_quickchg)
-		strategy_wireless_soc_icl_setting(info, true, iout + 250);
-	else
+	{
+		if (info->support_mode == 2)
+			strategy_wireless_soc_icl_setting(info, true, iout + 450);
+		else
+			strategy_wireless_soc_icl_setting(info, true, iout + 250);
+	} else
 		strategy_wireless_soc_icl_setting(info, false, 0);
 
 #line 1973
 	mca_log_err("wireless loop: vout:%d, vrect:%d, iout:%d, iwls:%d, vbat_cell_mv:%d, soc:%d, tx_adapter:%d\n",
 				vout, vrect, iout, iwls, info->proc_data.vbat_cell_mv, info->proc_data.batt_soc, info->proc_data.adapter_type);
-	mca_log_err("wireless loop: icl:%d, buck_fcc:%d, chg_en:%d, charging_status:%d, pmic_status:%d, stage:%d\n",
-				icl, buck_fcc, chg_en, info->proc_data.chgr_status, pmic_status, info->proc_data.chgr_stage);
+#line 1975
+	mca_log_err("wireless loop: icl:%d, buck_fcc:%d, chg_en:%d, charging_status:%d, pmic_status:%d, stage:%d, brg_status %d\n",
+				icl, buck_fcc, chg_en, info->proc_data.chgr_status, pmic_status, info->proc_data.chgr_stage, brg_status);
 }
 
 static void strategy_wireless_enable_vdd(struct strategy_wireless_dev *info, bool enable)
@@ -2185,6 +2229,9 @@ static void strategy_wireless_power_good_on(struct strategy_wireless_dev *info)
 		strategy_wireless_soc_fcc_setting(info, true, 6000);	//temp, depend on dts
 	}
 
+	/* OS4 stock: at connect the CP vbus error IRQs are switched off again (no-op without support_base_flip) */
+	strategy_wireless_enable_cp_error_irq(false);
+
 	//check fw_version
 	platform_class_wireless_check_firmware_state(WIRELESS_ROLE_MASTER, &fw_update);
 	if (fw_update)
@@ -2201,15 +2248,25 @@ static void strategy_wireless_power_good_on(struct strategy_wireless_dev *info)
 
 static void  strategy_wireless_reset_charge_para(struct strategy_wireless_dev *info)
 {
+	int usb_online = 0;
+
 #line 2198
 	mca_log_info("stop charging\n");
 	info->sw_cv_running = false;
+	info->vbat_ov_count = 0;
 	memset(&info->proc_data, 0, sizeof(info->proc_data));
 	memset(&info->wls_node, 0, sizeof(info->wls_node));
 
-	mca_vote(info->chg_enable_voter, "online", true, 0);
-
-	mca_vote(info->chg_enable_voter, "vbat_ovp", false, 1);
+	/* OS4 stock: only when no USB is online the charger is disabled ("online" vote 0), the FCC is limited to 100 mA and
+	 * the "vbat_ovp" disable vote is released; with USB online all three votes stay untouched */
+	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BUCK_CHARGE, STRATEGY_STATUS_TYPE_ONLINE, &usb_online);
+#line 2204
+	mca_log_info("usb_online=%d\n", usb_online);
+	if (!usb_online) {
+		mca_vote(info->chg_enable_voter, "online", true, 0);
+		mca_vote(info->charge_limit_voter, "volt_thermal_limit", true, 100);
+		mca_vote(info->chg_enable_voter, "vbat_ovp", false, 1);
+	}
 	mca_vote(info->input_limit_voter, "thermal_phone", false, 0);
 }
 
@@ -2237,7 +2294,7 @@ static void strategy_wireless_power_good_off(struct strategy_wireless_dev *info)
 	struct mca_event_notify_data event_data = { 0 };
 
 #line 2220
-	mca_log_info("wireless power_good_off\n");
+	mca_log_err("wireless power_good_off\n");
 
 	strategy_wireless_cmd_type_f5_func(info, false);
 	strategy_wireless_sw_cv_stop(info);
@@ -2318,7 +2375,7 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 	u8 err_code = 0;
 	u8 dfx_code = 0;
 	int ret = 0;
-	static int num = 10;
+	int num = -1;	/* stock: per-call value (G13h: was a static initialised to 10); recomputed by get_compatible_info where the stock does */
 	int tx_q2 = 0;
 	int len = 0;
 	int dfx_data[2] = { 0 };
@@ -2407,8 +2464,10 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 			else
 				num = strategy_wireless_get_compatible_info(info);
 
-			if (info->proc_data.uuid[2] & 0x80)
+			if (info->proc_data.uuid[2] & 0x80) {
 				info->proc_data.magnet_tx_flag = true;
+				(void)mca_strategy_func_process(STRATEGY_FUNC_TYPE_THERMAL, MCA_EVENT_WIRELESS_MAGNETIC_TX_INT, 1);	/* stock +0xb28 */
+			}
 #line 2383
 			mca_log_info("uuid2: 0x%x, magnet_tx_flag: %d\n", info->proc_data.uuid[2], info->proc_data.magnet_tx_flag);
 
@@ -2425,7 +2484,7 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 				if (info->uuid_adapter_info[num].compatible_info.musical_box)
 					info->proc_data.adapter_type = ADAPTER_VOICE_BOX;
 
-				if (info->project_vendor == WLS_CHIP_VENDOR_FUDA1665 &&
+				if (info->project_vendor == WLS_CHIP_VENDOR_FUDA1661 &&
 				info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx)
 				{
 					info->wls_node.low_inductance_offset = info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx;
@@ -2439,8 +2498,10 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 			}
 
 			if (num != -1) {
-				if ((info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx ||
-				info->uuid_adapter_info[num].compatible_info.low_inductance_80w_tx) && info->support_q_value) {
+				/* OS4 stock: one support_q[] switch per TX kind (50 W / 80 W low inductance, 30 W magnet) */
+				if (((info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_50W]) ||
+				(info->uuid_adapter_info[num].compatible_info.low_inductance_80w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_80W]) ||
+				(info->uuid_adapter_info[num].compatible_info.magnet_30w_tx && info->support_q[ADAPTER_MAGNET_TX_30W])) && info->support_q_value) {
 #line 2414
 					mca_log_info("send_tx_q_value_request\n");
 					strategy_wireless_add_trans_task_to_queue(info, TRANS_DATA_FLAG_QVALUE, 0);
@@ -2476,6 +2537,15 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 				strategy_wireless_adapter_handle(info);
 				schedule_delayed_work(&info->rx_fastcharge_work, msecs_to_jiffies(interval));
 			}
+			/* stock +0xd74..+0xe24: weak EPP 15 W TX (uuid 0x09010903 and tx_max_power 15) */
+			if (info->proc_data.uuid_value == 0x09010903 && info->proc_data.tx_max_power == 15) {
+				strategy_wireless_stepper_pmic_icl(info, 1300, 850, 100, 500);
+				mca_vote(info->input_limit_voter, "weak_epp15w_tx", true, 850);
+				if (!info->online) {
+					strategy_wireless_icl_setting(info, false, 0);
+					mca_vote(info->input_limit_voter, "weak_epp15w_tx", false, 0);
+				}
+			}
 		} else {
 #line 2460
 			mca_log_info("authen failed!\n");
@@ -2506,6 +2576,7 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 #line 2482
 		mca_log_err("fast chg success: %d\n", info->proc_data.fc_flag);
 		cancel_delayed_work_sync(&info->rx_fastcharge_work);
+		num = strategy_wireless_get_compatible_info(info);	/* stock +0x528 */
 
 		if (info->proc_data.fc_flag) {
 			if (info->project_vendor == WLS_CHIP_VENDOR_FUDA1665 ||
@@ -2559,13 +2630,15 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 		l_len = val_length & 0x0F;
 #line 2540
 		mca_log_info("h_len = %d, l_len = %d\n", h_len, l_len);
+		num = strategy_wireless_get_compatible_info(info);	/* stock +0x3ec */
 		if (l_len == 1) {
 			switch (rcv_value[0]) {
 			case 0x28:
 				rcv_val = rcv_value[3] & 0x3C;
-				if (rcv_val == 0x3C)
+				if (rcv_val == 0x3C) {
 					(void)strategy_wireless_transparent_success(info);
-				else
+					strategy_wireless_q_value_reduce_voltage_func(info, num);
+				} else
 					(void)strategy_wireless_transparent_fail(info);
 				break;
 			case 0x05:
@@ -2658,6 +2731,20 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 		(void)platform_class_wireless_get_rx_err_code(WIRELESS_ROLE_MASTER, &err_code, &dfx_code);
 #line 2634
 		mca_log_err("RX_INT_ERR_CODE, err_code:0x%02x, dfx_code:%d\n", err_code, dfx_code);
+		/* OS4 stock: the dfx code of the RX is itself the mievent id 27 (OTP, with rx_temp), 28 (OVP), 29 (OCP) */
+		switch (dfx_code) {
+		case CHARGE_DFX_WLS_RX_OTP:
+			mca_charge_mievent_report(CHARGE_DFX_WLS_RX_OTP, &info->rx_temp, 1);
+			break;
+		case CHARGE_DFX_WLS_RX_OVP:
+			mca_charge_mievent_report(CHARGE_DFX_WLS_RX_OVP, NULL, 0);
+			break;
+		case CHARGE_DFX_WLS_RX_OCP:
+			mca_charge_mievent_report(CHARGE_DFX_WLS_RX_OCP, NULL, 0);
+			break;
+		default:
+			break;
+		}
 		break;
 	default:
 		break;
@@ -2751,7 +2838,7 @@ static void strategy_wireless_get_adapter_work(struct work_struct *work)
 }
 
 /*
- * G13e: stock rodata object strategy_wireless_buckchg_base_flip_sw_cv_workfunc.sw_cv_volt_delta_map [16 bytes] = {1000, 7}, {0, 2}.
+ * G13e: stock rodata object strategy_wireless_buckchg_base_flip_sw_cv_workfunc.sw_cv_volt_delta_map [16 bytes] = {1000, 7}, {0, 5} (G13h: was {0, 2}, stock bytes e8030000 07000000 00000000 05000000).
  * Recovered from the OS4 disassembly; ibat_ma holds microamps in this member (stock divides by 1000 for the log and the table).
  */
 static void strategy_wireless_buckchg_base_flip_sw_cv_workfunc(struct work_struct *work)
@@ -2759,7 +2846,7 @@ static void strategy_wireless_buckchg_base_flip_sw_cv_workfunc(struct work_struc
 	struct strategy_wireless_dev *info = container_of(work, struct strategy_wireless_dev, base_flip_sw_cv_work.work);
 	static const int sw_cv_volt_delta_map[][2] = {
 		{ 1000, 7 },
-		{ 0, 2 }
+		{ 0, 5 }
 	};
 	int interval = 5000;
 	int vterm_jeita = mca_get_client_vote(info->vterm_voter, "jeita");
@@ -2926,6 +3013,13 @@ static void strategy_wireless_process_battery_health_change(struct strategy_wire
 	}
 }
 
+static void strategy_wireless_process_pmic_init_done(struct strategy_wireless_dev *info)
+{
+#line 2767
+	mca_log_info("deal with pmic_init_done\n");
+	mca_rerun_election(info->input_limit_voter);
+}
+
 static int strategy_wireless_process_event(int event, int value, void *data)
 {
 	struct strategy_wireless_dev *info = data;
@@ -2960,9 +3054,7 @@ static int strategy_wireless_process_event(int event, int value, void *data)
 			mod_delayed_work(system_wq, &info->monitor_work, 0);
 		break;
 	case MCA_EVENT_PMIC_INIT_DONE:
-#line 2767
-		mca_log_info("deal with pmic_init_done\n");
-		mca_rerun_election(info->input_limit_voter);
+		strategy_wireless_process_pmic_init_done(info);
 		break;
 	case MCA_EVENT_WIRELESS_MAGNETIC_CASE_INT:
 		if (value)
@@ -3005,6 +3097,11 @@ static int strategy_wireless_process_event(int event, int value, void *data)
 #line 2899
 		mca_log_info("battery health change\n");
 		strategy_wireless_process_battery_health_change(info);
+		break;
+	case MCA_EVENT_BATTERY_TOTAL_ITERM:	/* stock process_event +0x384 (G13h: was missing) */
+#line 2912
+		mca_log_info("parallel_iterm: %d\n", value);
+		info->parallel_iterm = value;
 		break;
 	default:
 		break;
@@ -3121,16 +3218,27 @@ find_voter_error:
 	return -1;
 }
 
-static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_dev *info)
+/* OS4 stock: the quick-wireless charge status is a parameter (the static of monitor_work is passed in);
+ * the FFC decision uses info->fastcharge_mode (read once at the top of monitor_work) and info->proc_data.vbat_cell_mv */
+static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_dev *info, int quick_charge_status)
 {
-	int batt_temp, fastcharge_mode, effective_icl, effective_fcc;
+	int batt_temp, rx_vout_mv = 0, ffc_iterm = 0, normal_vterm = 0;
+	int chgr_stat = CHARGER_STATUS_CHARGING_DISABLED;
+	int effective_icl, effective_fcc;
 	int ret = 0;
-	int vbat_cell_mv = 4000, rx_vout_mv = 0, ffc_iterm = 0, normal_vterm = 0;
 	static int fastchg_cnt;
+	static int charge_done_cnt;
 
 	if (info->proc_data.adapter_type > ADAPTER_AUTH_FAILED) {
-		(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_JEITA,
-				STRATEGY_STATUS_TYPE_JEITA_FFC_ITERM, &ffc_iterm);
+		batt_temp = 0;
+
+		if (info->batt_type == 0)
+			(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_JEITA,
+					STRATEGY_STATUS_TYPE_JEITA_FFC_ITERM, &ffc_iterm);
+		else if (info->support_base_flip)
+			ffc_iterm = info->parallel_iterm;
+		else
+			ffc_iterm = mca_get_effective_result(info->iterm_voter);
 		(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_JEITA,
 				STRATEGY_STATUS_TYPE_JEITA_NORMAL_VTERM, &normal_vterm);
 		effective_icl = mca_get_effective_result(info->input_limit_voter);
@@ -3143,18 +3251,17 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 		(void)strategy_class_fg_ops_get_temperature(&batt_temp);
 		batt_temp /= 10;
 
-		(void)strategy_class_fg_ops_get_voltage(&vbat_cell_mv);
-		fastcharge_mode = strategy_class_fg_get_fastcharge();
+		(void)strategy_class_fg_ops_get_voltage(&info->proc_data.vbat_cell_mv);
 		strategy_wireless_get_chgr_stage(info, &info->proc_data.chgr_stage);
 #line 3058
 		mca_log_info("batt_temp:%d, fastcharge_mode:%d, ffc_iterm:%d, effective_icl:%d, effective_fcc:%d, vbat_cell_mv:%d, rx_vout_mv:%d\n",
-					batt_temp, fastcharge_mode, ffc_iterm, effective_icl, effective_fcc, vbat_cell_mv, rx_vout_mv);
+					batt_temp, info->fastcharge_mode, ffc_iterm, effective_icl, effective_fcc, info->proc_data.vbat_cell_mv, rx_vout_mv);
 
 		if (info->proc_data.chgr_stage == WLS_FULL_MODE || info->sw_cv_running)
 			return ret;
 
 		if (info->proc_data.chgr_stage == WLS_RECHG_MODE) {
-			if (fastcharge_mode) {
+			if (info->fastcharge_mode) {
 				strategy_class_fg_set_fastcharge(false);
 #line 3067
 				mca_log_info("chgr_state is %d, exit ffc mode\n", info->proc_data.chgr_stage);
@@ -3165,9 +3272,32 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 			return ret;
 		}
 
-		if (normal_vterm && (vbat_cell_mv >= normal_vterm - info->smartchg_data.delta_fv - CHARGE_SW_CV_VBAT_ALARM_DELTA) &&
-			(effective_fcc < ffc_iterm || effective_icl * rx_vout_mv / vbat_cell_mv < ffc_iterm)) {
-			if (fastcharge_mode) {
+		/* charge-done debounce (OS4): ffc_iterm >= 2101 mA, no base flip, quick charge not running: 4 loops -> leave FFC */
+		if (quick_charge_status != MCA_QUICK_CHG_STS_CHARGING && ffc_iterm >= 2101 && !info->support_base_flip) {
+			if (info->fastcharge_mode) {
+				charge_done_cnt++;
+				if (charge_done_cnt >= 4) {
+					charge_done_cnt = 0;
+					strategy_class_fg_set_fastcharge(false);
+#line 3080
+					mca_log_info("quick_charge_status is %d, exit ffc mode\n", quick_charge_status);
+					return ret;
+				}
+#line 3083
+				mca_log_info("charge_done_cnt < thre, continue\n");
+			} else {
+				charge_done_cnt = 0;
+#line 3086
+				mca_log_info("quick_charge_status is %d, keep normal mode\n", quick_charge_status);
+				return ret;
+			}
+		} else {
+			charge_done_cnt = 0;
+		}
+
+		if (normal_vterm && (info->proc_data.vbat_cell_mv >= normal_vterm - info->smartchg_data.delta_fv - CHARGE_SW_CV_VBAT_ALARM_DELTA) &&
+			(effective_fcc < ffc_iterm || effective_icl * rx_vout_mv / info->proc_data.vbat_cell_mv < ffc_iterm)) {
+			if (info->fastcharge_mode) {
 				fastchg_cnt++;
 				if (fastchg_cnt > MCA_WLS_CHG_ENABLE_FASTCHG_CNT) {
 					fastchg_cnt = 0;
@@ -3191,7 +3321,7 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 		}
 
 		if (batt_temp < info->ffc_temp_low || batt_temp >= info->ffc_temp_high) {
-			if (fastcharge_mode) {
+			if (info->fastcharge_mode) {
 				strategy_class_fg_set_fastcharge(false);
 #line 3117
 				mca_log_info("temp is over, wireless buck charger disable fast charge mode\n");
@@ -3202,7 +3332,9 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 			return ret;
 		}
 
-		if (normal_vterm && (vbat_cell_mv < normal_vterm - info->smartchg_data.delta_fv - 2 * CHARGE_SW_CV_VBAT_ALARM_DELTA) && !fastcharge_mode) {
+		(void)platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &chgr_stat);
+		if (normal_vterm && (info->proc_data.vbat_cell_mv < normal_vterm - info->smartchg_data.delta_fv - 2 * CHARGE_SW_CV_VBAT_ALARM_DELTA) &&
+			!info->fastcharge_mode && chgr_stat != CHARGER_STATUS_TAPER) {
 			strategy_class_fg_set_fastcharge(true);
 #line 3126
 			mca_log_info("wireless buck charger enable fast charge mode\n");
@@ -3215,7 +3347,9 @@ static void strategy_wireless_sw_cv_start(struct strategy_wireless_dev *info)
 {
 	info->sw_cv_running = true;
 	mca_vote(info->charge_limit_voter, "sw_cv", false, 0);
-	mca_queue_delayed_work(&info->sw_cv_work, msecs_to_jiffies(CHARGE_SW_CV_WORK_FAST_INTERVAL));
+	/* OS4: the base-flip hardware uses its own sw_cv worker */
+	mca_queue_delayed_work(info->support_base_flip ? &info->base_flip_sw_cv_work : &info->sw_cv_work,
+		msecs_to_jiffies(CHARGE_SW_CV_WORK_FAST_INTERVAL));
 }
 
 static void strategy_wireless_sw_cv_stop(struct strategy_wireless_dev *info)
@@ -3223,69 +3357,154 @@ static void strategy_wireless_sw_cv_stop(struct strategy_wireless_dev *info)
 #line 3144
 	mca_log_info("chgr_stage: %d, stop sw_cv_work\n", info->proc_data.chgr_stage);
 	cancel_delayed_work(&info->sw_cv_work);
+	cancel_delayed_work(&info->base_flip_sw_cv_work);
 	mca_vote(info->charge_limit_voter, "sw_cv", false, 0);
 	info->sw_cv_running = false;
+	info->vbat_ov_count = 0;
+}
+
+/* OS4 stock (inlined helpers of monitor_work, log lines 471 / 664..672 of the stock source) */
+static void strategy_wireless_bridge_icl_setting(struct strategy_wireless_dev *info, bool en, int mA)
+{
+#line 471
+	mca_log_info("bridge_sw en: %d, ma: %u\n", en, mA);
+
+	if (en)
+		mca_vote(info->input_limit_voter, "sw_bridge", true, mA);
+	else
+		mca_vote(info->input_limit_voter, "sw_bridge", false, 0);
+}
+
+/* only on hwid platform_version 5: bridge_status 0 = FULL bridge (stock log text), then the RX is set to 6 V / 300 mA ICL and the
+ * bridge is switched to HALF as soon as rx_vout <= 6500 mV and rx_iout <= 400 mA (15 tries, 300 ms apart) */
+static void strategy_wireless_switch_to_half_bridge(struct strategy_wireless_dev *info)
+{
+	u8 brg_status = 0;
+	int rx_vout = 0, rx_iout = 0;
+	unsigned int cnt = 15;
+	const struct mca_hwid *hwid = mca_get_hwid_info();
+
+	if (!hwid || hwid->platform_version != 5)
+		return;
+
+	(void)platform_class_wireless_get_rx_brg_status(WIRELESS_ROLE_MASTER, &brg_status);
+	if (brg_status) {
+#line 672
+		mca_log_err("bridge_sw no need switch, bridge is HALF\n");
+		return;
+	}
+
+	info->in_switch_bridge = 1;
+	(void)platform_class_wireless_set_vout(WIRELESS_ROLE_MASTER, 6000);
+	strategy_wireless_bridge_icl_setting(info, true, 300);
+	do {
+		msleep(300);
+		(void)platform_class_wireless_get_vout(WIRELESS_ROLE_MASTER, &rx_vout);
+		(void)platform_class_wireless_get_iout(WIRELESS_ROLE_MASTER, &rx_iout);
+		if (rx_vout <= 6500 && rx_iout <= 400) {
+			(void)platform_class_wireless_switch_bridge(WIRELESS_ROLE_MASTER, 0);
+			break;
+		}
+#line 664
+		mca_log_err("bridge_sw wait, rx_vout %d, rx_iout %d \n", rx_vout, rx_iout);
+	} while (--cnt);
+
+	info->in_switch_bridge = 0;
+	msleep(20);
+	(void)platform_class_wireless_get_rx_brg_status(WIRELESS_ROLE_MASTER, &brg_status);
+	strategy_wireless_bridge_icl_setting(info, false, 0);
+#line 670
+	mca_log_err("bridge_sw switch bridge over, bridge_state %d 【0】is FULL Bridge\n", brg_status);
 }
 
 static void strategy_wireless_monitor_work(struct work_struct *work)
 {
 	struct strategy_wireless_dev *info = container_of(work,
 		struct strategy_wireless_dev, monitor_work.work);
-	int interval = MCA_WLS_CHG_MONITOR_WORK_NORMAL_INTERVAL;
-	int quick_charge_status = MCA_QUICK_CHG_STS_CHARGE_FAILED;
+	int interval;
+	static int quick_charge_status = MCA_QUICK_CHG_STS_CHARGE_FAILED;
+	static int last_quick_enable = -1;
+	int pre_quick_status;
 	bool if_qc_enable = false;
 	int vterm = 0;
 	int input_suspend = 0, chg_en = 0;
-	int jeita_hot_result = 1;
-	int chgr_stat;
+	int chgr_stat = 0;
 
+#line 3165
+	mca_log_info("wireless monitor work\n");
 	if (!info->thermal_phone_flag)
 		(void)mca_vote(info->input_limit_voter, "thermal_phone", false, 0);
 
-	jeita_hot_result = mca_get_client_vote(info->chg_enable_voter, "jeita-hot");
-	mca_log_info("jeita_hot vote value: %d\n", jeita_hot_result);
-
 	strategy_wireless_get_qc_enable(info, &if_qc_enable);
-	if (jeita_hot_result == 1)
-		mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS,
-			MCA_EVENT_CHARGE_ACTION, if_qc_enable);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS, MCA_EVENT_CHARGE_ACTION, if_qc_enable);
+	(void)platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &chgr_stat);
+
+	/* OS4 stock: the quick-charge enable flag was unchanged and is off: try the FULL -> HALF bridge switch (platform_version 5) */
+	if (last_quick_enable == if_qc_enable) {
+		if (!if_qc_enable)
+			strategy_wireless_switch_to_half_bridge(info);
+	} else {
+		last_quick_enable = if_qc_enable;
+	}
+
+	info->fastcharge_mode = strategy_class_fg_get_fastcharge();
+	pre_quick_status = quick_charge_status;
 	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_QUICK_WIRELESS,
 				STRATEGY_STATUS_TYPE_CHARGING, &quick_charge_status);
+	if (quick_charge_status == MCA_QUICK_CHG_STS_CHARGING && pre_quick_status == MCA_QUICK_CHG_STS_CHARGING)
+		interval = 5000;
+	else
+		interval = ((info->fastcharge_mode != 0) & (chgr_stat == CHARGER_STATUS_TAPER)) ? 6000 : 10000;
+
+	/* OS4: 30 W "magnet" TX (UUID 0x0e0e0205) on FUDA1661: 13 A FCC while the 4:1 CP charge runs (back to 2:1 after 15000 jiffies), else 6 A */
+	if (info->proc_data.uuid_value == 0x0e0e0205 && info->project_vendor == WLS_CHIP_VENDOR_FUDA1661) {
+		if (quick_charge_status == MCA_QUICK_CHG_STS_CHARGING && info->proc_data.is_4_1_mode) {
+			strategy_wireless_fcc_setting(info, true, 13000);
+			info->proc_data.wireless_power.max_fcc = 13000;
+			queue_delayed_work(system_wq, &info->change_cp_mode_work, 15000);
+		} else {
+			cancel_delayed_work(&info->change_cp_mode_work);
+			strategy_wireless_fcc_setting(info, true, 6000);
+			info->proc_data.wireless_power.max_fcc = 6000;
+		}
+	}
+
 	if (quick_charge_status == MCA_QUICK_CHG_STS_CHARGING)
 		goto out;
 
 	//WA: slove pmic adnormal status
 	input_suspend = mca_get_effective_result(info->wls_input_suspend_voter);
 	chg_en = mca_get_effective_result(info->chg_enable_voter);
-	if (!input_suspend && info->proc_data.chgr_stage != WLS_FULL_MODE) {
-		(void)platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &chgr_stat);
-		if (chg_en && chgr_stat == CHARGER_STATUS_CHARGING_DISABLED) {
-			platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, false);
-			platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, true);
+	if (!input_suspend && info->proc_data.chgr_stage != WLS_FULL_MODE &&
+		chg_en && chgr_stat == CHARGER_STATUS_CHARGING_DISABLED) {
+		platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, false);
+		platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, true);
 #line 3215
-			mca_log_err("recover wireless buck charging\n");
-		}
+		mca_log_err("recover wireless buck charging\n");
 	}
 
-	strategy_wireless_enable_fast_charge_mode(info);
+	strategy_wireless_enable_fast_charge_mode(info, quick_charge_status);
 
 	if (info->proc_data.chgr_stage == WLS_FULL_MODE)
 		strategy_wireless_sw_cv_stop(info);
 
-	vterm = mca_get_effective_result(info->vterm_voter);
-	if (!info->sw_cv_running && info->proc_data.chgr_stage != WLS_FULL_MODE &&
-		vterm >= MCA_WLS_CHG_VTERM_LOW_TH && info->proc_data.vbat_cell_mv >= vterm - CHARGE_SW_CV_VBAT_ALARM_DELTA) {
+	if (info->support_base_flip)
+		vterm = mca_get_client_vote(info->vterm_voter, "jeita");
+	else
+		vterm = mca_get_effective_result(info->vterm_voter);
+	if (info->sw_cv_running) {
+		if (!chg_en || info->proc_data.vbat_cell_mv <= vterm - 20) {
+#line 3234
+			mca_log_err("vbat: %d, vterm: %d, chg_en: %d, stop sw_cv_work\n", info->proc_data.vbat_cell_mv, vterm, chg_en);
+			strategy_wireless_sw_cv_stop(info);
+		}
+	} else if (info->proc_data.chgr_stage != WLS_FULL_MODE &&
+		vterm >= MCA_WLS_CHG_VTERM_LOW_TH && info->proc_data.vbat_cell_mv >= vterm - CHARGE_SW_CV_VBAT_ALARM_DELTA &&
+		pre_quick_status != MCA_QUICK_CHG_STS_CHARGING) {
 #line 3231
 		mca_log_err("vbat: %d, vterm: %d, start sw_cv_work\n", info->proc_data.vbat_cell_mv, vterm);
 		strategy_wireless_sw_cv_start(info);
-	} else if (info->sw_cv_running && (!chg_en || info->proc_data.vbat_cell_mv <= vterm - 20)) {
-#line 3234
-		mca_log_err("vbat: %d, vterm: %d, chg_en: %d, stop sw_cv_work\n", info->proc_data.vbat_cell_mv, vterm, chg_en);
-		strategy_wireless_sw_cv_stop(info);
 	}
-
-	if (quick_charge_status != MCA_QUICK_CHG_STS_CHARGING)
-		interval = MCA_WLS_CHG_MONITOR_WORK_FAST_INTERVAL;
 
 out:
 	schedule_delayed_work(&info->monitor_work, msecs_to_jiffies(interval));
@@ -3541,7 +3760,7 @@ static void strategy_wireless_max_power_control_work(struct work_struct *work)
 		if (num == -1)
 			return;
 		else if (info->uuid_adapter_info[num].compatible_info.standard_tx) {
-#line 3582
+#line 3587
 			mca_log_info("max_power_control\n");
 			strategy_wireless_fcc_setting(info, true, MCA_WLS_CHG_REDUCE_FCC_VALUE_80W_MA);
 		}
@@ -3881,6 +4100,9 @@ static int strategy_wireless_get_status(int status, void *value, void *data)
 		return -1;
 
 	switch (status) {
+	case STRATEGY_STATUS_TYPE_INIT_OK:	/* stock jump table +0x14c, case 1 -> +0x78 (G13h: was missing) */
+		*cur_val = info->init_ok;
+		break;
 	case STRATEGY_STATUS_TYPE_ONLINE:
 		platform_class_wireless_is_present(WIRELESS_ROLE_MASTER, cur_val);
 		break;
@@ -3930,7 +4152,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 		info->tx_q1[i] = MCA_WLS_CHG_DEFAULT_TX_Q1;
 	count = of_property_count_elems_of_size(node, "tx_q1", sizeof(u8));
 	if (count >= 1) {
-		tx_q1_buf = kmalloc(count, GFP_KERNEL);
+		tx_q1_buf = kzalloc(count, GFP_KERNEL);	/* G13o: stock __kmalloc flags 0xdc0 = zeroed */
 		if (!tx_q1_buf) {
 #line 3959
 			mca_log_err("alloc memory for tx_q1 failed\n");
@@ -3949,7 +4171,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 		info->tx_q2[i] = MCA_WLS_CHG_DEFAULT_TX_Q2;
 	count = of_property_count_elems_of_size(node, "tx_q2", sizeof(u32));
 	if (count >= 1) {
-		tx_q2_buf = kmalloc_array(count, sizeof(u32), GFP_KERNEL);
+		tx_q2_buf = kzalloc(count * sizeof(u32), GFP_KERNEL);	/* G13o: stock zeroed */
 		if (!tx_q2_buf) {
 #line 3980
 			mca_log_err("alloc memory for tx_q2 failed\n");
@@ -4016,7 +4238,7 @@ static int strategy_wireless_parse_dt(struct strategy_wireless_dev *info)
 	} else
 		memcpy(info->rx_max_iout, idata, sizeof(idata));
 
-#line 4050
+#line 4049
 	mca_log_debug("rx_max_iout %d %d\n", info->rx_max_iout[CHG_MODE_DIV2],
 		info->rx_max_iout[CHG_MODE_DIV2]);
 
@@ -4285,19 +4507,19 @@ static int strategy_wireless_init_voter(struct strategy_wireless_dev *info)
 	if (IS_ERR(info->input_limit_voter))
 		return -1;
 	info->bpp_in_voter = mca_create_votable("wireless_bpp_in", MCA_VOTE_MIN,
-		strategy_wireless_set_bpp_input, 1100, info);
+		strategy_wireless_set_bpp_input, 1300, info);
 	if (IS_ERR(info->bpp_in_voter))
 		return -1;
 	info->bppqc2_in_voter = mca_create_votable("wireless_bppqc2_in", MCA_VOTE_MIN,
-		strategy_wireless_set_bppqc2_input, 1100, info);
+		strategy_wireless_set_bppqc2_input, 1300, info);
 	if (IS_ERR(info->bppqc2_in_voter))
 		return -1;
 	info->bppqc3_in_voter = mca_create_votable("wireless_bppqc3_in", MCA_VOTE_MIN,
-		strategy_wireless_set_bppqc3_input, 1100, info);
+		strategy_wireless_set_bppqc3_input, 1300, info);
 	if (IS_ERR(info->bppqc3_in_voter))
 		return -1;
 	info->epp_in_voter = mca_create_votable("wireless_epp_in", MCA_VOTE_MIN,
-		strategy_wireless_set_epp_input, 1100, info);
+		strategy_wireless_set_epp_input, 1300, info);
 	if (IS_ERR(info->epp_in_voter))
 		return -1;
 	info->auth_20w_voter = mca_create_votable("wireless_auth_20w", MCA_VOTE_MIN,
@@ -4481,6 +4703,9 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGER_CONNECT, MCA_EVENT_WIRELESS_CONNECT, NULL);
 	}
 
+	/* stock probe +0x137c/+0x1380 (G13h: init_ok was never set, INIT_OK get_status would always report 0) */
+	info->vbat_ov_count = 0;
+	info->init_ok = 1;
 #line 4489
 	mca_log_err("probe End\n");
 

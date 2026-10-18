@@ -185,7 +185,6 @@ enum {
 struct aw_cali_desc {
 	unsigned char status;
 	unsigned char mode;		/*0:NONE 1:ATTR 2:CLASS 3:MISC */
-	int32_t cali_f0_en;
 	int32_t cali_re;		/*set cali_re*/
 	int32_t cali_f0;		/*store cali_f0*/
 	int32_t cali_q;			/*store cali q*/

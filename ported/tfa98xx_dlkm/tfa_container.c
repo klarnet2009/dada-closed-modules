@@ -901,6 +901,12 @@ int tfa_cnt_get_devid(struct TfaContainer *cnt, int dev_idx)
 	unsigned short devid, checkaddress;
 	int checkvalue;
 
+	/* g3u: the stock first looks for a descriptor of type 0x21 (device id of the v6.13 containers, not in our enum): its first
+	 * 24 bits are the id; only without it the id comes from the patch header as before */
+	patchdsc = tfa_cnt_get_dsc(cnt, (enum TfaDescriptorType)0x21, dev_idx);
+	if (patchdsc)
+		return *(uint32_t *)patchdsc & 0xffffff;
+
 	patchdsc = tfa_cnt_get_dsc(cnt, dscPatch, dev_idx);
 	if (!patchdsc) /* no patch for this device, assume non-i2c */
 		return 0;

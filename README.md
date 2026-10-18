@@ -7,8 +7,8 @@ Xiaomi's stock kernel for this phone loads roughly 630 GPL-licensed modules, but
 ## Read this first
 
 - **Nothing here has been tested on a device.** Not one module was loaded, run or flashed. Every claim below is a static, binary-level comparison of a module built from these sources against the stock `.ko`. "Equivalent" is not "works".
-- **Do not load or flash these modules (use the stock binaries): `matt`, `mi_game`, `mi_low_lat_mem`, `xr_qi`, `xr_qs`, `mitee_dlkm`, `aw882xx_dlkm`, `sia91xx_dlkm`, `tfa98xx_dlkm`, and the whole charging / fuel-gauge family** (reconstructed and ported `mca_*`, `mca_business_*`, `mca_strategy_*`, `mca_smart_charge`, `mca_quick_wireless`, `mca_basic_wireless`, `mca_connector_antiburn`, `mca_wireless_revchg`, `mca_buckchg_jeita`, `mca_pwm_fan`, `bq27z561`, `nuvolta_1652`, `sc8581_sy6541`, `hl7603`, `charger_partition`, ...). **The charging family is community-only: published to read and review, never to be flashed or put on a real battery.** A wrong charging or gauge driver can damage a battery. **None of the rewritten charging modules is strict-equivalent** (they are PARTIAL or COMPILES-only, three independent reviews are in `docs/reviews/`, and the newest modules were not reviewed at all). `sia91xx_tuning_dlkm` is a different module from `sia91xx_dlkm`.
-- The Wi-Fi drivers `qca_cld3_*` are PARTIAL research code: about 97-99% of the functions are byte-identical to the stock, an independent review found real behaviour differences that were fixed, and no functional difference is left that binary checking can see, but nothing ran on hardware (`docs/WIFI.md`).
+- **Do not load or flash these modules (use the stock binaries): `matt`, `mi_game`, `mi_low_lat_mem`, `xr_qi`, `xr_qs`, `mitee_dlkm` (never `rmmod` it, even the stock one is unsafe to unload), `aw882xx_dlkm`, `sia91xx_dlkm`, `tfa98xx_dlkm`, and the whole charging / fuel-gauge family** (reconstructed and ported `mca_*`, `mca_business_*`, `mca_strategy_*`, `mca_smart_charge`, `mca_quick_wireless`, `mca_basic_wireless`, `mca_connector_antiburn`, `mca_wireless_revchg`, `mca_buckchg_jeita`, `mca_pwm_fan`, `bq27z561`, `nuvolta_1652`, `sc8581_sy6541`, `hl7603`, `charger_partition`, ...). **The charging family is community-only: published to read and review, never to be flashed or put on a real battery.** A wrong charging or gauge driver can damage a battery. **None of the rewritten charging modules is strict-equivalent** (they are PARTIAL or COMPILES-only; five independent reviews and audits are in `docs/reviews/`, and each of them found real differences, which were then fixed; the code written after the last review has not been reviewed). The fuel-gauge firmware-update and data-flash functions of `bq27z561` are deliberately **not** ported. Whether branches gated on the board's `platform_version` run on a `dada` (they should not: project 2) is read from the binaries and still to be verified on the device. `sia91xx_tuning_dlkm` is a different module from `sia91xx_dlkm`.
+- The Wi-Fi drivers `qca_cld3_*` are PARTIAL research code: about 97-99% of the functions are byte-identical to the stock, an independent review found real behaviour differences that were fixed, and no functional difference is left that binary checking can see, but nothing ran on hardware (`docs/WIFI.md`). A read-only investigation of a roaming complaint found no roaming bug in the driver: the firmware roams, and the thresholds come from the Xiaomi ini (`docs/WIFI.md`, `docs/reviews/wifi_roaming_investigation.md`).
 - The old comparison tool (`tools/compare_ko.py`) has blind spots: it does not look at static data, tables, bug-table lines or the kCFI type hash in front of each function. The strict tool is `tools/compare_ko_v2.py` together with `tools/preamble_cmp.py` (kCFI); see `docs/VERIFICATION_METHODS.md`. Of the 100 modules marked EQUIVALENT, 99 were re-checked strictly (last column of the tables), the rest (1) only with the old tool. Even the strict tool missed real differences in the Wi-Fi drivers until an independent review dumped the objects it had waved through.
 - This is reverse-engineered code. Several modules contain documented build hacks (forged export/import CRCs, stub providers, `#line` pins, codegen hints, a 6.6.57 header emulation): `docs/HACKS_AND_FORGED_CRCS.md`. `xm_compat_6657.h` is an emulation of old kernel headers for the build, **not Xiaomi code**.
 - The stock modules were built against kernel 6.6.57 headers, ours against 6.6.144: part of the remaining differences (inlined `readl`, `netif_tx_stop_queue`, bug-table line numbers, `task_struct` offsets, some export CRCs) come from that drift, not from errors in the source (`docs/STATUS_AND_LIMITS.md` section 9).
@@ -17,18 +17,18 @@ Xiaomi's stock kernel for this phone loads roughly 630 GPL-licensed modules, but
 
 ## Status in numbers
 
-145 modules are tracked in this repository (state 18.10.2026, evening):
+145 modules are tracked in this repository (state 19.10.2026, night):
 
 | status | modules |
 |---|---|
 | EQUIVALENT | 100 |
-| PARTIAL | 40 |
-| COMPILES-only | 4 |
-| BLOCKED | 1 (`bq27z561`) |
+| PARTIAL | 42 |
+| COMPILES-only | 3 |
+| BLOCKED | 0 (none) |
 
 (3 modules appear twice, once under their HyperOS 3 name and once under their HyperOS 4 name: `tas25xx`, `typec_analog_acc`, `sia91xx_tuning`.)
 
-Since the previous update (commit 61c0b7f) five BLOCKED modules were built for the first time (`mca_smart_charge`, `mca_quick_wireless`, `mca_basic_wireless` and `mca_strategy_buckchg` are now PARTIAL, `mca_strategy_quickchg` is COMPILES-only), and `mitee_dlkm` (TEE transport) went from "not started" to PARTIAL. The number of EQUIVALENT modules did not change. The new charging modules are community-only and have had no independent review; their numbers are in `docs/STATUS_AND_LIMITS.md` section 5.
+Since the previous update (commit 30c3329) two modules changed status: `mca_strategy_quickchg` went from COMPILES-only to PARTIAL (44 of 83 functions byte-identical, up from 4; the regulation and monitor code was rewritten from the stock disassembly), and `bq27z561` (fuel gauge) went from BLOCKED to PARTIAL (119 of 182 common functions identical; the 25 firmware-update and data-flash functions are not ported on purpose). No module is BLOCKED any more. The number of EQUIVALENT modules did not change. The rest of the update is deeper work on modules that were already PARTIAL or COMPILES-only: `mca_basic_wireless`, `mca_quick_wireless`, `mca_strategy_buckchg`, `mca_smart_charge`, `mitee_dlkm` (151 of 182 identical), `xr_qi` (356 of 376), the three audio drivers, `mi_game`, `mi_low_lat_mem`, `cameramsger`, two more independent charging reviews, a review of `mitee_dlkm`, a hidden-behaviour audit of the charging family, and the Wi-Fi roaming investigation. The new charging code is community-only; its numbers are in `docs/STATUS_AND_LIMITS.md` section 5.
 
 What the statuses mean (all against the stock module of HyperOS 4.0 where the table says so):
 
@@ -40,11 +40,11 @@ What the statuses mean (all against the stock module of HyperOS 4.0 where the ta
 ## What is in the repository
 
 - **`reconstructed/`**: 26 modules that have no public source in any place we looked (all 267 branches of Xiaomi's public MiCode repositories, the OnePlus and LineageOS Qualcomm trees). Their C source was rebuilt from the stock `.ko` binaries (first from HyperOS 3.0.6, `OS3.0.6.0.WOCMIXM`, then re-checked and corrected against HyperOS 4.0, `OS4.0.0.6.XOCCNXM`: the table says which) and compiled against a GKI 6.6.144 tree with ThinLTO.
-- **`ported/`**: 118 modules whose source exists in older public Xiaomi trees (MiCode `*-oss` branches, XRING `xiaomi-modules` including the `mitee` TEE driver, OnePlus), or that were written from scratch from the binary (for example `matt`, `mi_game`, the Wi-Fi extension). Ported to 6.6.144 and compared the same way (85 EQUIVALENT, 29 PARTIAL, 4 COMPILES-only). Original copyright headers are kept. 117 of them were compared against the HyperOS 4.0 (Android 17) stock modules. `ported/qca_cld3_*` hold only our notes (the driver tree is the public Qualcomm one), `ported/qca_cld3_xiaomi_ext/` our Xiaomi extension code and `ported/qca_cld3_recipe/` the assembly scripts.
-- **`docs/blocked/`**: the notes (`STATUS.md`) of the modules that do not compile yet, with what exactly is missing.
+- **`ported/`**: 119 modules whose source exists in older public Xiaomi trees (MiCode `*-oss` branches, XRING `xiaomi-modules` including the `mitee` TEE driver, OnePlus), or that were written from scratch from the binary (for example `matt`, `mi_game`, the Wi-Fi extension). Ported to 6.6.144 and compared the same way (85 EQUIVALENT, 31 PARTIAL, 3 COMPILES-only). Original copyright headers are kept. 118 of them were compared against the HyperOS 4.0 (Android 17) stock modules. `ported/qca_cld3_*` hold only our notes (the driver tree is the public Qualcomm one), `ported/qca_cld3_xiaomi_ext/` our Xiaomi extension code and `ported/qca_cld3_recipe/` the assembly scripts.
+- **`docs/blocked/`**: the notes (`STATUS.md`) of the modules that do not compile yet, with what exactly is missing (present only while such a module exists: none at the moment).
 - **`stubs/`**: tiny stand-in provider modules and header sets (several of them generated from the stock BTF) used only to satisfy export/import CRCs and types when a module is built on its own. They are not modules to load. The forged `os4_*` provider modules that `mitee_dlkm` needs are not published.
-- **`tools/`**: `compare_ko.py` (first-generation check), **`compare_ko_v2.py`** (strict check), `preamble_cmp.py` and `verify_pkg.py` (kCFI hashes, `depends=`, vermagic, CRCs against `Module.symvers`, load order), `crctool.py`, `crc_patch.py`, `crc_patch2.py`, `modinfo_fix.py`, `btf_dump.py`, `btf_dump_startid.py`, `patch_btf.py`, `gen_stubs.py` (stub providers with exact export CRCs), `padcrc.py`/`crcpad.py`, `gen_trace.py`, `payload_extract.py`, `vendor_boot_extract.py`, and the sub-directories `review/` (function fingerprints, data/table comparison), `review3/` (symbolic comparison of calls, stores and conditions), `matt_review/` (register-agnostic comparison of one module, kCFI checks), `multiset/` (instruction multiset diff, unity build), `kcfi/` (kCFI hash to prototype search, with Itanium substitutions), `rounds/` and `charging/` (per-round helper scripts). Several scripts were written for our own build server and contain placeholders such as `<work-dir>` where a path was; they document the method more than they run unchanged.
-- **`docs/`**: `STATUS_AND_LIMITS.md` (what is and is not proven, the do-not-load list, the charging family, stock bugs, kernel drift), `VERIFICATION_METHODS.md` (compare_ko_v2, kCFI, multiset diff, BTF), `HACKS_AND_FORGED_CRCS.md`, `KERNEL_PACKAGE.md` (what a full module set built from this work looks like, in numbers), `WIFI.md` and `wifi/` (the Wi-Fi rounds: notes, behaviour specs, patches), `reviews/` (independent reviews of the charging family, `matt` and the Wi-Fi drivers, the multiset audits, the charging enum-name audit, the stub inventory), `METHOD.md`, `LESSONS_round2.md`, `LESSONS_round3.md` and `source-map/` (which module has source where).
+- **`tools/`**: `compare_ko.py` (first-generation check), **`compare_ko_v2.py`** (strict check), `preamble_cmp.py` and `verify_pkg.py` (kCFI hashes, `depends=`, vermagic, CRCs against `Module.symvers`, load order), `crctool.py`, `crc_patch.py`, `crc_patch2.py`, `modinfo_fix.py`, `btf_dump.py`, `btf_dump_startid.py`, `patch_btf.py`, `gen_stubs.py` (stub providers with exact export CRCs), `padcrc.py`/`crcpad.py`, `gen_trace.py`, `payload_extract.py`, `vendor_boot_extract.py`, and the sub-directories `review/` (function fingerprints, data/table comparison), `review3/` (symbolic comparison of calls, stores and conditions), `review4/` (`symcmp4.py`: the same with the guards of every effect, used by the hidden-behaviour audit), `matt_review/` (register-agnostic comparison of one module, kCFI checks), `multiset/` (instruction multiset diff, unity build), `kcfi/` (kCFI hash to prototype search, with Itanium substitutions), `rounds/` and `charging/` (per-round helper scripts). Several scripts were written for our own build server and contain placeholders such as `<work-dir>` where a path was; they document the method more than they run unchanged.
+- **`docs/`**: `STATUS_AND_LIMITS.md` (what is and is not proven, the do-not-load list, the charging family, stock bugs, kernel drift), `VERIFICATION_METHODS.md` (compare_ko_v2, kCFI, multiset diff, BTF), `HACKS_AND_FORGED_CRCS.md`, `KERNEL_PACKAGE.md` (what a full module set built from this work looks like, in numbers), `WIFI.md` and `wifi/` (the Wi-Fi rounds: notes, behaviour specs, patches), `reviews/` (independent reviews of the charging family (five), `matt`, `mitee_dlkm` and the Wi-Fi drivers, the hidden-behaviour audit of the charging family, the Wi-Fi roaming investigation, the multiset audits, the charging enum-name audit, the stub inventory), `METHOD.md`, `LESSONS_round2.md`, `LESSONS_round3.md`, `LESSONS_round4.md` and `source-map/` (which module has source where).
 
 ## Reconstructed modules (no public source anywhere)
 
@@ -84,6 +84,7 @@ What the statuses mean (all against the stock module of HyperOS 4.0 where the ta
 | aw882xx_dlkm | COMPILES-only | HyperOS 4.0 | - |
 | binder_gki | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
 | bootinfo | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
+| bq27z561 | PARTIAL | HyperOS 4.0 | - |
 | charger_partition | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
 | cs35l43_dlkm | EQUIVALENT | HyperOS 4.0 | strict-equivalent |
 | dcvs_main | PARTIAL | HyperOS 4.0 | - |
@@ -129,7 +130,7 @@ What the statuses mean (all against the stock module of HyperOS 4.0 where the ta
 | mca_strategy_buckchg | PARTIAL | HyperOS 4.0 | - |
 | mca_strategy_class | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
 | mca_strategy_fg_class | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
-| mca_strategy_quickchg | COMPILES-only | HyperOS 4.0 | - |
+| mca_strategy_quickchg | PARTIAL | HyperOS 4.0 | - |
 | mca_sysfs | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
 | mca_vbat_ovp_monitor | EQUIVALENT | HyperOS 4.0 | differs in metadata only |
 | mca_wireless_revchg | PARTIAL | HyperOS 4.0 | - |
@@ -202,7 +203,7 @@ What the statuses mean (all against the stock module of HyperOS 4.0 where the ta
 
 Modules marked as compared against HyperOS 3.0.6 only were not re-checked against the HyperOS 4.0 binaries: for those, the OS4 stock module may differ (in the first OS3/OS4 check of 20 shared modules, 13 were identical, 7 changed, 6 disappeared). Treat them as a starting point.
 
-Modules still blocked: `bq27z561` (details in `docs/blocked/`).
+Modules still blocked: none.
 
 ## Building
 
@@ -220,4 +221,4 @@ Putting the verified modules together with the stock ones for a 6.6.144 kernel g
 
 The code is licensed **GPL-2.0** (see `LICENSE`). The original modules are GPL-compatible licensed kernel modules shipped by Xiaomi (their modinfo declares `GPL`, `GPL v2` or `Dual BSD/GPL`). Reconstructed sources are derived from those binaries; ported sources derive from Xiaomi's public kernel source releases and keep their original copyright headers. If you are a rights holder and see a problem, please open an issue.
 
-Contributions welcome: hardware test reports, fixes for PARTIAL modules, independent reviews (the charging modules `mca_smart_charge`, `mca_quick_wireless`, `mca_basic_wireless`, `mca_strategy_buckchg` and `mitee_dlkm` have had none), and sources for the modules still missing (see `docs/source-map/`).
+Contributions welcome: hardware test reports, fixes for PARTIAL modules, independent reviews (the code written after the last charging review, in particular the quick-charge `regulation`/`monitor_work` rewrite and the `bq27z561` read path, has had none; the audio drivers, `mi_game`, `mi_low_lat_mem` and `xr_qi` have had none either), and sources for the modules still missing (see `docs/source-map/`).

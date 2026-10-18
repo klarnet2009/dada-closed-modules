@@ -241,7 +241,8 @@ void smart_charge_check_bypass_status(struct smart_charge_info *info)
 {
 	static bool once_flag;
 
-	if (!info->in_debounce) {
+	/* stock +0x0: ldrb [x0,#0x650]; cbz -> continue, i.e. return when the flag is NON-zero (G13h: was inverted) */
+	if (info->in_debounce) {
 		once_flag = false;
 		return;
 	}

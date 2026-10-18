@@ -2396,14 +2396,6 @@ static void aw_cali_parse_dt(struct aw_device *aw_dev)
 	uint32_t cali_check = CALI_CHECK_DISABLE;
 	struct aw_cali_desc *desc = &aw_dev->cali_desc;
 
-	ret = of_property_read_u32(np, "f0-enable", &desc->cali_f0_en);
-	if (ret < 0) {
-		desc->cali_f0_en = false;
-		aw_dev_info(aw_dev->dev, "read f0-enable failed, default disable");
-	} else {
-		aw_dev_info(aw_dev->dev, "f0-enableg = %d", desc->cali_f0_en);
-	}
-
 	ret = of_property_read_u32(np, "aw-cali-check", &cali_check);
 	if (ret < 0) {
 		aw_dev_info(aw_dev->dev, "cali-check get failed ,default turn off");
@@ -2421,11 +2413,8 @@ static void aw_cali_parse_dt(struct aw_device *aw_dev)
 		return;
 	}
 
-	if (!strcmp(cali_mode_str, "none"))
-		desc->mode = AW_CALI_MODE_NONE;
-	else
-		desc->mode = AW_CALI_MODE_ALL;
-
+	/* g3s: stock: mode = (strcmp(str, "none") != 0) */
+	desc->mode = !!strcmp(cali_mode_str, "none");
 	aw_dev_info(aw_dev->dev, "cali mode is %d", desc->mode);
 }
 
@@ -2450,46 +2439,7 @@ int aw_cali_parse_re_dt(struct aw_device *aw_dev)
 		return -EINVAL;
 	}
 
-	ret = of_property_read_u32(aw_dev->dev->of_node, "aw-re-default", &aw_dev->cali_desc.cali_re);
-	if (ret < 0) {
-		aw_dev->cali_desc.cali_re = 0;
-		aw_dev_info(aw_dev->dev, "read aw-re-default failed, use default");
-	}
-
-	aw_dev_info(aw_dev->dev, "re min: %d, re max: %d, re default: %d",
-					aw_dev->re_min, aw_dev->re_max, aw_dev->cali_desc.cali_re);
-	return 0;
-}
-
-static __always_inline int aw_cali_parse_f0_dt(struct aw_device *aw_dev)
-{
-	int ret;
-
-	ret = of_property_read_u32(aw_dev->dev->of_node, "aw-f0-min", &aw_dev->f0_min);
-	if (ret < 0) {
-		aw_dev->f0_min = AW_CALI_F0_DEFAULT_MIN;
-		aw_dev_info(aw_dev->dev, "read aw-f0-min failed, use default");
-	}
-
-	ret = of_property_read_u32(aw_dev->dev->of_node, "aw-f0-max", &aw_dev->f0_max);
-	if (ret < 0) {
-		aw_dev->f0_max = AW_CALI_F0_DEFAULT_MAX;
-		aw_dev_info(aw_dev->dev, "read aw-f0-max failed, use default");
-	}
-
-	if (aw_dev->f0_min >= aw_dev->f0_max) {
-		aw_dev_err(aw_dev->dev, "f0 max must be greater than f0 min");
-		return -EINVAL;
-	}
-
-	ret = of_property_read_u32(aw_dev->dev->of_node, "aw-f0-default", &aw_dev->cali_desc.cali_f0);
-	if (ret < 0) {
-		aw_dev->cali_desc.cali_f0 = 0;
-		aw_dev_info(aw_dev->dev, "read aw-f0-default failed, use default");
-	}
-
-	aw_dev_info(aw_dev->dev, "f0 min: %d, f0 max: %d, f0 default: %d",
-					aw_dev->f0_min, aw_dev->f0_max, aw_dev->cali_desc.cali_f0);
+	aw_dev_info(aw_dev->dev, "re min: %d, re max: %d", aw_dev->re_min, aw_dev->re_max);
 	return 0;
 }
 
@@ -2516,13 +2466,8 @@ int aw882xx_cali_init(struct aw_cali_desc *cali_desc)
 
 	aw_cali_misc_init(aw_dev);
 
-	cali_desc->cali_result = CALI_RESULT_NONE;
-
 	ret = aw_cali_parse_re_dt(aw_dev);
-	if (ret)
-		return ret;
-
-	ret = aw_cali_parse_f0_dt(aw_dev);
+	cali_desc->cali_result = CALI_RESULT_NONE;
 
 	return ret;
 }

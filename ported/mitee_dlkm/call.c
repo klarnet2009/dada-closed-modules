@@ -68,7 +68,7 @@ static void optee_cq_complete_one(struct optee_call_queue *cq)
 	struct optee_call_waiter *w = NULL;
 
 	list_for_each_entry(w, &cq->waiters, list_node) {
-		if ((w != NULL) && (!completion_done(&w->c))) {
+		if (!completion_done(&w->c)) {
 			complete(&w->c);
 			break;
 		}

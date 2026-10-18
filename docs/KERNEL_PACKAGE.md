@@ -1,6 +1,6 @@
 # Kernel package: what a full module set looks like, in numbers
 
-State of 18.10.2026. The package itself is **not** published (it consists mostly of stock binaries and a kernel image); this page records what it contains and how it was verified. `docs/kernel_package/manifest.csv` lists every file: module, partition, source, status, verification, hacks, and sha256 of ours and of the stock module. **Nothing in the package was flashed or run on a device.**
+State of the package: unchanged since the update of 18.10.2026 (the numbers below were re-checked against the manifest on 19.10.2026: 52 ours, 18 public-built, 96 kernel-build, 474 stock, 640 in total). The package itself is **not** published (it consists mostly of stock binaries and a kernel image); this page records what it contains and how it was verified. `docs/kernel_package/manifest.csv` lists every file: module, partition, source, status, verification, hacks, and sha256 of ours and of the stock module. **Nothing in the package was flashed or run on a device.**
 
 ## Goal
 
@@ -40,7 +40,7 @@ The kernel has `CONFIG_MODULE_SIG=y` without `MODULE_SIG_FORCE`, `MODULE_SIG_PRO
 - `mii` is the kernel's own signed build, not ours (ours is correct but unsigned and exports protected symbols).
 - `synaptics_tcm2` moved from stock to ours after a clean strict comparison (240 functions, 12066 relocations, 167 kCFI words).
 - The charging and gauge family and every module listed as "do not load" in `docs/STATUS_AND_LIMITS.md` are stock in the package.
-- The package was last updated when `synaptics_tcm2` moved to ours. The modules that were fixed later (`dcvs_main`, `mi_game`, `mi_low_lat_mem`, `matt`, `xr_qi`, `xr_qs`, the audio drivers, `mitee_dlkm`, the charging modules and the Wi-Fi drivers) are all PARTIAL or COMPILES-only and stay stock in it; these rounds did not change the package, and the numbers on this page still hold.
+- The package was last updated when `synaptics_tcm2` moved to ours. The modules that were fixed later (`dcvs_main`, `mi_game`, `mi_low_lat_mem`, `matt`, `xr_qi`, `xr_qs`, the audio drivers, `mitee_dlkm`, the charging modules including `bq27z561`, and the Wi-Fi drivers) are all PARTIAL or COMPILES-only and stay stock in it; the rounds since then (7 to 9 of the module work, 18 to 19.10.2026) did not change the package, and the numbers on this page still hold.
 
 ## Not done on purpose, not checked
 

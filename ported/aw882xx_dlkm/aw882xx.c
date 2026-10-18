@@ -48,7 +48,7 @@
 #include <soc/oplus/fpga_notify.h>
 #endif /* CONFIG_OPLUS_FPGA_NOTIFY */
 
-#define AW882XX_DRIVER_VERSION "v1.15.0.3"
+#define AW882XX_DRIVER_VERSION "v2.0.0"
 #define AW882XX_I2C_NAME "aw882xx_smartpa"
 
 #define AW_READ_CHIPID_RETRIES		5	/* 5 times */
@@ -163,7 +163,7 @@ static int aw882xx_i2c_writes(struct i2c_client *i2c,
 	int ret = -1;
 	unsigned char *data = NULL;
 
-	data = kzalloc(len+1, GFP_KERNEL);
+	data = kmalloc(len+1, GFP_KERNEL);
 	if (data == NULL)
 		return -ENOMEM;
 
@@ -769,6 +769,7 @@ static int aw882xx_mute(struct snd_soc_dai *dai, int mute, int stream)
 		cancel_delayed_work_sync(&aw882xx->dc_work);
 		cancel_delayed_work_sync(&aw882xx->start_work);
 		mutex_lock(&aw882xx->lock);
+		g_algo_auth_st = 0;	/* g3s: the stock clears the algo auth state on every stop */
 		aw882xx_device_stop(aw882xx->aw_pa);
 		mutex_unlock(&aw882xx->lock);
 	} else {
@@ -2168,6 +2169,7 @@ static int aw882xx_codec_probe(aw_snd_soc_codec_t *aw_codec)
 		aw_dev_err(aw882xx->dev, "create workqueue failed !");
 		return -EINVAL;
 	}
+	aw882xx->aw_pa->work_queue = aw882xx->work_queue;
 
 	INIT_DELAYED_WORK(&aw882xx->start_work, aw882xx_startup_work);
 	INIT_DELAYED_WORK(&aw882xx->interrupt_work, aw882xx_interrupt_work);
@@ -2400,11 +2402,7 @@ static struct aw882xx *aw882xx_malloc_init(struct i2c_client *i2c)
 	if (aw882xx == NULL)
 		return NULL;
 
-	aw882xx->aw_pa = devm_kzalloc(&i2c->dev, sizeof(struct aw_device), GFP_KERNEL);
-	if (aw882xx->aw_pa == NULL)
-		return NULL;
-
-
+	/* g3u: stock order: the aw882xx fields and the mutex first, then the aw_device (freed again with the aw882xx on failure) */
 	aw882xx->dev = &i2c->dev;
 	aw882xx->i2c = i2c;
 	aw882xx->codec = NULL;
@@ -2416,6 +2414,21 @@ static struct aw882xx *aw882xx_malloc_init(struct i2c_client *i2c)
 	aw882xx->work_queue = NULL;
 
 	mutex_init(&aw882xx->lock);
+
+	aw882xx->aw_pa = devm_kzalloc(&i2c->dev, sizeof(struct aw_device), GFP_KERNEL);
+	if (aw882xx->aw_pa == NULL) {
+		devm_kfree(&i2c->dev, aw882xx);
+		return NULL;
+	}
+
+	/* g3s: stock: the device, i2c handle and the 5 i2c/version ops are pre-filled here, not by the pid blocks */
+	aw882xx->aw_pa->dev = &i2c->dev;
+	aw882xx->aw_pa->i2c = i2c;
+	aw882xx->aw_pa->ops.aw_get_version = aw882xx_get_version;
+	aw882xx->aw_pa->ops.aw_get_dev_num = aw882xx_get_dev_num;
+	aw882xx->aw_pa->ops.aw_i2c_read = aw882xx_i2c_read;
+	aw882xx->aw_pa->ops.aw_i2c_write = aw882xx_i2c_write;
+	aw882xx->aw_pa->ops.aw_i2c_write_bits = aw882xx_i2c_write_bits;
 
 	return aw882xx;
 }
@@ -2602,7 +2615,6 @@ static int aw882xx_read_chipid(struct aw882xx *aw882xx)
 			aw882xx->aw_pa->chip_id = reg_value;
 			return 0;
 		}
-		case 0x2031:	/* g3p: ids of the stock dispatch (shared "2032 detected" block) */
 		case PID_2032_ID: {
 			aw_dev_info(aw882xx->dev, "aw882xx 2032 detected");
 			aw882xx->aw_pa->chip_id = reg_value;
@@ -2613,8 +2625,6 @@ static int aw882xx_read_chipid(struct aw882xx *aw882xx)
 			aw882xx->aw_pa->chip_id = reg_value;
 			return 0;
 		}
-		case 0x2070:	/* g3p: ids of the stock dispatch (shared "2071 detected" block) */
-		case 0x2115:
 		case PID_2071_ID: {
 			aw_dev_info(aw882xx->dev, "aw882xx 2071 detected");
 			aw882xx->aw_pa->chip_id = reg_value;
@@ -2714,11 +2724,9 @@ static ssize_t reg_show(struct device *dev,
 	int reg_num = aw882xx->aw_pa->reg_max;
 
 	for (i = 0; i < reg_num; i++) {
-		if (aw_dev_reg_rd_access(aw882xx->aw_pa, i)) {
-			aw882xx_i2c_read(aw882xx->i2c, i, &reg_val);
-			len += snprintf(buf+len, PAGE_SIZE-len,
-				"reg:0x%02x=0x%04x\n", i, reg_val);
-		}
+		aw882xx_i2c_read(aw882xx->i2c, i, &reg_val);
+		len += snprintf(buf+len, PAGE_SIZE-len,
+			"reg:0x%02x=0x%04x\n", i, reg_val);
 	}
 
 	return len;
@@ -2733,8 +2741,7 @@ static ssize_t rw_store(struct device *dev,
 
 	if (sscanf(buf, "%x %x", &databuf[0], &databuf[1]) == 2) {
 		aw882xx->rw_reg_addr = (unsigned char)databuf[0];
-		if (aw_dev_reg_rd_access(aw882xx->aw_pa, databuf[0]))
-			aw882xx_i2c_write(aw882xx->i2c, databuf[0], databuf[1]);
+		aw882xx_i2c_write(aw882xx->i2c, databuf[0], databuf[1]);
 	} else if (kstrtouint(buf, 16, &databuf[0]) == 0) {
 		aw882xx->rw_reg_addr = (unsigned char)databuf[0];
 	}
@@ -2749,11 +2756,9 @@ static ssize_t rw_show(struct device *dev,
 	ssize_t len = 0;
 	unsigned int reg_val = 0;
 
-	if (aw_dev_reg_rd_access(aw882xx->aw_pa, aw882xx->rw_reg_addr)) {
-		aw882xx_i2c_read(aw882xx->i2c, aw882xx->rw_reg_addr, &reg_val);
-		len += snprintf(buf + len, PAGE_SIZE - len,
-			"reg:0x%02x=0x%04x\n", aw882xx->rw_reg_addr, reg_val);
-	}
+	aw882xx_i2c_read(aw882xx->i2c, aw882xx->rw_reg_addr, &reg_val);
+	len += snprintf(buf + len, PAGE_SIZE - len,
+		"reg:0x%02x=0x%04x\n", aw882xx->rw_reg_addr, reg_val);
 	return len;
 }
 
@@ -2778,7 +2783,7 @@ static int aw882xx_awrw_write(struct aw882xx *aw882xx, const char *buf, size_t c
 		return -EINVAL;
 	}
 
-	data_buf = kzalloc(data_len + 1, GFP_KERNEL);
+	data_buf = kmalloc(data_len + 1, GFP_KERNEL);
 	if (data_buf == NULL)
 		return -ENOMEM;
 
@@ -3431,7 +3436,6 @@ static int aw882xx_i2c_probe(struct i2c_client *i2c,
 	set_smartpa_type("aw882xx", 8);
 
 	/*aw pa init*/
-	aw882xx->aw_pa->private_data = (void *)aw882xx;
 	ret = aw882xx_init(aw882xx->aw_pa);
 	if (ret)
 		return ret;

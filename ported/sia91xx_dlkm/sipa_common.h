@@ -92,6 +92,34 @@ typedef struct sipa_dev_s {
 	/* sizeof == 0x2a8 as in the stock (kmalloc size in sipa_probe) */
 } sipa_dev_t;
 
+/* g3t: layout of the stock object (offsets from the instruction offsets of the stock functions, the module has no BTF) */
+#include <linux/stddef.h>
+#include <linux/build_bug.h>
+static_assert(offsetof(sipa_dev_t, chip_type) == 0x20);
+static_assert(offsetof(sipa_dev_t, pdev) == 0x28);
+static_assert(offsetof(sipa_dev_t, client) == 0x30);
+static_assert(offsetof(sipa_dev_t, sia91xx_wq) == 0x38);
+static_assert(offsetof(sipa_dev_t, interrupt_work) == 0x40);
+static_assert(offsetof(sipa_dev_t, monitor_work) == 0xc8);
+static_assert(offsetof(sipa_dev_t, fw_load_work) == 0x150);
+static_assert(offsetof(sipa_dev_t, disable_pin) == 0x1d8);
+static_assert(offsetof(sipa_dev_t, boost_pin) == 0x1e8);
+static_assert(offsetof(sipa_dev_t, id_pin) == 0x1ec);
+static_assert(offsetof(sipa_dev_t, owi_delay_us) == 0x1f0);
+static_assert(offsetof(sipa_dev_t, owi_mode) == 0x1f4);
+static_assert(offsetof(sipa_dev_t, owi_polarity) == 0x20c);
+static_assert(offsetof(sipa_dev_t, owi_lock) == 0x214);
+static_assert(offsetof(sipa_dev_t, regmap) == 0x218);
+static_assert(offsetof(sipa_dev_t, scene) == 0x220);
+static_assert(offsetof(sipa_dev_t, channel_num) == 0x224);
+static_assert(offsetof(sipa_dev_t, status) == 0x234);
+static_assert(offsetof(sipa_dev_t, mute) == 0x248);
+static_assert(offsetof(sipa_dev_t, err_info) == 0x250);
+static_assert(offsetof(sipa_dev_t, power_mode) == 0x298);
+static_assert(offsetof(sipa_dev_t, spksw_gpio) == 0x29c);
+static_assert(offsetof(sipa_dev_t, spksw_level) == 0x2a0);
+static_assert(sizeof(sipa_dev_t) == 0x2a8);
+
 struct sipa_chip_compat {
 	const uint32_t sub_type;
 	struct {

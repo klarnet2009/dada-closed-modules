@@ -649,7 +649,7 @@ static noinline unsigned short real_timing_lookup_file_index(struct package_info
 	struct inode *inode;
 	char *path;
 	unsigned int len;
-	unsigned int i;
+	int i;
 
 	for (i = 0; i < idx; i++) {
 		inode = collect_info->file->f_inode;
@@ -744,7 +744,7 @@ static __always_inline void real_timing_file_range_add_to_list(struct package_in
 							       size_t lists_size)
 {
 	struct real_timing_range_node *range;
-	unsigned int i;
+	int i;
 	unsigned short file_index;
 
 	for (i = 0; i < g_manager->nr_records; i++) {
@@ -798,7 +798,7 @@ static __always_inline void real_timing_file_range_add_to_list(struct package_in
 /* sort the ranges of every file and merge the neighbouring ones */
 static __always_inline void real_timing_file_range_merge(struct package_info *package, struct real_timing_file_node *file_lists)
 {
-	unsigned int i;
+	int i;
 
 	package->range_nums = 0;
 	for (i = 0; i < package->file_info.file_nums; i++) {
@@ -867,7 +867,7 @@ static __always_inline void real_timing_file_range_copy_to_array(struct package_
 static __always_inline int real_timing_file_path_copy_to_array(struct package_info *package, struct real_timing_file_node *file_lists)
 {
 	char *pos;
-	unsigned int i;
+	int i;
 
 	package->file_info.file_paths = kvmalloc(package->file_info.paths_buffer_size, GFP_KERNEL);
 	if (!package->file_info.file_paths) {
@@ -906,7 +906,7 @@ static __always_inline void real_timing_app_compiler(struct package_info *packag
 	struct list_head range_list;
 	unsigned short collected_num = 0;
 	unsigned int nr_files;
-	unsigned int i;
+	int i;
 
 	if (g_manager->nr_records + g_manager->nr_extra_records == 0 || !g_manager->nr_files) {
 		LB_E(1041, "total collected == 0 || g_manager->collected_num == 0");
@@ -966,7 +966,7 @@ static __always_inline bool mi_lb_app_compiler(struct package_info *package)
 static __always_inline void file_sequential_app_compiler(struct package_info *package)
 {
 	struct file_info *info, *next;
-	unsigned int i;
+	int i;
 
 	list_for_each_entry_safe(info, next, &package->file_infos, list)
 		info->is_collected = false;

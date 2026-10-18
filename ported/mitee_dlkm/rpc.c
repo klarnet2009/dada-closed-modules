@@ -400,10 +400,7 @@ void mitee_rpc_register_callback(uint32_t module_id, uint32_t cmd,
 	struct callback_item *item = NULL;
 	struct callback_item *new_item =  kmalloc(sizeof(*new_item), GFP_KERNEL);
 
-	if (!new_item) {
-		return;
-	}
-
+	/* stock quirk kept: no NULL check of the kmalloc result */
 	new_item->module_id = module_id;
 	new_item->cmd = cmd;
 	new_item->callback = ree_callback_call;

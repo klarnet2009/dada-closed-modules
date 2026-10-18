@@ -357,13 +357,6 @@ mitee_task_pop(struct mitee_task_list *task_list)
 	return task;
 }
 
-/*
- * In the stock the shm alloc/free handlers are not separate functions: their __func__ strings do not exist,
- * the messages carry the enclosing function name. Emulated here for the two helpers.
- */
-#undef pr_fmt
-#define pr_fmt(fmt) KBUILD_MODNAME ": %s: " fmt, "handle_rpc_cmd_callback"
-
 static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 					  struct optee_msg_arg *arg)
 {
@@ -371,7 +364,6 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 
 	if (arg->num_params != 1 ||
 	    arg->params[0].attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) {
-		pr_err("invalid param\n");
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 		return;
 	}
@@ -389,13 +381,11 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 				    TEE_SHM_MAPPED | TEE_SHM_PRIV | TEE_SHM_DMA_BUF);
 		break;
 	default:
-		pr_err("invalid param\n");
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 		return;
 	}
 
 	if (IS_ERR(shm)) {
-		pr_err("shm is error\n");
 		arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
 		return;
 	}
@@ -418,13 +408,11 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 
 	if (arg->num_params != 1 ||
 		arg->params[0].attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) {
-		pr_err("invalid param\n");
 		goto err_bad_param;
 	}
 
 	shm = (struct tee_shm *)arg->params[0].u.value.b;
 	if (!shm) {
-		pr_err("shm is error\n");
 		goto err_bad_param;
 	}
 
@@ -437,7 +425,6 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 		tee_shm_free(shm);
 		break;
 	default:
-		pr_err("invalid param\n");
 		goto err_bad_param;
 	}
 
@@ -448,18 +435,11 @@ err_bad_param:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 }
 
-#undef pr_fmt
-#define pr_fmt(fmt) KBUILD_MODNAME ": %s: " fmt, __func__
-
 /*RPC cmd message only support transfer in reserved memory*/
 static void handle_rpc_func_cmd(struct tee_context *ctx,
 				struct optee_msg_arg *arg)
 {
 	struct optee *optee = NULL;
-
-	if (arg == NULL) {
-		return;
-	}
 
 	if (ctx == NULL) {
 		arg->ret = TEEC_ERROR_ITEM_NOT_FOUND;

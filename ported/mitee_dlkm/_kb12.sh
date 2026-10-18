@@ -3,4 +3,4 @@
 cd "$(dirname "$0")/.." || exit 1
 K="-i <ssh-key-file> -o BatchMode=yes -o ConnectTimeout=20"; U=<user>@<build-server>
 tar c --exclude=STATUS.md --exclude=_g12.sh --exclude=_kb12.sh --exclude=attic mitee_dlkm | ssh $K $U "rm -rf <build-dir> mkdir -p <build-dir> && tar x -C <build-dir> --strip-components=1"
-ssh $K $U "CW=${CW:-300} N=${N:-40} bash <work-dir> mitee_dlkm_g12c mitee_dlkm mitee_dlkm"
+ssh $K $U "CW=${CW:-300} N=${N:-40} bash <work-dir> mitee_dlkm_g12d mitee_dlkm mitee_dlkm"

@@ -242,6 +242,10 @@ void tfa_set_query_info(struct tfa_device *tfa)
 	tfa->sw_feature_bits[1] = -1;
 	tfa->profile = -1;
 	tfa->vstep = -1;
+	/* g3t: the stock also resets +0x10/+0x14 to -1 (one 64-bit store) and +0x170 to 0 */
+	tfa->pcm_format = -1;
+	tfa->bitwidth = -1;
+	tfa->rate = 0;
 	/* defaults */
 	tfa->is_probus_device = 0;
 	/*To support tfa9873*/
@@ -260,9 +264,10 @@ void tfa_set_query_info(struct tfa_device *tfa)
 	tfa->convert_dsp32 = 0;
 	tfa->sync_iv_delay = 0;
 
-	/*TODO use the getfeatures() for retrieving*/
-	/*the features [artf103523]	tfa->supportDrc = supportNotSet;*/
+	pr_err("device type : 0x%02x\n", tfa->rev);
 
+	/* g3t: rewritten from the stock v6.13 switch (jump table of 0x98 entries): 0x64 is NOT a case, 0x66 is (tfa986x),
+	 * 0x65 = tfa9865, 0x73/0x74 do not set has_msg here */
 	switch (tfa->rev & 0xff) {
 	case 0: /* tfanone : non-i2c external DSP device */
 		/* e.g. qc adsp */
@@ -283,14 +288,12 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->daimap = Tfa98xx_DAI_TDM;
 		tfa9872_ops(&tfa->dev_ops); /* register device operations */
 		break;
-	/*To support tfa9873*/
 	case 0x73:
 		/* tfa9873 */
 		tfa->supportDrc = supportYes;
 		tfa->tfa_family = 2;
 		tfa->spkr_count = 1;
 		tfa->is_probus_device = 1;
-		tfa->has_msg = 1;
 		tfa->advance_keys_handling = 1; /*artf65038*/
 		tfa->daimap = Tfa98xx_DAI_TDM;
 		tfa9873_ops(&tfa->dev_ops); /* register device operations */
@@ -301,27 +304,48 @@ void tfa_set_query_info(struct tfa_device *tfa)
 		tfa->tfa_family = 2;
 		tfa->spkr_count = 1;
 		tfa->is_probus_device = 1;
-		tfa->has_msg = 1;
 		tfa->daimap = Tfa98xx_DAI_TDM;
 		tfa9874_ops(&tfa->dev_ops); /* register device operations */
 		break;
-	case 0x64:
 	case 0x65:
-	case 0x75:
-	case 0x78:
-		/* g3k: tfa986x / tfa9865 / tfa9875 / tfa9878 (stock v6.13 set_query_info) */
+		/* tfa9865 */
 		tfa->supportDrc = supportYes;
 		tfa->tfa_family = 2;
 		tfa->spkr_count = 1;
 		tfa->is_probus_device = 1;
 		tfa->advance_keys_handling = 1;
 		tfa->daimap = Tfa98xx_DAI_TDM;
-		switch (tfa->rev & 0xff) {
-		case 0x64: tfa986x_ops(&tfa->dev_ops); break;
-		case 0x65: tfa9865_ops(&tfa->dev_ops); break;
-		case 0x75: tfa9875_ops(&tfa->dev_ops); break;
-		default: tfa9878_ops(&tfa->dev_ops); break;
-		}
+		tfa9865_ops(&tfa->dev_ops);
+		break;
+	case 0x66:
+		/* tfa986x */
+		tfa->supportDrc = supportYes;
+		tfa->tfa_family = 2;
+		tfa->spkr_count = 1;
+		tfa->is_probus_device = 1;
+		tfa->advance_keys_handling = 1;
+		tfa->daimap = Tfa98xx_DAI_TDM;
+		tfa986x_ops(&tfa->dev_ops);
+		break;
+	case 0x75:
+		/* tfa9875 */
+		tfa->supportDrc = supportYes;
+		tfa->tfa_family = 2;
+		tfa->spkr_count = 1;
+		tfa->is_probus_device = 1;
+		tfa->advance_keys_handling = 1;
+		tfa->daimap = Tfa98xx_DAI_TDM;
+		tfa9875_ops(&tfa->dev_ops);
+		break;
+	case 0x78:
+		/* tfa9878 */
+		tfa->supportDrc = supportYes;
+		tfa->tfa_family = 2;
+		tfa->spkr_count = 1;
+		tfa->is_probus_device = 1;
+		tfa->advance_keys_handling = 1;
+		tfa->daimap = Tfa98xx_DAI_TDM;
+		tfa9878_ops(&tfa->dev_ops);
 		break;
 	case 0x88:
 		/* tfa9888 */
@@ -1842,10 +1866,8 @@ enum Tfa98xx_Error tfa_reg_write(struct tfa_device *tfa,
 				unsigned char subaddress, unsigned short value)
 {
 	enum Tfa98xx_Error error;
-	if (tfa->dev_ops.tfa_reg_write == NULL) {
-		pr_err("%s: not init yet!", __func__);
-		return Tfa98xx_Error_Fail;
-	}
+	if (tfa->dev_ops.tfa_reg_write == NULL)
+		return Tfa98xx_Error_Ok; /* g3s: stock returns 0 silently (like tfa_reg_read), no "not init yet" message */
 
 	error = (tfa->dev_ops.tfa_reg_write)(tfa, subaddress, value);
 	if (error != Tfa98xx_Error_Ok)
@@ -2215,15 +2237,31 @@ enum Tfa98xx_Error tfa_dsp_cmd_id_coefs(struct tfa_device *tfa,
 {
 	enum Tfa98xx_Error error;
 	unsigned char buffer[2*3];
-	int nr = 0;
+	unsigned char query[3];
+	unsigned char itf[3] = {0, 0, 0};
+	int nr = 6;
 
-	buffer[nr++] = tfa->spkr_select;
-	buffer[nr++] = module_id + 128;
-	buffer[nr++] = param_id;
+	/* g3s: DERIVED FROM THE STOCK DISASSEMBLY (the template just sent 6 bytes): first ask the DSP for the
+	 * framework/ITF version (3 byte message {spkr_select, 0x80, 0xfe}, 3 byte answer); if the answer is
+	 * older than 0x1f in byte 1, or byte 0 == 2, the 6 byte header is used, otherwise only the 3 byte one.
+	 * If the version query fails the 6 byte header is used. The meaning of the answer bytes is a GUESS. */
+	query[0] = tfa->spkr_select;
+	query[1] = 0x80;
+	query[2] = 0xfe;
+	error = tfa_dsp_msg(tfa, 3, (char *)query);
+	if (error == Tfa98xx_Error_Ok) {
+		tfa_dsp_msg_read(tfa, 3, itf);
+		nr = 3;
+		if (itf[1] < 0x1f || itf[0] == 2)
+			nr = 6;
+	}
 
-	buffer[nr++] = 0;
-	buffer[nr++] = 0;
-	buffer[nr++] = 0;
+	buffer[0] = tfa->spkr_select;
+	buffer[1] = module_id ^ 0x80;
+	buffer[2] = param_id;
+	buffer[3] = 0;
+	buffer[4] = 0;
+	buffer[5] = 0;
 
 	error = tfa_dsp_msg(tfa, nr, (char *)buffer);
 	if (error != Tfa98xx_Error_Ok)
@@ -2397,9 +2435,30 @@ enum Tfa98xx_Error tfa98xx_dsp_support_drc(struct tfa_device *tfa,
 	if (tfa->in_use == 0)
 		return Tfa98xx_Error_NotOpen;
 	if (tfa->supportDrc != supportNotSet) {
+		/* g3s: DERIVED FROM THE STOCK DISASSEMBLY: for tfa_family 2 the stock re-reads the DSP API version
+		 * (inlined tfaGetFwApiVersion: mem word 0x209) first; byte 2 == 0x0a marks "no DRC" [meaning GUESSED] */
+		if (tfa->tfa_family == 2) {
+			int api = 0;
+
+			if (tfa == NULL)
+				return Tfa98xx_Error_Bad_Parameter;
+			if (tfa->is_probus_device)
+				return (enum Tfa98xx_Error)0x6f;
+			if (tfa->dev_ops.tfa_mem_read) {
+				error = (enum Tfa98xx_Error)tfa->dev_ops.tfa_mem_read(tfa, 0x209, 1, &api);
+				if (error != Tfa98xx_Error_Ok)
+					error = (enum Tfa98xx_Error)(error + Tfa98xx_Error_RpcBase);
+				if (error != Tfa98xx_Error_Ok) {
+					pr_info("%s Error: Unable to get API Version from DSP \n", "tfaGetFwApiVersion");
+					return error;
+				}
+			}
+			if (((api >> 16) & 0xff) == 0x0a)
+				tfa->supportDrc = supportNo;
+		}
 		*pbSupportDrc = (tfa->supportDrc == supportYes);
 	} else {
-		int featureBits[2];
+		int featureBits[2] = {0, 0};
 
 		error = tfa98xx_dsp_get_sw_feature_bits(tfa, featureBits);
 		if (error == Tfa98xx_Error_Ok) {
@@ -2479,7 +2538,7 @@ tfa98xx_dsp_write_speaker_parameters(struct tfa_device *tfa,
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
-	error = tfa98xx_dsp_support_drc(tfa, &bSupportDrc);
+	[[clang::always_inline]] error = tfa98xx_dsp_support_drc(tfa, &bSupportDrc);
 	if (error != Tfa98xx_Error_Ok)
 		return error;
 
@@ -2512,7 +2571,7 @@ tfa98xx_dsp_write_config(struct tfa_device *tfa, int length,
 	if (error != Tfa98xx_Error_Ok) {
 		return error;
     }
-		error = tfa98xx_dsp_support_drc(tfa, &bSupportDrc);
+		[[clang::always_inline]] error = tfa98xx_dsp_support_drc(tfa, &bSupportDrc);
 		if (error != Tfa98xx_Error_Ok) {
 			return error;
         }
@@ -2861,7 +2920,13 @@ enum Tfa98xx_Error tfa_show_current_state(struct tfa_device *tfa)
 	if (tfa->tfa_family != 2)
 		return Tfa98xx_Error_Ok;
 
-	manstate = tfa_get_bf(tfa, tfa_manstate_bf(tfa));
+	/* g3u: the stock has tfa_get_bf inlined here (three register read copies, one per MANSTATE field) */
+	if (tfa_is_94_N2_device(tfa))
+		[[clang::always_inline]] manstate = tfa_get_bf(tfa, TFA9894N2_BF_MANSTATE);
+	else if ((tfa->rev & 0xFF) == 0x66)
+		[[clang::always_inline]] manstate = tfa_get_bf(tfa, 0x1203);
+	else
+		[[clang::always_inline]] manstate = tfa_get_bf(tfa, TFA2_BF_MANSTATE);
 	if (manstate < 0)
 		return -manstate;
 
@@ -4273,7 +4338,8 @@ enum Tfa98xx_Error tfa_dsp_partial_coefficients(struct tfa_device *tfa,
 /* fill context info */
 int tfa_dev_probe(int slave, struct tfa_device *tfa)
 {
-	uint16_t rev;
+	uint16_t rev = 0;
+	uint16_t rev2 = 0;
 
 	tfa->slave_address = (unsigned char)slave;
 
@@ -4282,6 +4348,19 @@ int tfa_dev_probe(int slave, struct tfa_device *tfa)
 		pr_err("\nError: Unable to read revid from slave:0x%02x \n",
 			slave);
 		return -1;
+	}
+
+	/* g3s: DERIVED FROM THE STOCK DISASSEMBLY: revid high byte 0x98 -> the full revid is built with register 6 */
+	if ((rev >> 8) == 0x98) {
+		if (tfa98xx_read_register16(tfa, 6, &rev2) != Tfa98xx_Error_Ok) {
+			pr_err("\nError: Unable to read revid from slave:0x%02x \n",
+				slave);
+			return -1;
+		}
+		if ((rev & 0xff) == 0x65)
+			rev = (rev2 & 0xff00) + 0xa65;
+		else
+			rev = (rev | (rev2 & 0xf000) | ((rev2 >> 2) & 0x300)) + 0xa00;
 	}
 
 	tfa->rev = rev;
@@ -4460,11 +4539,9 @@ enum tfa_state tfa_dev_get_state(struct tfa_device *tfa)
 int tfa_dev_mtp_get(struct tfa_device *tfa, enum tfa_mtp item)
 {
 	int value = 0;
-	if(tfa->in_use == 0) {
-		pr_info("%s: tfa is not opened!", __func__);
-		return value;
-	}
 
+	/* g3u: stock: no in_use check; the jump table has 5 entries (OTC, EX, RE25, RE25_PRIM, RE25_SEC), every other item
+	 * (F0, LOCK) returns 0 without reading the chip */
 	switch (item) {
 	case TFA_MTP_OTC:
 		value = TFA_GET_BF(tfa, MTPOTC);
@@ -4492,10 +4569,7 @@ int tfa_dev_mtp_get(struct tfa_device *tfa, enum tfa_mtp item)
 				"Error: Current device has no secondary Re25 channel\n");
 		}
 		break;
-	case TFA_MTP_F0:
-		value = tfa_get_bf(tfa, TFA9873_BF_CUSTINFO);//all max 2 devices have same CUSTINFO @
-		break;
-	case TFA_MTP_LOCK:
+	default:
 		break;
 	}
 
@@ -4505,20 +4579,19 @@ int tfa_dev_mtp_get(struct tfa_device *tfa, enum tfa_mtp item)
 enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa,
 			enum tfa_mtp item, int value)
 {
-	enum tfa_error err = tfa_error_ok;
-	if(tfa->in_use == 0) {
-		pr_info("%s: tfa is not opened!", __func__);
-		return tfa_error_device;
-	}
+	int err = 0;
 
+	/* g3t: rewritten from the stock: no in_use check, the OTC/EX and the "no secondary Re25" failures print
+	 * "TFA98xx Error code is %d" and return tfa_error_other, the probus RE25 path reads the MTP copy status
+	 * register (0x80 / 0xf0) and only then copies the row */
 	switch (item) {
 	case TFA_MTP_OTC:
-		err = (enum tfa_error)tfa98xx_set_mtp(tfa,
+		err = tfa98xx_set_mtp(tfa,
 				(uint16_t)value,
 				TFA98XX_KEY2_PROTECTED_MTP0_MTPOTC_MSK);
 		break;
 	case TFA_MTP_EX:
-		err = (enum tfa_error)tfa98xx_set_mtp(tfa,
+		err = tfa98xx_set_mtp(tfa,
 				(uint16_t)value,
 				TFA98XX_KEY2_PROTECTED_MTP0_MTPEX_MSK);
 		break;
@@ -4526,34 +4599,49 @@ enum tfa_error tfa_dev_mtp_set(struct tfa_device *tfa,
 	case TFA_MTP_RE25_PRIM:
 		if (tfa->tfa_family == 2) {
 			[[clang::always_inline]] tfa98xx_key2(tfa, 0); /* unlock */
-			if ((tfa->rev & 0xFF) == 0x88)
+			if ((tfa->rev & 0xFF) == 0x88) {
 				TFA_SET_BF(tfa, R25CL, (uint16_t)value);
-			else {
-				if (tfa->is_probus_device == 1)
-					tfa2_manual_mtp_cpy(tfa,
-						0xF4,
-						value, 2);
+			} else {
+				if (tfa->is_probus_device == 1) {
+					uint16_t status = 0;
+					int copy;
+					int ret = tfa_reg_read(tfa,
+						(tfa->tfa_family == 1) ? 0x80 : 0xf0, &status);
+
+					if (ret == -100 || ret == 0) {
+						copy = status & 1;
+					} else {
+						copy = -100 - ret;
+						pr_err("Error getting bf :%d \n", copy);
+					}
+					if (copy == 1)
+						tfa2_manual_mtp_cpy(tfa,
+							0xF4,
+							value, 2);
+				}
 				TFA_SET_BF(tfa, R25C, (uint16_t)value);
 			}
 			[[clang::always_inline]] tfa98xx_key2(tfa, 1); /* lock */
 		}
 		break;
 	case TFA_MTP_RE25_SEC:
-		if ((tfa->rev & 0xFF) == 0x88)
+		if ((tfa->rev & 0xFF) == 0x88) {
 			TFA_SET_BF(tfa, R25CR, (uint16_t)value);
-		else {
-			pr_debug(
-				"Error: Current device has no secondary Re25 channel\n");
+		} else {
+			pr_info("Error: Current device has no secondary Re25 channel \n");
 			err = tfa_error_bad_param;
 		}
 		break;
-	case TFA_MTP_F0:
-	    break;
-	case TFA_MTP_LOCK:
+	default:	/* TFA_MTP_F0, TFA_MTP_LOCK: nothing to do */
 		break;
 	}
 
-	return err;
+	if (err) {
+		pr_err("TFA98xx Error code is %d\n", err);
+		return tfa_error_max;
+	}
+
+	return tfa_error_ok;
 }
 
 int tfa_get_pga_gain(struct tfa_device *tfa)

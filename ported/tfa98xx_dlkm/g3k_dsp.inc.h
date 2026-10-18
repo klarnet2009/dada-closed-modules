@@ -38,42 +38,24 @@ int tfa_wait4manstate(struct tfa_device *tfa, uint16_t bf, uint16_t value, int t
 /* the four TDM bitfield ids (enable, slots, bit width, ...) depend on the device revision */
 void tfa_dev_get_tdm_add(struct tfa_device *tfa, uint16_t *a, uint16_t *b, uint16_t *c, uint16_t *d)
 {
+	/* g3u: decoded from the jump table of the stock (.rodata+0x375d, index = (rev & 0xff) - 0x72, 35 entries): 0x94 -> set 1,
+	 * 0x73 / 0x78 -> set 2 (a = 0x2000), 0x72 / 0x74 -> the defaults (set 3), 0x13 -> set 3 as well, everything else the error */
 	switch (tfa->rev & 0xff) {
+	case 0x94:
+		*a = 0x2000; *b = 0x2103; *c = 0x2204; *d = 0x22a4;
+		break;
 	case 0x73:
 	case 0x78:
 		*a = 0x2000; *b = 0x20c3; *c = 0x2144; *d = 0x2224;
 		break;
 	case 0x72:
 	case 0x74:
-		*a = 0x2000; *b = 0x2103; *c = 0x2204; *d = 0x22a4;
-		break;
 	case 0x13:
 		*a = 0x2040; *b = 0x20c3; *c = 0x2144; *d = 0x2224;
 		break;
 	default:
 		pr_err("unsuported device rev:%x\n", (unsigned int)(tfa->rev & 0xffff));
 		return;
-	}
-}
-
-static void g3k_rmw_reg(struct tfa_device *tfa, unsigned char reg, unsigned short keep, unsigned short set)
-{
-	unsigned short v = 0;
-	enum Tfa98xx_Error err;
-
-	if (tfa->dev_ops.tfa_reg_read) {
-		err = tfa->dev_ops.tfa_reg_read(tfa, reg, &v);
-		if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail)
-			pr_err("Error getting bf :%d \n", -100 - (int)err);
-	}
-	if ((v & keep) | set) {
-		unsigned short nv = (v & keep) | set;
-
-		if (nv != v && tfa->dev_ops.tfa_reg_write) {
-			err = tfa->dev_ops.tfa_reg_write(tfa, reg, nv);
-			if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail)
-				pr_err("Error setting bf :%d \n", -100 - (int)err);
-		}
 	}
 }
 
@@ -111,11 +93,12 @@ int tfa_dev_set_tdm_bitwidth(struct tfa_device *tfa, int bitwidth)
 	/* tfa1 family: only when the device is a TDM one (g3k-guess: daimap == 2) */
 	if (tfa->daimap != Tfa98xx_DAI_TDM)
 		return 0;
-	g3k_rmw_reg(tfa, 0x10, 0xfff7, 0);
-	g3k_rmw_reg(tfa, 0x14, 0x0fff, slot << 12);
-	g3k_rmw_reg(tfa, 0x11, 0xfe0f, shift_a << 4);
-	g3k_rmw_reg(tfa, 0x10, 0x83ff, shift_b << 10);
-	g3k_rmw_reg(tfa, 0x10, 0xffff, 0x8);
+	/* g3u: stock: five tfa_set_bf of the TDM fields (bit 3 of reg 0x10 off, slot, shift a, shift b, bit 3 on) instead of g3k_rmw_reg */
+	tfa_set_bf(tfa, 0x1030, 0);
+	tfa_set_bf(tfa, 0x14c3, slot);
+	tfa_set_bf(tfa, 0x1144, shift_a);
+	tfa_set_bf(tfa, 0x10a4, shift_b);
+	tfa_set_bf(tfa, 0x1030, 1);
 
 	return 0;
 }

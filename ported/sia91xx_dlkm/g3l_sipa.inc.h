@@ -123,7 +123,10 @@ static int sipa_mute_set(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_valu
 	if (si_pa->power_mode)
 		return 0;
 
-	si_pa->mute = (ucontrol->value.integer.value[0] == 1) ? 1 : 0;
+	if (ucontrol->value.integer.value[0] == 1)
+		si_pa->mute = ucontrol->value.integer.value[0];
+	else
+		si_pa->mute = 0;
 	return 0;
 }
 
@@ -203,7 +206,7 @@ int sipa_read_reg(struct regmap *regmap, unsigned char reg, unsigned int *val)
 
 	while (ret < 0) {
 		pr_warn("i2c read error, addr: 0x%x, retries left: %d\n", reg, retries);
-		if (retries < 0)
+		if (retries == 0)
 			return -1;
 		usleep_range(5000, 5000);
 		ret = regmap_read(regmap, reg, &tmp);
@@ -220,7 +223,7 @@ int sipa_write_reg(struct regmap *regmap, unsigned char reg, unsigned int val)
 
 	while (ret < 0) {
 		pr_warn("i2c write error, addr: 0x%x, retries left: %d\n", reg, retries);
-		if (retries < 0)
+		if (retries == 0)
 			return -1;
 		usleep_range(5000, 5000);
 		ret = regmap_write(regmap, reg, val);
@@ -332,8 +335,8 @@ void sipa_i2c_shutdown(struct i2c_client *client)
 		pr_err("[  err][%s] %s: si_pa is NULL \n", LOG_FLAG, __func__);
 		return;
 	}
-	if (si_pa->chip_type != CHIP_TYPE_SIA8100X && si_pa->chip_type != CHIP_TYPE_SIA81X9 &&
-	    si_pa->chip_type != CHIP_TYPE_SIA8152X)
+	/* g3t: stock mask 0x2600 = types 9/10/13 (the owi chips: SIA8001, SIA8102, SIA8100X), not 13/14/15 */
+	if (!SIPA_TYPE_IN(si_pa->chip_type, 0xd, 0x2600))
 		sipa_suspend(si_pa);
 }
 EXPORT_SYMBOL(sipa_i2c_shutdown);

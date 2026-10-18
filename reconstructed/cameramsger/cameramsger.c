@@ -479,16 +479,19 @@ static int reg_reader(struct file *file, int len)
 static int snd_message(int len)
 {
 	int pos[3] = { -1, -1, -1 };
-	char first[MSGER_NAME_LEN] = { 0 };
-	char second[MSGER_NAME_LEN] = { 0 };
 	struct msger_msghdr hdr = { 0 };
 	char data[MSGER_DATA_LEN] = { 0 };
+	char second[MSGER_NAME_LEN] = { 0 };
+	char first[MSGER_NAME_LEN] = { 0 };
 	struct msger_reader *r;
 	int i, n = 0, idx, rear;
+	unsigned long j;
 	char *bp = c_msger_dev.buf;
 
+	if (len < 8)	/* G1ak: stock tests this before scanning (cmp w0,#8; b.lt -> -1010 without the debug print) */
+		return -1010;
 	for (i = 0; i < len; i++) {
-		if (c_msger_dev.buf[i] != '|')
+		if (bp[i] != '|')
 			continue;
 		pos[n] = i;
 		if (n == 2)
@@ -499,10 +502,10 @@ static int snd_message(int len)
 		printk(KERN_INFO "%s at position:%d - %d - %d", __func__, pos[0], pos[1], pos[2]);
 	if (pos[1] - pos[0] < 2 || pos[2] - pos[1] < 2)
 		return -1010;
-	for (i = pos[0] + 1; i < pos[1]; i++)
-		first[i - pos[0] - 1] = bp[i];
-	for (i = pos[1] + 1; i < pos[2]; i++)
-		second[i - pos[1] - 1] = bp[i];
+	for (i = pos[0] + 1, j = 0; i < pos[1]; i++, j++)
+		first[j] = bp[i];
+	for (i = pos[1] + 1, j = 0; i < pos[2]; i++, j++)
+		second[j] = bp[i];
 	memcpy(data, &c_msger_dev.buf[pos[1] + 1], len - pos[1] - 1);
 	if (debug(MSGER_DBG_MSGER))
 		printk(KERN_INFO "%s sender:%s recever:%s msg:%s\n", __func__, second, first, &c_msger_dev.buf[pos[1] + 1]);

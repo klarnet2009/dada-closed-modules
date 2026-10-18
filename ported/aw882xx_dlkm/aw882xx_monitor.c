@@ -458,7 +458,6 @@ static void aw_monitor_work_func(struct work_struct *work)
 {
 	struct aw_device *aw_dev  = container_of(work,
 		struct aw_device, monitor_desc.delay_work.work);
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
 	struct aw_monitor_cfg *monitor_cfg = &aw_dev->monitor_desc.monitor_cfg;
 	struct aw_monitor_desc *monitor = &aw_dev->monitor_desc;
 
@@ -471,7 +470,7 @@ static void aw_monitor_work_func(struct work_struct *work)
 		if (!aw_get_hmute(aw_dev)) {
 			aw_monitor_work(aw_dev);
 			if (monitor->monitor_mode == AW_MON_KERNEL_MODE) {
-				queue_delayed_work(aw882xx->work_queue,
+				queue_delayed_work(aw_dev->work_queue,
 					&monitor->delay_work,
 					msecs_to_jiffies(monitor_cfg->monitor_time));
 			}
@@ -503,8 +502,6 @@ void aw882xx_monitor_start(struct aw_monitor_desc *monitor_desc)
 {
 	struct aw_device *aw_dev = container_of(monitor_desc,
 			struct aw_device, monitor_desc);
-	struct aw882xx *aw882xx = (struct aw882xx *)aw_dev->private_data;
-
 	aw_dev_info(aw_dev->dev, "enter");
 
 	monitor_desc->first_entry = AW_FIRST_ENTRY;
@@ -521,7 +518,7 @@ void aw882xx_monitor_start(struct aw_monitor_desc *monitor_desc)
 
 	monitor_desc->mon_start_flag = true;
 	if (monitor_desc->monitor_mode == AW_MON_KERNEL_MODE) {
-		queue_delayed_work(aw882xx->work_queue,
+		queue_delayed_work(aw_dev->work_queue,
 					&monitor_desc->delay_work, 0);
 	}
 }

@@ -32,3 +32,43 @@ Pitfalls of the method: `ob.sh` counts local calls of the stock (`.text+0x...`) 
 - Stack frames, spill slots and block order were not touched (rule: 3 iterations per function).
 - `stats_history_show` (92), `predo_store_call` (89), `cma_pool_shrink_count` (43), `mi_dfx_init` (21) and three end handlers (96/94/81) remain.
 - The fixes were checked only by emulation and by a byte-wise Kleaf build; nothing was run on a phone, and mi_game and mi_low_lat_mem stay DO NOT LOAD until reviewed.
+
+
+# Part 3: global variable versus constant (goal-G1ak, 18.10.2026)
+
+> English translation of the original (Russian) working report; numbers and verdicts are unchanged. This part is later than part 2 above: items listed there as "remain" (`cma_pool_shrink_count`, `stats_history_show`, `predo_store_call`) were partly fixed here.
+
+Tool `tools/rounds/ldst.py <module> [built.o|.ko] [minimum]`: for every function it counts the accesses to global scalars (relocations `LDST*_ABS_LO12_NC`); stock targets of the form `.bss+0x598c` are turned into `symbol+offset` through the local symbol table of the stock (`llvm-nm --format=sysv`). It prints the functions where the stock has more such reads than ours (where ours may have an immediate). Pitfall: tail duplication in the stock (one block in two branches) gives an extra read without any constant; every case was checked in the disassembly.
+
+| module | functions | with a stock read that ours does not have | result |
+|---|---|---|---|
+| mi_damon | 194 | 0 | the only case, `damon_min_vma`, was fixed by G1aj |
+| mi_reclaim, mibbr, dump_binder, process_monitor, dcvs_main, ufs_ffu, mist | 36/34/17/48/24/14/76 | 0 | clean |
+| mi_game | 239 | 8 | tail duplication (`game_lb_control`: `vip_prefer_cluster` 6 times in the stock, the block is duplicated for two branches of `force_forbidden_walt_lb`), a field read `ceiling_users+k` in `migt_ioctl`, inlining; no constants instead of globals |
+| lb | 63 | 3 | tail duplicates (`is_real_timing_package`, `init_module`, `collect_cmd`) |
+| sched_entity_freq | 42 | 1 | `sched_tick_hook`: two `strb #1,[cl,#0x24]` and two reads of `config.mid/min_freq` on two branches in the stock, ours has a common tail (by the listing) |
+| miscore | 33 | 1 | `miscore_handle_link_change`: the stock unrolls the search over 3 `link_info`, ours is a loop |
+| matt | 267 | 2 | `bbr_init` (ours calls `bbr_init_pacing_rate_from_rtt`, the stock inlines it), `adaptive_bit_unit_to_str` (the stock has no branches, `sdiv`; ours `udiv`) |
+| mi_low_lat_mem | 116 | 1 | `init_module` (`predo_worker_task`) |
+| cameramsger | 27 | 1 | `cameramsger_release`: `debug()` is evaluated twice |
+| qca_cld3_peach_v2 (whole module, g4u build against the stock) | 18451 | 0 | the multiset of global reads is IDENTICAL in all 18451 functions (only the numbering `__last_ticks.N` differs), so on the hot paths (`ce_*`, `dp_*`, `hif_*`, `wma_*`) there are no constants instead of globals either |
+
+Summary of item 3: no new cases of the `damon_min_vma` type were found.
+
+## Real differences found by reading (G1ak)
+
+| module | function | what was wrong | fixed |
+|---|---|---|---|
+| mi_low_lat_mem | predo_store_call | the trace string `I\|%d\|i:%d avg:%d refill_duration` got `current->pid`; the stock reads +0x61c = `tgid` (like every other `I\|%d\|` of the module) | yes |
+| cameramsger | snd_message | the stock returns -1010 at once when `len < 8` (before the loop and without a debug print); ours let messages of length 5..7 reach the parser | yes |
+| mi_low_lat_mem | cma_pool_shrink_count | ours walked 4 zones unrolled, without the `contig_page_data.node_id == 0` filter and without the 5th zone; the stock walks through `zone->zone_pgdat` with the filter | yes (`llm_for_each_zone`, 43 -> 4) |
+
+Codegen: `stats_history_show` 92 -> 11, `predo_store_call` 89 -> 37 (a common stack slot for `buf[128]` and the wait entry: a separate block), `snd_message` 136 -> 54 (order of the local declarations, index `j`), `mi_low_lat_mem` in total 767 -> 595 instructions, `cameramsger` about 295 -> 211. Kleaf: no additional byte-identical functions (25 of 111 differ in `mi_low_lat_mem`, 8 of 22 in `cameramsger`), everything else PASS as before.
+
+Read without behavioural differences: `cam_sched_w_pids` (tail), `lb::real_timing_lookup_file_index`, `lb::mi_lb_compiler_thread` (signed indexes), `mi_game::migt_hardwork`, `process_monitor::detect_list_write` (the stock itself does `kzalloc(512, count)`: flags = count, a vendor bug, kept), `mibbr`, `dump_binder`, `dcvs_main`, `miscore` (by multiset). mist: the emulation now builds (`mist/STATUS.md`): 3 of 76 functions differ, `mist_frame_load_history_update` is identical.
+
+## Not done
+
+- `mi_dfx_init` (21), three end handlers (96/94/81: the stock indexes by a signed scene, `smaddl` against `umaddl`), the rest of `predo_store_call` (registers), the sort loop of `stats_history_show`.
+- `mi_game::migt_hardwork` and `mist` were not read line by line in full (multiset + constants).
+- The phone was not touched; `mi_game` and `mi_low_lat_mem` stay DO NOT LOAD until reviewed.
