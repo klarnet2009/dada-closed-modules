@@ -49,7 +49,7 @@ struct workqueue_struct *migt_wq;
 struct task_struct *migt_thread;
 static unsigned int migt_boost_policy;		/* local in the stock (migt TU) */
 u8 migt_enabled;
-static unsigned int boost_cycle;
+static int boost_cycle;	/* G14j: signed in the stock (sub; cmp #1; b.lt): do_migt_rem stops on <= 0, unsigned re-armed ~4e9 times after migt_reset */
 static u8 ceiling_freq_limit_work;
 static unsigned int ceiling_users[11];	/* [0..9] uids, [10] count */
 static unsigned int migt_has_work_todo, migt_init_sucess, g_work;
@@ -82,7 +82,7 @@ static __used noinline int update_policy_online(bool restore)
 		struct cpu_topology *t = &cpu_topology[cpu];
 		struct cpufreq_policy *policy;
 		struct migt *mi;
-		unsigned int c2;
+		unsigned int c2, vmin, vmax;
 		bool go;
 
 		if (!cpu_online(cpu))
@@ -106,10 +106,12 @@ static __used noinline int update_policy_online(bool restore)
 			continue;
 		}
 		mi = per_cpu_ptr(&migt_info, cpu);
+		vmin = mi->migt_min;	/* g64a: the stock reads both values before cpufreq_cpu_get */
+		vmax = mi->migt_ceiling_max;
 		policy = cpufreq_cpu_get(cpu);
 		if (policy) {
-			if (freq_qos_update_request(&per_cpu(qos_req_min, policy->cpu), mi->migt_min) < 0 ||
-			    freq_qos_update_request(&per_cpu(qos_req_max, policy->cpu), mi->migt_ceiling_max) < 0) {
+			if (freq_qos_update_request(&per_cpu(qos_req_min, policy->cpu), vmin) < 0 ||
+			    freq_qos_update_request(&per_cpu(qos_req_max, policy->cpu), vmax) < 0) {
 				cpufreq_cpu_put(policy);
 				err = 1;
 				break;
@@ -274,7 +276,7 @@ __used noinline void add_work_to_migt(int cmd)
 {
 	if (READ_ONCE(migt_has_work_todo) || !READ_ONCE(migt_init_sucess)) {
 		if (migt_debug_l)
-			printk(KERN_ERR "migt-gtc: %s, %d, %d \n", __func__, 706, cmd);
+			printk(KERN_ERR "migt-gtc: %s, %d, %d \n", __func__, 787, cmd);
 		return;
 	}
 	g_work = cmd;
@@ -355,9 +357,12 @@ static struct render_info_s render_info[2];
 
 __used noinline void reset_render_info(enum MI_RENDER_TYPE idx)
 {
-	struct render_info_s *ri = &render_info[idx];
+	struct render_info_s *ri;
 	int old;
 
+	if (idx >= MI_RENDER_TYPES)
+		__builtin_trap();	/* stock: bounds trap (brk #0x5512) for idx >= 2, not a return */
+	ri = &render_info[idx];
 	spin_lock(&ri->lock);
 	ri->seq++;
 	smp_wmb();
@@ -388,9 +393,12 @@ __used noinline void reset_render_info(enum MI_RENDER_TYPE idx)
 
 __used noinline void update_render_info(struct task_struct *p, enum MI_RENDER_TYPE idx)
 {
-	struct render_info_s *ri = &render_info[idx];
+	struct render_info_s *ri;
 	int old;
 
+	if (idx >= MI_RENDER_TYPES)
+		__builtin_trap();	/* stock: bounds trap (brk #0x5512) for idx >= 2, not a return */
+	ri = &render_info[idx];
 	spin_lock(&ri->lock);
 	ri->seq++;
 	smp_wmb();
@@ -407,7 +415,7 @@ __used noinline void update_render_info(struct task_struct *p, enum MI_RENDER_TY
 	old = ri->pid;
 	memset(ri->name, 0, sizeof(ri->name));
 	ri->pid = p->pid;
-	strncpy(ri->name, p->comm, strnlen(p->comm, 16));
+	strncpy(ri->name, p->comm, strlen(p->comm));
 	smp_wmb();
 	ri->seq++;
 	spin_unlock(&ri->lock);

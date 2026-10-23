@@ -45,6 +45,15 @@ struct frame_sf {	/* BTF of the stock, 32 bytes */
 	int buffer_count, current_uid;
 };
 extern int migt_enable(void);
+/* G14c (global OS4.0.0.7): GC booster state; is_doing_gc is the one new export, the others are plain globals of the stock */
+extern int gc_booster_enable;
+extern atomic_t is_doing_gc;	/* atomic_t: its export CRC (genksyms) is the stock one only with this type */
+extern char gc_thread_name[16], gc_main_thread_name[16];
+extern int game_gc_task(struct task_struct *p);
+extern int game_main_gc_task(struct task_struct *p);
+extern void gc_booster_reset(void);
+/* stock gate (fortified strlen of both names, in this order): booster enabled and both thread names set */
+#define GC_NAMES_SET()	(gc_booster_enable && strlen(gc_thread_name) && strlen(gc_main_thread_name))
 /* imports of the sibling closed modules (stub providers carry the stock CRCs) */
 extern int register_plat_func(int id, void *fn);
 extern void unregister_plat_func(int id);

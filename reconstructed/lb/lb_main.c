@@ -120,7 +120,7 @@ static void lb_cold_exit(void)
 	lb_chrdev_unregister();
 }
 
-static long __attribute__((no_sanitize("bounds"))) mi_lb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static long __attribute__((no_sanitize("array-bounds"))) mi_lb_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lb_owner owner = { 0 };
 	struct cmd_app_info app_info = { 0 };
@@ -291,6 +291,7 @@ static inline int mi_lb_chrdev_register(void)
 	struct class *cls;
 	long err;
 
+	memset(&g_lb_data, 0, sizeof(g_lb_data));	/* stock zeroes the state at the start of the chrdev registration */
 	LB_D(313, "enter");
 	g_lb_data.major = __register_chrdev(0, 0, 256, "iorap_dev", &lb_fops);
 	if (g_lb_data.major < 0) {

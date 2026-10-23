@@ -84,15 +84,15 @@ void tui_shm_free(struct tui_shm *shm)
 {
 	mutex_lock(&tuiMutex);
 
-	if (shm != NULL) {
-		if ((shm->flags & TUI_SHM_USER_MAPPED) && shm->id > 0) {
-			tui_dev_info("free shm, name=%s\n", shm->name);
-			tui_dev_devel("shm remove, shm->id:%d, fd=%d\n", shm->id, shm->fd);
-			idr_remove(&tuiIdr, shm->id);
-			if (shm->vaddr)
-				vfree(shm->vaddr);
+	/* stock: no NULL test of shm before the dereference (NULL oopses, as in stock) */
+	if ((shm->flags & TUI_SHM_USER_MAPPED) && shm->id > 0) {
+		tui_dev_info("free shm, name=%s\n", shm->name);
+		tui_dev_devel("shm remove, shm->id:%d, fd=%d\n", shm->id, shm->fd);
+		idr_remove(&tuiIdr, shm->id);
+		if (shm->vaddr)
+			vfree(shm->vaddr);
+		if (shm != NULL)
 			kfree(shm);
-		}
 	}
 
 	mutex_unlock(&tuiMutex);

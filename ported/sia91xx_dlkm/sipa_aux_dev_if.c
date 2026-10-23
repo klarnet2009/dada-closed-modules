@@ -392,7 +392,7 @@ int soc_codec_conf_sia91xx(
 
 	ret = soc_sia91xx_init(pdev, codec_conf, conf_num);
 	if (0 != ret) {
-		pr_err("[  err][%s] : soc_sia81xx_init ret = %d !!! \n",
+		pr_err("[  err][%s] : soc_sia91xx_init ret = %d !!! \n",
 			__func__, ret);
 		return ret;
 	}

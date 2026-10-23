@@ -1,4 +1,39 @@
-# mca_pwm_fan - PARTIAL (G2n 18.10.2026): 16 of 20 functions byte-identical vs the OS4 stock, kCFI 14/14 OK (pwm_reg_config hash fixed), modinfo now PASS (P-1); builds and links. COMMUNITY-ONLY: never flash, never put into a ROM build
+# mca_pwm_fan - PARTIAL, DO NOT LOAD, community-only (G52a 22.10.2026: 4 of 20 functions differ from the GLOBAL OS4.0.0.7 stock after a real Kleaf rebuild, was 4 of 20; NOT STRICT-EQUIVALENT; never flashed, never in a ROM build or the kernel package, NOT hardware-tested, NO safety claim)
+
+Previous first line (before G52a): mca_pwm_fan - PARTIAL (G2n 18.10.2026): 16 of 20 functions byte-identical vs the OS4 stock, kCFI 14/14 OK (pwm_reg_config hash fixed), modinfo now PASS (P-1); builds and links. COMMUNITY-ONLY: never flash, never put into a ROM build
+
+## G52a 22.10.2026 (goal-G52a, MODULE_FINISH_BRIEF method) - community-only, DO NOT LOAD, NO safety claim, never flashed
+
+- Build: real Kleaf rebuild after the G52a source changes, compared with the GLOBAL OS4.0.0.7 stock module (`compare_ko_v2`): function-bytes differ **4 of 20** (before G52a: 4 of 20). rebuilt .ko md5 `917e58aed1797257bf7440ea54a5197c` (round-1 build `917e58aed1797257bf7440ea54a5197c`). Still NOT STRICT-EQUIVALENT (buildmeta / depends forged, see the lines above).
+- Source changes in G52a (each stock-listing driven, behaviour-neutral or order-only):
+  - `__set_pwm` (round 1): `ctx->pwm_duty` is stored before the `__set_pwm exit` log (stock `str w22,[x20,#0x98]` before the `bl`), and the log argument is the 32-bit stored value (`mov w3,w22`; ours passed the 64-bit duty).
+- Tools: `work/re/src/g52a_tools` (blkcmp CFG isomorphism, vn value numbering, bisim effect bisimulation, trace, wl, inv, cases, ndiff2, pinchk, g51a emu differential emulator used read-only). They are candidate finders; every verdict below rests on a written argument over the raw `llvm-objdump -dr` listing (normalised diffs in `work/a17/review/g52a/evid/mca_pwm_fan_ndiff.txt`).
+- Evidence files: `work/a17/review/g52a/evid/mca_pwm_fan_{blkcmp,vn,trace,wl,bisim,ndiff,emu2all,tbl,pins}.txt`; report `work/a17/review/g52a_charging2_final.md`.
+
+| function | verdict | one-line argument | listing evidence |
+|---|---|---|---|
+| fan_sysfs_store | EQUIVALENT-PROVEN | CFG-isomorphic; class C only: bool xor idiom (stock cset eq/eor/tbnz, ours cset ne/cmp/b.eq) on two normalised bools and the unsigned bound cmp #4 b.hs vs cmp #3 b.hi. | evid/mca_pwm_fan_ndiff.txt, mca_pwm_fan_bisim.txt, mca_pwm_fan_emu2all.txt |
+| set_pwm | EQUIVALENT-PROVEN | after the G52a source fix (pwm_duty stored before the exit log, 32-bit log argument) the only residue is the duty==0 branch: stock logs the literal 0, ours the duty register, which is 0 on that path (cbz); class A. | evid/mca_pwm_fan_ndiff.txt, mca_pwm_fan_bisim.txt, mca_pwm_fan_emu2all.txt |
+| set_pwn_fan_target_level | EQUIVALENT-PROVEN | same two class C forms as fan_sysfs_store (blk2, blk15); CFG-isomorphic. | evid/mca_pwm_fan_ndiff.txt, mca_pwm_fan_bisim.txt, mca_pwm_fan_emu2all.txt |
+| speed_detect_req_work_func | EQUIVALENT-PROVEN | class G: zero-init of the 16-byte uevent struct is stp xzr,xzr,[sp] (stock) vs str xzr,[sp,#8] (ours); [sp] is overwritten by str x8,[sp] before it is read; value numbering equal. | evid/mca_pwm_fan_ndiff.txt, mca_pwm_fan_bisim.txt, mca_pwm_fan_emu2all.txt |
+
+Verdict legend: EQUIVALENT-PROVEN = written block-level argument over the raw listing (not a tool verdict); OPEN = honest reason given (hunks reviewed but not path-proven); BY-DESIGN = intentional documented deviation from the stock. Not hardware-tested; this module must never be flashed or placed in a ROM or kernel package.
+
+
+
+## G27b (20.10.2026) - set_pwm return value fixed (first line unchanged: still PARTIAL, community-only, no hardware test)
+- Source change (mca_pwm_fan.c, `__set_pwm`): stock returns the `pwm_reg_config()` result (>= 0) in the "power on" and the "same-state" branches and 0 in the "power off" branch (it sets the return register to 0 before testing `pwm_fan_power_on(false)`, the value of that call is only used for the error path); ours returned the constant `return 0` everywhere. Now: `ret = 0;` after the power-off branch, final `return ret;`. Callers test `if (ret)` (set_pwn_fan_target_level, fan_sysfs_store), so a positive value would matter, but pwm_apply_state() returns 0 or a negative errno here: no practical effect, the code now equals the stock logic.
+- G25a point B3 (".ko lacks the log `pwm_fan_power_on failed` line 207"): WRONG reading. The old .ko (g20a/built, md5 7d20fa4ee56363e19e2240602823f309) contains it (`mov w2,#0xcf` in set_pwm; all 12 `__mca_log_err` line constants 159..231 equal to stock); the .ko was NOT older than the source (built 20.10 01:42, source 18.10). Rebuilt anyway for the return-value fix.
+- Real Kleaf rebuild (global stub set osg, scratch <work-dir> bazel-out removed): new .ko md5 04122ac4338aaf2fddb32d7ef42f21cd (stock md5 cabad153d5f852e963f325f4eb386faf). compare_ko_v2 before -> after: function-bytes 4 of 20 -> 4 of 20 (same set), function-relocs 2 -> 2, kCFI 14/14 PASS, objects 12 PASS, imports 47 + CRC PASS, preamble mismatches 0. symcmp5 `all`: 11 CLEAN-POL + 1 other (set_pwm) before and after; set_pwm: POLARITY-DIFF [reach] ret(...) gone, only FACT-DIFF left = the `__set_pwm exit` log argument (`duty` instead of the constant 0 in the off branch where duty == 0 is already proven): CODEGEN.
+- Tool: work/re/src/g27b_tools/kb27.sh.
+
+## G20a (20.10.2026) - rebuilt against the GLOBAL stub set (first line unchanged: still PARTIAL, community-only)
+- Built (server copy of BUILD.bazel with deps os4 -> osg; the local BUILD.bazel is unchanged) with //re/stubs_a17B/osg instead of /os4: identical result: function-bytes 4 of 20, kCFI 14/14 PASS, imports 47 + CRC PASS (11 from package modules, CRCs equal to the global exporters); no fuel-gauge symbol is imported (the two CRCs that differ in global, platform_fg_ic_ops_register and strategy_class_fg_ops_register, are not used by this module). Still FAIL: depends names (os4_ stubs), buildmeta.
+
+## G17a (19.10.2026) - global OS4.0.0.7 re-measurement and function classification (first line unchanged unless noted: still PARTIAL, no hardware test)
+Global OS4.0.0.7 stock (<work-dir>) vs CN OS4.0.0.6 stock: code-identical (cn_vs_gl.csv, compare_ko_v2 stock-vs-stock: only buildmeta/scmversion differs). Real Kleaf build (scratch <work-dir> tag g17a, bazel-out removed) vs the GLOBAL stock: function set 20 OK; 16 of 20 byte-identical; speed_detect_req_work_func = CLASS-A-auto; fan_sysfs_store and set_pwn_fan_target_level (xor of two bool tests written as eor/tbz vs cmp), set_pwm (error log call tail-merged with a line-number phi) = CODEGEN. 0 BEHAVIOUR differences, no source change. COMMUNITY-ONLY: never flash, never in a ROM build.
+Tools: <work-dir> (kb17.sh = Kleaf build + compare_ko_v2 + preamble_cmp, sym17.sh = symcmp4 on every differing function, str17.py = printk format scan, fd17.sh = disassembly diff), results in res/<module>.cmp / .sym. Hacks: none added; earlier hacks (forged CRC / stubs / codegen hints) unchanged and still listed above.
+
 
 ## G2n (18.10.2026): P-1 FIXED. SAFETY: community-only source for a charging-stack accessory (cooling fan), never flash it, never put it into a ROM build.
 `MODULE_ALIAS("platform:pwm-fan")` added between MODULE_AUTHOR and MODULE_DESCRIPTION (stock .modinfo order: license, author, `alias=platform:pwm-fan`, description, vermagic, name, intree, scmversion, depends, `alias=of:N*T*Cxm,xm-pwm-fan`, `alias=of:N*T*Cxm,xm-pwm-fanC*`). Real Kleaf build + compare_ko_v2 + preamble_cmp (14 functions, 0 mismatches): modinfo FAIL -> PASS (7 distinct tags), function-bytes 4 of 20 differ (fan_sysfs_store, set_pwm, set_pwn_fan_target_level, speed_detect_req_work_func: scheduling only per audit 2), unchanged.
@@ -42,3 +77,7 @@ Plan for a future round: dump with `work/scripts/re_dump.sh`, rebuild the main s
 ## G2c (17.10.2026): not worked on
 
 Not attempted in round G2c (token budget went to `mca_charger_thermal` and `sc8581_sy6541`). State unchanged. Tools that exist for the next agent: `work/re/g2c_tools/` (`fgq.sh` multi-TU ThinLTO emulation loop against the OS4 stock with scratch `<work-dir>`, `pb_pin2.py` auto-pinner that also works for duplicated symbol names, `prune.py` deletes unused statics, `splice.py`, `fvar.py` source-variant tester, `pad_g2c.py` GENKSYMS-only CRC pad forger) and the "separate tiny static helper per register update" layout trick documented in `src/sc8581_sy6541/STATUS.md` (explains `tbz` vs `tbnz` shape differences of inlined `cp_update_bits`/`update_bits`).
+
+## G40e (20.10.2026) - raw-listing read of the functions that still differ from stock
+COMMUNITY-ONLY, DO NOT LOAD, PARTIAL, no safety claim, not hardware-tested. Full table: work/a17/review/charging_all_functions_audit.md. No source change and no rebuild in G40e.
+4 differing functions read (set_pwm whole): CODEGEN; one non-observable order difference: pwm_duty is stored after the 'new duty' log in ours (before in stock), duty logged as 64-bit (stock 32-bit).

@@ -186,13 +186,7 @@ enum mca_charger_partition_type {
 #define QUICK_CHG_TYPE_TURBO_CHG_POWER	30
 #define QUICK_CHG_TYPE_SUPER_CHG_POWER	50
 
-enum adp_icon_type {
-	ADP_ICON_TYPE_NORMAL = 0,
-	ADP_ICON_TYPE_FAST = 1,
-	ADP_ICON_TYPE_FLASH = 2,
-	ADP_ICON_TYPE_TURBO = 3,
-	ADP_ICON_TYPE_SUPER = 4,
-};
+/* G14k: enum adp_icon_type removed: now provided (same values) by stubs_g14e_a mca_btf_enums_g13a.h */
 
 /* G13d: MCA_EVENT_SBU_LPD_CHANGE (83 = 0x53) and MCA_EVENT_BOOST_STS (47 = 0x2f) are stock BTF enumerators (stubs_g13d_g5) */
 
@@ -211,7 +205,7 @@ static void update_usb_pd_type(struct business_charger *charger)
 
 	protocol_class_get_adapter_type(ADAPTER_PROTOCOL_BC12, &charger->bc12_type);
 	protocol_class_get_adapter_type(ADAPTER_PROTOCOL_PD, &charger->pd_type);
-#line 105
+#line 106
 	mca_log_info("last_bc12_type = %d, bc12_type = %d, pd_type = %d\n", last_type, charger->bc12_type, charger->pd_type);
 	if (!charger->bc12_active) {
 		cur_type = XM_CHARGER_TYPE_UNKNOW;
@@ -223,7 +217,7 @@ static void update_usb_pd_type(struct business_charger *charger)
 	}
 
 	if (last_type != cur_type) {
-#line 116
+#line 117
 		mca_log_err("real_type changed: %d => %d\n", last_type, cur_type);
 		charger->real_type = cur_type;
 		business_charger_update_usb_psy(charger->real_type, charger->usb_psy_info);
@@ -247,21 +241,23 @@ static int business_charger_parse_dt(struct business_charger *charger)
 	for (i = 0; i < ARRAY_SIZE(chg_data); i++) {
 		ret = of_property_read_u32(node, chg_data[i].name, chg_data[i].val);
 		if (ret < 0) {
-#line 139
+#line 140
 			mca_log_err("not find property %s\n", chg_data[i].name);
 			return ret;
 		}
 
-#line 143
+#line 144
 		mca_log_info("%s: %d\n", chg_data[i].name, *chg_data[i].val);
 	}
 
 	(void)mca_parse_dts_u32(node, "support-wls", &charger->support_wls, 0);
-#line 146
+#line 147
 	mca_log_info("support-wls %d\n", charger->support_wls);
 	(void)mca_parse_dts_u32(node, "cp_type", &charger->cp_type, 0);
-#line 148
+#line 149
 	mca_log_err("cp_type %d\n", charger->cp_type);
+	/* G52a: stock reads keep-report-max-power with the node cached in parse_dt (no re-load of pdev->dev.of_node) */
+	charger->keep_report_max_power = of_property_read_bool(node, "keep-report-max-power");
 
 	return 0;
 }
@@ -302,7 +298,7 @@ static int business_charger_notifier_connect_cb(struct notifier_block *nb,
 	default:
 		break;
 	}
-#line 190
+#line 191
 	mca_log_info("event %lu\n", event);
 	business_charger_add_event_node(event, data, size, charger);
 
@@ -327,7 +323,7 @@ static int business_charger_notifier_type_cb(struct notifier_block *nb,
 		break;
 	}
 
-#line 214
+#line 215
 	mca_log_info("event %lu\n", event);
 	business_charger_add_event_node(event, data, size, charger);
 
@@ -351,12 +347,14 @@ static int business_charger_notifier_hw_cb(struct notifier_block *nb,
 	case MCA_EVENT_QUICK_REVCHG_CHANGE:
 	case MCA_EVENT_BOOST_STS:	/* 0x2f */
 	case MCA_EVENT_SBU_LPD_CHANGE:	/* OS4: sbu_lpd status from mca_qcom_subpmic_proxy */
+	case MCA_EVENT_BATT_SAFE_LVL:	/* G14k: GLOBAL 0.7 stock: mask now covers events 84, 85 (size 4) */
+	case MCA_EVENT_BATT_EMERG:
 		size = sizeof(int);
 		break;
 	default:
 		break;
 	}
-#line 242
+#line 245
 	mca_log_info("event %lu\n", event);
 	business_charger_add_event_node(event, data, size, charger);
 
@@ -369,7 +367,7 @@ static int business_charger_notifier_chg_sts_cb(struct notifier_block *nb,
 	struct business_charger *charger = container_of(nb, struct business_charger, chg_sts_nb);
 	int size = 0;
 
-#line 254
+#line 257
 	mca_log_info("event %lu\n", event);
 	switch (event) {
 	case MCA_EVENT_SOC_LIMIT:
@@ -392,7 +390,7 @@ static int business_charger_notifier_cp_info_cb(struct notifier_block *nb,
 	struct business_charger *charger = container_of(nb, struct business_charger, cp_info_nb);
 	int size = 0;
 
-#line 276
+#line 279
 	mca_log_info("event %lu\n", event);
 	switch (event) {
 	case MCA_EVENT_CP_TSHUT_FLAG:
@@ -415,7 +413,7 @@ static int business_charger_notifier_debug_cb(struct notifier_block *nb,
 	struct business_charger *charger = container_of(nb, struct business_charger, debug_nb);
 	int size = 0;
 
-#line 298
+#line 301
 	mca_log_info("debug event %lu\n", event);
 	switch (event) {
 	case MCA_EVENT_DEBUG_CTRL_DOUBLE85:
@@ -442,14 +440,14 @@ static void business_charger_wireless_report_status_work(struct work_struct *wor
 	struct mca_event_notify_data event_data;
 	union power_supply_propval prop;
 
-#line 324
+#line 327
 	mca_log_info("wireless delay report status work\n");
 
 	prop.intval = charger->wls_active;
 	ret = power_supply_set_property(charger->wls_psy_info->wireless_psy,
 		POWER_SUPPLY_PROP_ONLINE, &prop);
 	if (ret < 0)
-#line 330
+#line 333
 		mca_log_err("failed to set wls_online");
 	business_charger_update_wireless_psy(charger->wls_psy_info);
 
@@ -481,7 +479,7 @@ static void business_charger_wireless_delay_enable_rx_work(struct work_struct *w
 	if (!usb_present)
 		platform_class_wireless_set_enable_mode(WIRELESS_ROLE_MASTER, true);
 
-#line 365
+#line 368
 	mca_log_info("delay_enable_rx when usb out\n");
 }
 
@@ -492,11 +490,11 @@ static void business_charger_wireless_reset_rx_work(struct work_struct *work)
 
 	ret = mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BUCK_CHARGE, STRATEGY_STATUS_TYPE_ONLINE, &usb_present);
 	if (ret) {
-#line 377
+#line 380
 		mca_log_err("get usb_present failed, ret=%d\n", ret);
 		return;
 	}
-#line 380
+#line 383
 	mca_log_info("get usb_present %d\n", usb_present);
 	if (!usb_present) {
 		platform_class_wireless_set_enable_mode(WIRELESS_ROLE_MASTER, false);
@@ -508,7 +506,7 @@ static void business_charger_wireless_reset_rx_work(struct work_struct *work)
 static void business_charger_process_pmic_init_done(struct business_charger *charger,
 	unsigned int event)
 {
-#line 391
+#line 394
 	mca_log_err("pmic init done\n");
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, 1);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BASIC_WIRELESS, event, 1);
@@ -524,7 +522,7 @@ static void business_charger_pmic_init_done_notify_work(struct work_struct *work
 	int wls_basic_init_ok = 0;
 	int ret;
 
-#line 404
+#line 407
 	mca_log_info("pmic init done notify work\n");
 	if (charger->support_wls)
 		(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BASIC_WIRELESS,
@@ -535,7 +533,7 @@ static void business_charger_pmic_init_done_notify_work(struct work_struct *work
 		STRATEGY_STATUS_TYPE_INIT_OK, &buckchg_init_ok);
 
 	if (!wls_basic_init_ok || !buckchg_init_ok) {
-#line 413
+#line 416
 		mca_log_err("wls_basic or buckchg not init done, rerun work\n");
 		schedule_delayed_work(&charger->pmic_init_done_notify_work, msecs_to_jiffies(1000));
 		return;
@@ -543,11 +541,11 @@ static void business_charger_pmic_init_done_notify_work(struct work_struct *work
 
 	ret = platform_class_buckchg_ops_is_init_ok(MAIN_BUCK_CHARGER);
 	if (ret <= 0) {
-#line 419
+#line 422
 		mca_log_err("pmic not init done, return & wait event\n");
 		return;
 	}
-#line 423
+#line 426
 	mca_log_err("pmic init done, process event\n");
 	business_charger_process_pmic_init_done(charger, MCA_EVENT_PMIC_INIT_DONE);
 }
@@ -573,7 +571,7 @@ static void business_charger_process_snk_power_suspend(struct business_charger *
 {
 	bool bsinkpowersuspend = *((bool *)data);
 
-#line 448
+#line 451
 	mca_log_info("bsinkpowersuspend: %d\n", bsinkpowersuspend);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, bsinkpowersuspend);
 }
@@ -588,7 +586,7 @@ static void business_charger_report_wired_quick_charge_type(struct business_char
 
 	if (charger->abnormal_info.asuint32) {
 		icon_type = ADP_ICON_TYPE_NORMAL;
-#line 462
+#line 465
 		mca_log_info("force normal icon 0x%x", charger->abnormal_info.asuint32);
 	}
 
@@ -623,7 +621,7 @@ static void business_charger_report_quick_charge_type_work(struct work_struct *w
 		else
 			icon_type = ADP_ICON_TYPE_FAST;
 
-#line 495
+#line 498
 		mca_log_info("keep_report_max: %d, power_max: %d, icon_type: %d\n", charger->keep_report_max_power, power_max, icon_type);
 		business_charger_report_wired_quick_charge_type(charger, icon_type);
 	} else if (charger->real_type == XM_CHARGER_TYPE_PPS) {
@@ -631,7 +629,7 @@ static void business_charger_report_quick_charge_type_work(struct work_struct *w
 			protocol_class_get_adapter_max_power(ADAPTER_PROTOCOL_PPS, (unsigned int *)(&power_max));
 			charger->wired_power_max = max(charger->wired_power_max, power_max);
 			icon_type = power_max > 29 ? ADP_ICON_TYPE_TURBO : ADP_ICON_TYPE_FAST;
-#line 507
+#line 510
 			mca_log_info("real_type: %d, power_max: %d, icon_type: %d\n", charger->real_type, power_max, icon_type);
 			business_charger_report_wired_quick_charge_type(charger, icon_type);
 		}
@@ -688,12 +686,12 @@ static void business_charger_process_boost_status(struct business_charger *charg
 	int boost_sts;
 
 	if (!data) {
-#line 972
+#line 976
 		mca_log_err("boost status data is NULL!\n");
 		return;
 	}
 	boost_sts = *((int *)data);
-#line 978
+#line 982
 	mca_log_info("handle boost_sts changed: %#x\n", boost_sts);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, boost_sts);
 }
@@ -735,6 +733,7 @@ static void business_charger_process_type_change(struct business_charger *charge
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, charger->real_type);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_FG, event, charger->real_type);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_THERMAL, event, charger->real_type);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_SMARTCHG, event, charger->real_type);	/* G14k: new in GLOBAL 0.7 stock */
 	if (charger->real_type != XM_CHARGER_TYPE_PD_VERIFY)
 		business_charger_update_wired_quick_charge_type(charger);
 
@@ -758,7 +757,7 @@ static void business_charger_process_wireless_online_change(struct business_char
 
 	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BASIC_WIRELESS,
 			STRATEGY_STATUS_TYPE_ONLINE, &charger->wls_active);
-#line 606
+#line 610
 	mca_log_info("wireless online %d\n", charger->wls_active);
 	if (wls_active_flag == charger->wls_active)
 		return;
@@ -767,11 +766,11 @@ static void business_charger_process_wireless_online_change(struct business_char
 	if (!wls_active_flag) {
 		charger->wls_adapter_type = 0;
 		event = MCA_EVENT_WIRELESS_DISCONNECT;
-#line 615
+#line 619
 		mca_log_info("relax wake lock\n");
 		mca_charge_mievent_set_state(MIEVENT_STATE_PLUG, 0);
 	} else if (!charger->dam_test_flag) {
-#line 618
+#line 622
 		mca_log_info("stay wake lock\n");
 		event = MCA_EVENT_WIRELESS_CONNECT;
 		__pm_stay_awake(charger->online_wake_lock);
@@ -782,7 +781,7 @@ static void business_charger_process_wireless_online_change(struct business_char
 		ret = power_supply_set_property(charger->wls_psy_info->wireless_psy,
 			POWER_SUPPLY_PROP_ONLINE, &prop);
 		if (ret < 0)
-#line 628
+#line 632
 			mca_log_err("failed to set wls_online");
 		cancel_delayed_work_sync(&charger->delay_report_status_work);
 		business_charger_update_wireless_psy(charger->wls_psy_info);
@@ -807,7 +806,7 @@ static void business_charger_process_usb_sns_func(struct business_charger *charg
 	bool fw_update = false;
 
 	mca_wireless_rev_get_fw_update(&fw_update);
-#line 652
+#line 656
 	mca_log_err("usb_resent: %d, fw_update: %d\n", usb_present, fw_update);
 
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_REV_WIRELESS, event, usb_present);
@@ -832,7 +831,7 @@ static void business_charger_process_online_change(struct business_charger *char
 
 	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BUCK_CHARGE,
 			STRATEGY_STATUS_TYPE_ONLINE, &charger->bc12_active);
-#line 678
+#line 682
 	mca_log_info("online %d\n", charger->bc12_active);
 
 	active_flag = charger->bc12_active;
@@ -846,10 +845,10 @@ static void business_charger_process_online_change(struct business_charger *char
 		event = MCA_EVENT_USB_DISCONNECT;
 		__pm_relax(charger->online_wake_lock);
 		mca_charge_mievent_set_state(MIEVENT_STATE_PLUG, 0);
-#line 691
+#line 695
 		mca_log_info("relax wake lock\n");
 	} else if (!charger->dam_test_flag) {
-#line 693
+#line 697
 		mca_log_info("stay wake lock\n");
 		event = MCA_EVENT_USB_CONNECT;
 		__pm_stay_awake(charger->online_wake_lock);
@@ -879,7 +878,7 @@ static void business_charger_wireless_rerun_usb_sns_work(struct work_struct *wor
 		struct business_charger, delay_rerun_usb_sns_work.work);
 	int usb_present = 0;
 
-#line 912
+#line 916
 	mca_log_info("wireless rerun cp vusb work\n");
 	(void)mca_strategy_func_get_status(STRATEGY_FUNC_TYPE_BUCK_CHARGE, STRATEGY_STATUS_TYPE_ONLINE, &usb_present);
 	business_charger_process_usb_sns_func(charger,
@@ -893,12 +892,12 @@ static void business_charger_process_usb_suspend_change(struct business_charger 
 
 	if (usb_suspend) {
 		__pm_relax(charger->online_wake_lock);
-#line 723
+#line 727
 		mca_log_info("relax wake lock\n");
 	} else {
 		if (charger->bc12_active) {
 			__pm_stay_awake(charger->online_wake_lock);
-#line 727
+#line 731
 			mca_log_info("stay wake lock\n");
 		}
 	}
@@ -911,7 +910,7 @@ static void business_charger_process_antiburn_change(struct business_charger *ch
 {
 	int antiburn = connector_antiburn_is_triggered();
 
-#line 739
+#line 743
 	mca_log_info("antiburn: %d\n", antiburn);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, antiburn);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, antiburn);
@@ -921,7 +920,7 @@ static void business_charger_process_antiburn_change(struct business_charger *ch
 static void business_charger_process_is_eu_model(struct business_charger *charger,
 	int value)
 {
-#line 748
+#line 752
 	mca_log_info("is_eu_model: %d\n", value);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_FG, MCA_EVENT_IS_EU_MODEL, value);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_IS_EU_MODEL, value);
@@ -931,7 +930,7 @@ static void business_charger_process_is_eu_model(struct business_charger *charge
 static void business_charger_process_plate_shock(struct business_charger *charger,
 	int value)
 {
-#line 757
+#line 761
 	mca_log_info("plate_shock: %d\n", value);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_PLATE_SHOCK, value == 1 ? 1 : 0);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_PLATE_SHOCK, value == 1 ? 1 : 0);
@@ -940,12 +939,12 @@ static void business_charger_process_plate_shock(struct business_charger *charge
 static void business_charger_process_start_quick_revchg(struct business_charger *charger,
 	int value)
 {
-#line 765
+#line 769
 	mca_log_info("start_quick_revchg: %d\n", value);
 	if (value) {
 		mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_START_QUICK_REVCHG, value);
 	} else {
-#line 769
+#line 773
 		mca_log_info("user cancel start_quick_revchg, do nothing\n");
 	}
 }
@@ -953,7 +952,7 @@ static void business_charger_process_start_quick_revchg(struct business_charger 
 static void business_charger_process_set_revchg_bcl(struct business_charger *charger,
 	int value)
 {
-#line 775
+#line 779
 	mca_log_info("set_revchg_bcl: %d\n", value);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_REVCHG_BCL, value);
 }
@@ -975,7 +974,7 @@ static void business_charger_process_handle_logic(struct business_charger *charg
 	ok = (last_handle_state == charger->handle_state) | (!charger->handle_state) | (charger->stop_handle_charge != 0);
 	allow_charge = ok ? ((!charger->handle_state && last_handle_state) ? 1 : tmp) : 0;
 
-#line 797
+#line 801
 	mca_log_info("last_allow_charge = %d, last_handle_state = %d, last_stop_handle_charge = %d, allow_charge = %d, handle_state = %d, stop_handle_charge = %d\n", charger->usb_psy_info->last_allow_charge, last_handle_state, last_stop_handle_charge, allow_charge, charger->handle_state, charger->stop_handle_charge);
 	last_handle_state = charger->handle_state;
 	last_stop_handle_charge = charger->stop_handle_charge;
@@ -991,7 +990,7 @@ static void business_charger_process_handle_logic(struct business_charger *charg
 		if (charger->real_type != XM_CHARGER_TYPE_PD_VERIFY)
 			business_charger_update_wired_quick_charge_type(charger);
 		if (charger->bc12_active) {
-#line 815
+#line 819
 			mca_log_info("stay wake lock\n");
 			__pm_stay_awake(charger->online_wake_lock);
 			return;
@@ -1003,7 +1002,7 @@ static void business_charger_process_handle_logic(struct business_charger *charg
 			mca_event_report_uevent(&n_data);
 		}
 	}
-#line 818
+#line 822
 	mca_log_info("relax wake lock\n");
 	__pm_relax(charger->online_wake_lock);
 }
@@ -1013,7 +1012,7 @@ static void business_charger_process_soc_limit_change(struct business_charger *c
 {
 	int smartchg_pmic = *((int *)data);
 
-#line 829
+#line 833
 	mca_log_info("smartchg_pmic: %d\n", smartchg_pmic);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, smartchg_pmic);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, smartchg_pmic);
@@ -1026,7 +1025,7 @@ static void business_charger_process_dtpt_change(struct business_charger *charge
 {
 	int dtpt_status = *((int *)data);
 
-#line 841
+#line 845
 	mca_log_info("dtpt_status: %d\n", dtpt_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_SMARTCHG, event, dtpt_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_JEITA, event, dtpt_status);
@@ -1039,7 +1038,7 @@ static void business_charger_process_fg_ota(struct business_charger *charger,
 {
 	int fg_ota_process = *((int *)data);
 
-#line 853
+#line 857
 	mca_log_info("fg_ota_process: %d\n", fg_ota_process);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, fg_ota_process);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS, event, fg_ota_process);
@@ -1062,7 +1061,7 @@ static void business_charger_process_batt_btb_change(struct business_charger *ch
 {
 	bool batt_missing = *((bool *)data);
 
-#line 875
+#line 879
 	mca_log_info("batt_missing: %d\n", batt_missing);
 	charger->abnormal_info.batt_missing = (int)batt_missing;
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, batt_missing);
@@ -1075,7 +1074,7 @@ static void business_charger_process_batt_btb_change(struct business_charger *ch
 static void business_charger_process_batt_auth_pass(struct business_charger *charger,
 	unsigned int event)
 {
-#line 887
+#line 891
 	mca_log_err("reviced batt_auth pass\n");
 	charger->abnormal_info.batt_auth_failed = 0;
 	business_charger_update_wired_quick_charge_type(charger);
@@ -1104,7 +1103,7 @@ static void business_charger_process_lpd_status_change(struct business_charger *
 
 	force_5v_charging = is_liquited & is_charginglimit;
 
-#line 930
+#line 934
 	mca_log_info("%s: occur liquited need drop charging power: %d\n", __func__, force_5v_charging);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, force_5v_charging);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, force_5v_charging);
@@ -1117,7 +1116,7 @@ static void business_charger_process_verify_process_change(struct business_charg
 {
 	charger->verify_process_end = *((int *)data);
 
-#line 942
+#line 946
 	mca_log_info("pd verify process done: %d\n", charger->verify_process_end);
 	cancel_delayed_work_sync(&charger->report_quick_charge_type_work);
 	schedule_delayed_work(&charger->report_quick_charge_type_work, msecs_to_jiffies(4000));
@@ -1129,7 +1128,7 @@ static void business_charger_process_cp_cboot_short(struct business_charger *cha
 {
 	int cp_cboot_short = *((int *)data);
 
-#line 953
+#line 957
 	mca_log_info("occur cp cboot short: %d\n", cp_cboot_short);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, cp_cboot_short);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, cp_cboot_short);
@@ -1141,7 +1140,7 @@ static void business_charger_process_quick_revchg(struct business_charger *charg
 {
 	int auth_pos = *((int *)data);
 
-#line 964
+#line 968
 	mca_log_info("handle quick revchg changed: %#x\n", auth_pos);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, auth_pos);
 }
@@ -1151,7 +1150,7 @@ static void business_charger_process_rp_short_vbus_change(struct business_charge
 {
 	int cc_short_vbus = *((int *)data);
 
-#line 987
+#line 991
 	mca_log_info("occur cc short vbus: %d\n", cc_short_vbus);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, cc_short_vbus);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, cc_short_vbus);
@@ -1165,7 +1164,7 @@ static void business_charger_process_vbat_ovp_status_change(struct business_char
 {
 	int vbat_ovp_status = *((int *)data);
 
-#line 1000
+#line 1004
 	mca_log_info("occur vbat_ovp_status: %d\n", vbat_ovp_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, vbat_ovp_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, vbat_ovp_status);
@@ -1178,7 +1177,7 @@ static void business_charger_process_ibat_ocp_status_change(struct business_char
 {
 	int ibat_ocp_status = *((int *)data);
 
-#line 1012
+#line 1016
 	mca_log_info("occur ibat_ocp_status: %d\n", ibat_ocp_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, ibat_ocp_status);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS, event, ibat_ocp_status);
@@ -1189,14 +1188,11 @@ static void business_charger_process_csd_pulse_change(struct business_charger *c
 {
 	int csd_pulse = *((int *)data);
 
-	if (charger->real_type == XM_CHARGER_TYPE_PD_VERIFY) {
-#line 1023
-		mca_log_info("receive csd pulse request: %d\n", csd_pulse);
-		mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, csd_pulse);
-		mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, csd_pulse);
-	} else
-#line 1027
-		mca_log_info("not standard pd verify, ignore csd pulse event\n");
+	/* G14k: GLOBAL 0.7 stock has NO real_type == PD_VERIFY check any more (no load of real_type in the handler): 'not standard pd verify' branch is removed */
+#line 1026
+	mca_log_info("csd_pulse: %d", csd_pulse);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, event, csd_pulse);
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, event, csd_pulse);
 
 }
 
@@ -1439,6 +1435,23 @@ static void business_charger_process_event(struct business_charger *charger)
 			case MCA_EVENT_SBU_LPD_CHANGE:
 				business_charger_process_sbu_lpd_status_change(charger, event_node->event, event_node->data);
 				break;
+			case MCA_EVENT_BATT_SAFE_LVL:	/* G14k: GLOBAL 0.7 stock jump-table entries 0x54/0x55 (G14f wrongly said 'event 85 not in this module') */
+				mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_BATT_SAFE_LVL,
+					*((int *)event_node->data));
+				mca_strategy_func_process(STRATEGY_FUNC_TYPE_SMARTCHG, MCA_EVENT_BATT_SAFE_LVL,
+					*((int *)event_node->data));
+				break;
+			case MCA_EVENT_BATT_EMERG:
+				{
+					bool emerg = *((bool *)event_node->data);
+
+					mca_strategy_func_process(STRATEGY_FUNC_TYPE_BUCK_CHARGE, MCA_EVENT_BATT_EMERG, emerg);
+					mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_BATT_EMERG, emerg);
+					mca_strategy_func_process(STRATEGY_FUNC_TYPE_REV_WIRELESS, MCA_EVENT_BATT_EMERG, emerg);
+					mca_strategy_func_process(STRATEGY_FUNC_TYPE_BASIC_WIRELESS, MCA_EVENT_BATT_EMERG, emerg);
+					mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS, MCA_EVENT_BATT_EMERG, emerg);
+				}
+				break;
 			}
 			spin_lock(&charger->list_lock);
 			kfree(event_node->data);
@@ -1550,7 +1563,7 @@ static int business_charger_partition_set_status(int mca_charger_partition_type,
 	case MCA_CHARGER_PARTITION_EU_MODE:
 		ret = charger_partition_alloc(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_2, sizeof(charger_partition_info_2));
 		if(ret < 0) {
-#line 1382
+#line 1391
 			mca_log_err("failed to alloc\n");
 			return -1;
 		}
@@ -1560,22 +1573,22 @@ static int business_charger_partition_set_status(int mca_charger_partition_type,
 		info_2.reserved = 0;
 		ret = charger_partition_write(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_2, (void *)&info_2, sizeof(charger_partition_info_2));
 		if(ret < 0) {
-#line 1391
+#line 1400
 			mca_log_err("failed to write\n");
 			ret = charger_partition_dealloc(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_2, sizeof(charger_partition_info_2));
 			if(ret < 0) {
-#line 1394
+#line 1403
 				mca_log_err("failed to dealloc\n");
 				return -1;
 			}
 			return -1;
 		}
-#line 1399
+#line 1408
 		mca_log_info("ret: %d, info_2.eu_mode: %u\n", ret, info_2.eu_mode);
 
 		ret = charger_partition_dealloc(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_2, sizeof(charger_partition_info_2));
 		if(ret < 0) {
-#line 1403
+#line 1412
 			mca_log_err("failed to dealloc\n");
 			return -1;
 		}
@@ -1593,7 +1606,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 	int value = 0, value2 = 0;
 	int i, num;
 
-#line 1424
+#line 1433
 	mca_log_err("debug_ctrl input: %s\n", buf);
 
 	for (i = 0; i < DEBUG_CTRL_MAX; i++) {
@@ -1601,7 +1614,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 			break;
 	}
 	if (i == DEBUG_CTRL_MAX) {
-#line 1433
+#line 1442
 		mca_log_err("invalid name\n");
 		return;
 	}
@@ -1615,7 +1628,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 				charger_partition_write_double85(value);
 			}
 		} else {
-#line 1446
+#line 1455
 			mca_log_err("invalid input\n");
 		}
 		break;
@@ -1627,7 +1640,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 				charger_partition_write_remove_temp_limit(value);
 			}
 		} else {
-#line 1456
+#line 1465
 			mca_log_err("invalid input\n");
 		}
 		break;
@@ -1639,7 +1652,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 				charger_partition_write_memory_test(value);
 			}
 		} else {
-#line 1466
+#line 1475
 			mca_log_err("invalid input\n");
 		}
 		break;
@@ -1647,7 +1660,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 		num = sscanf(buf, "%s %d %d", name, &value, &value2);
 		if (num == 3) {
 			if (value < 0 || value > 100 || value2 < 0 || value2 > 100) {
-#line 1472
+#line 1481
 				mca_log_err("invalid soc value: %d %d\n", value, value2);
 			} else {
 				if (value != g_debug_ctrl[i].args[0] || value2 != g_debug_ctrl[i].args[1]) {
@@ -1658,7 +1671,7 @@ static void business_charger_process_debug_ctrl_input(const char *buf)
 				}
 			}
 		} else {
-#line 1479
+#line 1488
 			mca_log_err("invalid input\n");
 		}
 		break;
@@ -1682,7 +1695,7 @@ static ssize_t bussiness_charger_sysfs_store(struct device *dev,
 	switch (attr_info->sysfs_attr_name) {
 	case BUSSINESS_CHARGER_PROP_IS_EU_MODEL:
 		(void)sscanf(buf, "%d", &charger->is_eu_model);
-#line 1520
+#line 1529
 		mca_log_info("is_eu_model set: %d\n", charger->is_eu_model);
 		ret = business_charger_partition_set_status(MCA_CHARGER_PARTITION_EU_MODE,charger->is_eu_model);
 		business_charger_process_is_eu_model(charger, charger->is_eu_model);
@@ -1697,7 +1710,7 @@ static ssize_t bussiness_charger_sysfs_store(struct device *dev,
 		break;
 	case BUSSINESS_CHARGER_PROP_REVCHG_BCL:
 		(void)sscanf(buf, "%d", &charger->revchg_bcl);
-#line 1534
+#line 1543
 		mca_log_info("revchg_bcl set: %d\n", charger->revchg_bcl);
 		business_charger_process_set_revchg_bcl(charger, charger->revchg_bcl);
 		break;
@@ -1741,7 +1754,7 @@ static ssize_t bussiness_charger_sysfs_show(struct device *dev,
 		break;
 	case BUSSINESS_CHARGER_PROP_POWER_MAX:
 		business_charger_get_power_max(charger, &value);
-#line 1575
+#line 1584
 		mca_log_info("power_max: %d\n", value);
 		count = snprintf(buf, PAGE_SIZE, "%d\n", value);
 		break;
@@ -1752,41 +1765,41 @@ static ssize_t bussiness_charger_sysfs_show(struct device *dev,
 	case BUSSINESS_CHARGER_PROP_IS_EU_MODEL:
 		if (charger)
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->is_eu_model);
-#line 1585
+#line 1594
 		mca_log_info("get eu_model: %d\n", buf);
 		break;
 	case BUSSINESS_CHARGER_PROP_PLATE_SHOCK:
 		if (charger) {
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->plate_shock);
-#line 1590
+#line 1599
 			mca_log_info("plate_shock: %d\n", charger->plate_shock);
 		}
 		break;
 	case BUSSINESS_CHARGER_PROP_START_QUICK_REVCHG:
 		if (charger) {
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->start_quick_revchg);
-#line 1596
+#line 1605
 			mca_log_info("start_quick_revchg: %d\n", charger->start_quick_revchg);
 		}
 		break;
 	case BUSSINESS_CHARGER_PROP_REVCHG_BCL:
 		if (charger) {
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->revchg_bcl);
-#line 1602
+#line 1611
 			mca_log_info("revchg_bcl: %d\n", charger->revchg_bcl);
 		}
 		break;
 	case BUSSINESS_CHARGER_PROP_HANDLE_STATE:
 		if (charger) {
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->handle_state);
-#line 1608
+#line 1617
 			mca_log_info("handle_state: %d\n", charger->handle_state);
 		}
 		break;
 	case BUSSINESS_CHARGER_PROP_STOP_HANDLE_CHARGE:
 		if (charger) {
 			count = snprintf(buf, PAGE_SIZE, "%d\n", charger->stop_handle_charge);
-#line 1614
+#line 1623
 			mca_log_info("stop_handle_charge: %d\n", charger->stop_handle_charge);
 		}
 		break;
@@ -1845,7 +1858,7 @@ static ssize_t business_debugfs_show(void *priv_data, char *buf)
 	size_t count = 0;
 
 	if (!charger || !attr_info) {
-#line 1666
+#line 1675
 		mca_log_err("null pointer store\n");
 		return count;
 	}
@@ -1875,12 +1888,12 @@ static ssize_t business_debugfs_store(void *priv_data, const char *buf, size_t c
 	case BUSINESS_CHARGER_DEBUG_PROP_DAM_TEST:
 		charger->dam_test_flag = val;
 		if (charger->dam_test_flag) {
-#line 1695
+#line 1704
 			mca_log_info("relax wake_lock\n");
 			__pm_relax(charger->online_wake_lock);
 		} else if (charger->bc12_active) {
 			__pm_stay_awake(charger->online_wake_lock);
-#line 1699
+#line 1708
 			mca_log_info("stay wake_lock\n");
 		}
 		break;
@@ -1976,7 +1989,7 @@ static int business_charger_probe(struct platform_device *pdev)
 	static int probe_cnt;
 	int rc = 0;
 
-#line 1794
+#line 1815
 	mca_log_err("probe begin cnt %d\n", ++probe_cnt);
 	charger = devm_kzalloc(&pdev->dev, sizeof(*charger), GFP_KERNEL);
 	if (!charger)
@@ -1986,22 +1999,21 @@ static int business_charger_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, charger);
 	rc = business_charger_parse_dt(charger);
 	if (rc < 0) {
-#line 1803
+#line 1824
 		mca_log_err(" Couldn't parse device tree rc=%d\n", rc);
 		return rc;
 	}
 
-	charger->keep_report_max_power = of_property_read_bool(pdev->dev.of_node, "keep-report-max-power");
 	charger->usb_psy_info = business_charger_usb_psy_init(charger->dev);
 	if (!charger->usb_psy_info) {
-#line 1809
+#line 1830
 		mca_log_err("Couldn't init usb psy rc=%d\n", rc);
 		return -EINVAL;
 	}
 
 	charger->wls_psy_info = business_charger_wireless_psy_init(charger->dev);
 	if (!charger->wls_psy_info) {
-#line 1815
+#line 1836
 		mca_log_err("Couldn't init wireless psy rc=%d\n", rc);
 		return -EINVAL;
 	}
@@ -2072,11 +2084,11 @@ static int business_charger_probe(struct platform_device *pdev)
 
 	charger->online_wake_lock = wakeup_source_register(charger->dev, "charger_wakelock");
 	if (!charger->online_wake_lock)
-#line 1884
+#line 1905
 		mca_log_err("reg wakelock failed\n");
 	kthread_run(business_charger_event_thread, charger, "charger_event_thread");
 	if (business_charger_sysfs_create_group(charger))
-#line 1887
+#line 1908
 		mca_log_err("create sysfs failed\n");
 #ifdef CONFIG_DEBUG_FS
 	mca_debugfs_create_group("business_charger", g_business_charge_debugfs_field_tbl,
@@ -2084,7 +2096,7 @@ static int business_charger_probe(struct platform_device *pdev)
 #endif /* CONFIG_DEBUG_FS */
 	mca_log_charge_log_register(MCA_CHARGE_LOG_ID_BUSINESS_CHG,
 		&g_business_charger_log_ops, charger);
-#line 1894
+#line 1915
 	mca_log_err("probe success\n");
 	return 0;
 
@@ -2105,7 +2117,7 @@ reg_notify_fail1:
 		&charger->connect_nb);
 reg_notify_fail2:
 	business_charger_usb_psy_deinit(charger->usb_psy_info);
-#line 1914
+#line 1935
 	mca_log_info("%s !!\n",
 		rc == -EPROBE_DEFER ? "Over probe cnt max" : "OK");
 

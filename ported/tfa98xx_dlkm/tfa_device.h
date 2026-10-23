@@ -185,15 +185,14 @@ struct tfa_device {
 	int is_probus_device; /**< probus device: device without internal DSP */
 	/*To support tfa9873*/
 	int advance_keys_handling;
-	union {
-		int needs_reset; // add the reset trigger for SetAlgoParams and SetMBDrc commands
-		int rate;        /* G11b HACK: the stock stores the hw_params rate at +0x170; where its needs_reset lives is unknown, aliased here */
-	};
+	/* g3w: stock layout: rate at +0x170 (hw_params, set_query_info), needs_reset at +0x174 (tfa_needs_reset): no union */
+	int rate;
+	int needs_reset; // add the reset trigger for SetAlgoParams and SetMBDrc commands
 	struct kmem_cache *cachep; /**< Memory allocator handle */
 
 	/*To support tfa9873*/
 	char fw_itf_ver[4];          /* Firmware ITF version */
-	int fres[3];
+	/* g3w: fres[3] (OPLUS) removed: stock sizeof(struct tfa_device) == 0x188 with channel_num at +0x184 */
     int channel_num;    /* mono or stereo */
 
 	#ifdef OPLUS_ARCH_EXTENDS

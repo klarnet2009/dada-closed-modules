@@ -21,8 +21,6 @@ static u32 minmax_subwin_update_m(struct minmax *m, u32 win, const struct minmax
 		if (unlikely(val->t - m->s[0].t > win)) {
 			m->s[0] = m->s[1];
 			m->s[1] = *val;
-			if (unlikely(val->t - m->s[0].t > win))
-				m->s[0] = *val;
 		}
 	} else if (unlikely(m->s[1].t == m->s[0].t) && dt > win / 4) {
 		m->s[2] = m->s[1] = *val;

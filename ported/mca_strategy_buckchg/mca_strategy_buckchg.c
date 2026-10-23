@@ -710,7 +710,7 @@ static void strategy_buck_update_req_volt(struct strategy_buckchg_dev *info)
 		break;
 	}
 
-#line 2074
+#line 2080
 	mca_log_info("real_type = %d, input_voltage_voter effective_result: %d\n",
 		info->proc_data.real_type, mca_get_effective_result(info->input_voltage_voter));
 }
@@ -750,7 +750,7 @@ static void stategy_buckchg_is_pdo_9v(struct strategy_buckchg_dev *info)
 static void strategy_buckchg_set_charge_volt(struct strategy_buckchg_dev *info, int target_volt)
 {
 	if (!target_volt) {
-#line 2014
+#line 2020
 		mca_log_info("target_volt = 0v is invalid\n");
 		return;
 	}
@@ -765,7 +765,7 @@ static void strategy_buckchg_set_charge_volt(struct strategy_buckchg_dev *info, 
 	case XM_CHARGER_TYPE_PPS:
 	case XM_CHARGER_TYPE_PD_VERIFY:
 		if (!info->pwr_cap.nums) {
-#line 2027
+#line 2041
 			mca_log_info("pwr_cap nums is null\n");
 			break;
 		}
@@ -773,14 +773,14 @@ static void strategy_buckchg_set_charge_volt(struct strategy_buckchg_dev *info, 
 			target_volt == STATEGY_CHARGE_VBUS_9V) {
 			protocol_class_pd_set_fixed_volt(0, target_volt);
 		} else {
-#line 2041
+#line 2047
 			mca_log_info("set no fix pdo\n");
 			protocol_class_set_adapter_volt_and_curr(ADAPTER_PROTOCOL_PPS, target_volt, 3000);
 		}
 		break;
 	case XM_CHARGER_TYPE_PD:
 		if (!info->pwr_cap.nums) {
-#line 2035
+#line 2033
 			mca_log_info("pwr_cap nums is null\n");
 			break;
 		}
@@ -814,13 +814,22 @@ static void strategy_buckchg_process_cap_change(struct strategy_buckchg_dev *inf
 
 static void strategy_buckchg_process_pmic_init_done(struct strategy_buckchg_dev *info)
 {
-#line 1092
+#line 1095
 	mca_log_info("deal with pmic_init_done\n");
 	mca_rerun_election(info->chg_enable_voter);
 	mca_rerun_election(info->input_limit_voter);
 	mca_rerun_election(info->charge_limit_voter);
 	mca_rerun_election(info->iterm_voter);
 	mca_rerun_election(info->vterm_voter);
+}
+
+/* GLOBAL OS4.0.0.7 (G14e): event BATT_EMERG (85), decoded from the stock .text+0x6890; community-only, no safety claim.
+ * The meaning of the two votes (input_voltage_voter value 0, input_limit_voter value 500, both reason "batt_emerg") is NOT known: units/effect inferred from the voter names only. */
+static void strategy_buckchg_process_batt_emerg_change(struct strategy_buckchg_dev *info)
+{
+	info->batt_emerg = 1;
+	mca_vote(info->input_voltage_voter, "batt_emerg", true, 0);
+	mca_vote(info->input_limit_voter, "batt_emerg", true, 500);
 }
 
 static void strategy_buckchg_exit_wireless_revchg(struct strategy_buckchg_dev *info)
@@ -859,24 +868,24 @@ static void strategy_buckchg_process_batt_btb_change(int value, struct strategy_
 
 static void strategy_buckchg_process_csd_pulse(int value, struct strategy_buckchg_dev *info)
 {
-	int ffc = strategy_class_fg_get_fastcharge();
+	/* GLOBAL OS4.0.0.7 (G14e): rewritten vs CN 0.6 (no fast-charge-mode handling, no mode 3, value is on/off) */
+#line 1077
+	mca_log_info("csd_flag: %d, value: %d", info->csd_flag, value);
+	if (value && info->csd_flag) {
+#line 1080
+		mca_log_info("csd pulse mode triggered, skip event handle");
+		return;
+	}
 
-#line 1072
-	mca_log_info("value: %d, ffc_sts: %d\n", value, ffc);
-	if (value >= 1 && ffc == 1)
-		strategy_class_fg_set_fastcharge(0);
-
-	if (value == 1 || value == 2) {
+	if (__builtin_expect(value != 0, 1)) {
 		mca_vote(info->charge_limit_voter, "csd_pulse", true, 1500);
 		info->csd_flag = true;
 		queue_delayed_work(system_wq, &info->csd_pulse_process_work, msecs_to_jiffies(75000));
-	} else if (value == 0) {
+	} else {
 		cancel_delayed_work_sync(&info->csd_pulse_process_work);
 		mca_vote(info->charge_limit_voter, "csd_pulse", false, 0);
 		mca_vote(info->chg_enable_voter, "csd_pulse", false, 0);
 		info->csd_flag = false;
-	} else if (value == 3) {
-		mca_vote(info->charge_limit_voter, "csd_pulse", true, 1500);
 	}
 }
 
@@ -896,7 +905,7 @@ static int strategy_buckchg_panel_notifier_cb(struct notifier_block *nb, unsigne
 
 	if (event == MCA_EVENT_PANEL_SCREEN_STATE_CHANGE) {
 		screen = *(int *)data;
-#line 3092
+#line 3106
 		mca_log_info("update screen_state: %d => %d\n", info->screen_status, screen);
 		info->screen_status = screen != 0;
 	}
@@ -922,7 +931,7 @@ static void strategy_buckchg_check_pdsecret_workfunc(struct work_struct *work)
 	struct strategy_buckchg_dev *info = container_of(work, struct strategy_buckchg_dev, check_pd_secret_work.work);
 
 	mca_vote(info->input_limit_voter, "icl_limit", false, STATEGY_INPUT_DEFAULT_VALUE);
-#line 2973
+#line 2987
 	mca_log_info("cancel icl_limit vote when using pd charger\n");
 }
 
@@ -990,7 +999,7 @@ static int strategy_buckchg_process_event(int event, int value, void *data)
 
 	bool otg_plug = false;
 
-#line 1278
+#line 1281
 	mca_log_info("receive event %d, value %d\n", event, value);
 
 	switch (event) {
@@ -1018,14 +1027,14 @@ otg_plug_check:
 		strategy_buckchg_process_cap_change(info);
 		break;
 	case MCA_EVENT_CHARGE_VERIFY_PROCESS_END:
-#line 1358
+#line 1361
 		mca_log_info("receive pd verify process end event, value %d\n", value);
 		info->verify_process_end = value;
 		if (value)
 			mca_vote(info->input_limit_voter, "icl_limit", false, STATEGY_INPUT_DEFAULT_VALUE);
 		break;
 	case MCA_EVENT_WIRELESS_USB_REVCHG:
-#line 1348
+#line 1351
 		mca_log_info("wireless revchg event %d\n", value);
 		info->wls_revchg_en = value;
 		if (value) {
@@ -1036,7 +1045,7 @@ otg_plug_check:
 		}
 		break;
 	case MCA_EVENT_BATTERY_TOTAL_ITERM:
-#line 1440
+#line 1443
 		mca_log_info("parallel_iterm: %d\n", value);
 		info->parallel_iterm = value;
 		return 0;
@@ -1062,7 +1071,7 @@ otg_plug_check:
 		strategy_buckchg_process_batt_btb_change(value, info);
 		break;
 	case MCA_EVENT_BATT_AUTH_PASS:
-#line 1307
+#line 1310
 		mca_log_err("receive batt_auth event, value %d", value);
 		info->batt_auth = 1;
 		mca_vote(info->input_voltage_voter, "batt_auth", false, 0);
@@ -1099,7 +1108,7 @@ otg_plug_check:
 		if (!info->support_disable_otg_incold)
 			break;
 		if (value == 1) {
-#line 1453
+#line 1456
 			mca_log_info("otg inserted, start otg monitor work after 500ms delay\n");
 			mca_queue_delayed_work(&info->otg_monitor_work, 125);
 		} else {
@@ -1109,7 +1118,7 @@ otg_plug_check:
 				char uevent[MCA_EVENT_NOTIFY_SIZE];
 
 				info->disable_otg_incold = false;
-#line 1461
+#line 1464
 				mca_log_err("otg plug out, report now\n");
 				memset(uevent, 0, sizeof(uevent));
 				n_data.event = uevent;
@@ -1118,7 +1127,7 @@ otg_plug_check:
 				mca_event_report_uevent(&n_data);
 			}
 			mutex_unlock(&info->otg_incold_mutex);
-#line 1471
+#line 1474
 			mca_log_info("otg removed, cancel otg monitor work\n");
 			cancel_delayed_work_sync(&info->otg_monitor_work);
 		}
@@ -1131,7 +1140,7 @@ otg_plug_check:
 		break;
 	case MCA_EVENT_PPS_PTF:
 		info->pps_ptf = value;
-#line 1391
+#line 1394
 		mca_log_info("set PPS_PTF %d\n", value);
 		if (info->pps_ptf == USBPD_BUCK_DPM_PORT_PPS_PTF_WARNING)
 			mca_vote(info->input_voltage_voter, "ptf", true, 1);
@@ -1139,7 +1148,7 @@ otg_plug_check:
 	case MCA_EVENT_IS_EU_MODEL:
 		eu_model = value != 0;
 		info->is_eu_model = eu_model;
-#line 1397
+#line 1400
 		mca_log_err("set buck is_eu_model %d\n", value);
 		platform_class_buckchg_ops_set_eu_model(MAIN_BUCK_CHARGER, eu_model);
 		break;
@@ -1158,7 +1167,7 @@ otg_plug_check:
 		info->revchg_bcl = value != 0;
 		return 0;
 	case MCA_EVENT_HANDLE_ALLOW_CHARGE:
-#line 1330
+#line 1333
 		mca_log_info("handle_allow_charge: %d\n", value);
 		if (value) {
 			mca_vote(info->input_limit_voter, "handle", false, 0);
@@ -1173,7 +1182,7 @@ otg_plug_check:
 			mod_delayed_work(system_wq, &info->monitor_work, 0);
 		break;
 	case MCA_EVENT_DEBUG_CTRL_MEMORY_TEST:
-#line 1427
+#line 1430
 		mca_log_info("memory_test enable soc_limit: %d\n", value);
 		if (value) {
 			info->soc_limit_low = 1;
@@ -1188,8 +1197,11 @@ otg_plug_check:
 		soc_high = value & 0xff;
 		info->soc_limit_low = soc_low;
 		info->soc_limit_high = soc_high;
-#line 1424
+#line 1427
 		mca_log_info("debug_ctrl set soc_limit: %d %d\n", soc_low, soc_high);
+		break;
+	case MCA_EVENT_BATT_EMERG:	/* GLOBAL 0.7 */
+		strategy_buckchg_process_batt_emerg_change(info);
 		break;
 	default:
 		return 0;
@@ -1332,13 +1344,13 @@ static void strategy_buckchg_process_soc_limit_change(int value, struct strategy
 		// use vote to control charge enable/disable
 		mca_vote(info->chg_enable_voter, "soc_limit", true, STATEGY_CHARGE_DISENABLE);
 		mca_vote(info->input_voltage_voter, "soc_limit", true, 0);
-#line 1040
+#line 1047
 		mca_log_info("SOC limit triggered, stopping charge\n");
 		mca_vote(info->charge_limit_voter, "csd_pulse", false, 0);
 	} else {
 		mca_vote(info->chg_enable_voter, "soc_limit", false, STATEGY_CHARGE_ENABLE);
 		mca_vote(info->input_voltage_voter, "soc_limit", false, 0);
-#line 1045
+#line 1052
 		mca_log_info("SOC limit released, starting charge\n");
 		if (info->proc_data.online)
 			mod_delayed_work(system_wq, &info->monitor_work, 0);
@@ -1367,7 +1379,7 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 	info->reverse_auth_sts = (revchg_sts & 0xff00) != 0;
 	if (!otg_boost_disable)
 		protocol_class_pd_get_otg_plugin_status(TYPEC_PORT_0, &otg_present);
-#line 1149
+#line 1152
 	mca_log_err("otg_present: %d, otg_boost_disable: %d, reverse_auth_sts: %d, pos: %d, last_pos: %d, auth_done: %d\n",
 		otg_present, otg_boost_disable, info->reverse_auth_sts, pos, last_pos, auth_done);
 
@@ -1376,13 +1388,13 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 		n_data.event_len = snprintf(uevent, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_REVERSE_QUICK_CHARGE=%d", status);
 		n_data.event = uevent;
 		mca_event_report_uevent(&n_data);
-#line 1160
+#line 1163
 		mca_log_err("status: %d\n", status);
 		return;
 	}
 
 	if (otg_present && last_pos == pos) {
-#line 1165
+#line 1168
 		mca_log_err("same handler, ignore...");
 		goto dump;
 	}
@@ -1397,10 +1409,10 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 	if (otg_present) {
 		platform_class_cp_get_chip_vendor(CP_ROLE_MASTER, &info->cp_vendor);
 		if (pos == 2) {
-#line 1197
+#line 1200
 			mca_log_err("start revert 1_2 cp");
 			if (info->cp_vendor == BQ25960_VENDOR && !bq_revchg_switch_flag) {
-#line 1201
+#line 1204
 				mca_log_err("entry bq25960 1_2 cp reverse mode");
 				platform_class_cp_set_cp_reverse_mode(CP_ROLE_MASTER, true);
 				bq_revchg_switch_flag = true;
@@ -1412,7 +1424,7 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 				platform_class_cp_enable_ovpgate(CP_ROLE_MASTER, true);
 				platform_class_cp_set_qb(CP_ROLE_MASTER, true);
 				if (info->cp_vendor == SC8541_VENDOR) {
-#line 1212
+#line 1215
 					mca_log_err("entry sc8541 1_2 cp manual mode");
 					platform_class_cp_set_manual_revchg_mode(CP_ROLE_MASTER, true);
 				}
@@ -1423,7 +1435,7 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 				platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, 0x200);
 			}
 		} else if (pos == 1 && info->otg_boost_src != BOOST_SRC_CHARGER) {
-#line 1181
+#line 1184
 			mca_log_err("start external boost");
 			platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, 0x201);
 			msleep(400);
@@ -1434,7 +1446,7 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 			platform_class_cp_set_mode(CP_ROLE_MASTER, CP_MODE_FORWARD_2_1);
 		}
 	} else {
-#line 1227
+#line 1230
 		mca_log_err("end revert 1_2 cp");
 		if (info->otg_boost_src != BOOST_SRC_CHARGER) {
 			platform_class_cp_set_charging_enable(CP_ROLE_MASTER, false);
@@ -1445,12 +1457,12 @@ static void strategy_buckchg_cp_revert_handler(int revchg_sts, struct strategy_b
 		} else {
 			platform_class_cp_set_adjustadble_timeout(CP_ROLE_MASTER, 40);
 			if (info->cp_vendor == SC8541_VENDOR) {
-#line 1244
+#line 1247
 				mca_log_err("exit sc8541 1_2 cp manual mode");
 				platform_class_cp_set_manual_revchg_mode(CP_ROLE_MASTER, false);
 			}
 			if (info->cp_vendor == BQ25960_VENDOR && bq_revchg_switch_flag) {
-#line 1248
+#line 1251
 				mca_log_err("exit bq25960 1_2 cp reverse mode");
 				platform_class_cp_set_cp_reverse_mode(CP_ROLE_MASTER, false);
 				bq_revchg_switch_flag = false;
@@ -1477,7 +1489,7 @@ int strategy_buckchg_is_support_pps_100w(void);
 static int strategy_buckchg_get_current_max(struct strategy_buckchg_dev *info, int *val)
 {
 	unsigned int ibus_limit = 100;
-	unsigned int max_cur;
+	unsigned int max_cur, pd_ibus;
 	int pos;
 
 	switch (info->proc_data.real_type) {
@@ -1517,19 +1529,19 @@ static int strategy_buckchg_get_current_max(struct strategy_buckchg_dev *info, i
 			break;
 		}
 		pos = info->proc_data.curr_pd_pos;
-		max_cur = info->pwr_cap.cap[pos].max_current;
-		ibus_limit = min(info->in_pd, max_cur);
+		pd_ibus = info->in_pd; max_cur = info->pwr_cap.cap[pos].max_current;	/* G52a: stock keeps in_pd in a register across the log */
+		ibus_limit = min(pd_ibus, max_cur);
 		if (max_cur == 0) {
-#line 1562
+#line 1568
 			mca_log_info("pdo broadcast abnormal %d \n", pos);
-			ibus_limit = info->in_pd;
+			ibus_limit = pd_ibus;
 		}
 		break;
 	default:
 		ibus_limit = info->in_sdp;
 		break;
 	}
-#line 1571
+#line 1577
 	mca_log_info("ibus_limit = %d\n", ibus_limit);
 	*val = ibus_limit;
 	return 0;
@@ -1591,13 +1603,13 @@ static int strategy_buckchg_check_charger_change(struct strategy_buckchg_dev *in
 		mca_vote(info->input_limit_voter, "usbicl", false, 0);
 		mca_vote(info->input_limit_voter, "sdpicl", false, 0);
 		sdp_vote_completed = false;
-#line 1633
+#line 1639
 		mca_log_info("charger have been removed reset vote");
 		return 0;
 	}
 
 	if (charge_boot_mode || !info->is_eu_model) {
-#line 1638
+#line 1644
 		mca_log_info(" charge_boot_mode[%d] cancel sdp enumerated process", charge_boot_mode);
 		return 0;
 	}
@@ -1605,7 +1617,7 @@ static int strategy_buckchg_check_charger_change(struct strategy_buckchg_dev *in
 	if (info->proc_data.real_type == XM_CHARGER_TYPE_SDP && !sdp_vote_completed) {
 		mca_vote(info->input_limit_voter, "sdpicl", true, USB_ICL_UNENUMERATED);
 		sdp_vote_completed = true;
-#line 1645
+#line 1651
 		mca_log_info("sdp charger unenumerated");
 	}
 
@@ -1613,7 +1625,7 @@ static int strategy_buckchg_check_charger_change(struct strategy_buckchg_dev *in
 		mca_vote(info->input_limit_voter, "sdpicl", false, 0);
 		mca_vote(info->input_limit_voter, "usbicl", false, 0);
 		sdp_vote_completed = false;
-#line 1652
+#line 1658
 		mca_log_info("sdp charger error detected reset vote%d\n", info->proc_data.real_type);
 	}
 
@@ -1634,49 +1646,49 @@ static int stategy_buckchg_set_usb_icl(int value, struct strategy_buckchg_dev *i
 	int charge_boot_mode = mca_log_get_charge_boot_mode();
 
 	if (charge_boot_mode || !info->is_eu_model) {
-#line 1672
+#line 1678
 		mca_log_info("charge_boot_mode[%d] is_eu_model[%d] exit usb_icl",charge_boot_mode, info->is_eu_model);
 		return 0;
 	}
-#line 1675
+#line 1681
 	mca_log_info("usb type[%d]icl_ma[%d]", info->proc_data.real_type, icl_ma);
 	if (info->proc_data.real_type != XM_CHARGER_TYPE_SDP) {
 		if (info->proc_data.real_type == XM_CHARGER_TYPE_PD ||
 			info->proc_data.real_type == XM_CHARGER_TYPE_PPS) {
 			if (!info->proc_data.pdsuspendsupported) {
-#line 1680
+#line 1686
 				mca_log_info("USB suspend is not supported");
 				return 0;
 			} else {
 				if (icl_ma == USB_SUSPEND_ICL_DEFAULT) {
 					icl_ma = 0;
 					mca_vote(info->input_limit_voter, "usbicl", true, icl_ma);
-#line 1686
+#line 1692
 					mca_log_info("USB suspend for pd");
 				} else if (icl_ma == 900 || icl_ma == 500 || icl_ma == 100) {
 					mca_vote(info->input_limit_voter, "usbicl", false, 0);
-#line 1689
+#line 1695
 					mca_log_info("USB Unsuspend for pd");
 				} else
-#line 1691
+#line 1697
 					mca_log_info("invalid ICL value for pd %d", icl_ma);
 				return 0;
 			}
 		} else {
-#line 1695
+#line 1701
 			mca_log_info("ICL setting is not allowed for usb type[%d]", info->proc_data.real_type);
 			return 0;
 		}
 	}
 
 	if (icl_ma == USB_SUSPEND_ICL_DEFAULT) {
-#line 1701
+#line 1707
 		mca_log_info("USB Input Suspended");
 		mca_vote(info->input_limit_voter, "usbicl", true, 0);
 		usb_suspend = true;
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGER_CONNECT, MCA_EVENT_USB_SUSPEND, &usb_suspend);
 	} else if (icl_ma == USB_UNSUSPEND_ICL) {
-#line 1706
+#line 1712
 		mca_log_info("USB Input UnSuspended");
 		mca_vote(info->input_limit_voter, "usbicl", false, 0);
 		if (usb_suspend) {
@@ -1688,10 +1700,10 @@ static int stategy_buckchg_set_usb_icl(int value, struct strategy_buckchg_dev *i
 			(icl_ma == 900 || icl_ma == 500) ) {
 			mca_vote(info->input_limit_voter, "sdpicl", true, icl_ma);
 			mca_vote(info->input_limit_voter, "usbicl", true, icl_ma);
-#line 1717
+#line 1723
 			mca_log_info("ICL for SDP set by HLOS is %d mA", icl_ma);
 		} else {
-#line 1719
+#line 1725
 			mca_log_info("Invalid ICL for SDP set by HLOS is %d mA", icl_ma);
 		}
 
@@ -1733,7 +1745,7 @@ static void strategy_buckchg_update_aicl_cfg(struct strategy_buckchg_dev *info)
 	if (info->proc_data.chg_status == MCA_BUCK_CHG_NO_CHARGING
 		|| info->proc_data.chg_status == MCA_BUCK_CHG_STS_CHARGE_DONE) {
 		aicl_thd = STATEGY_CHARGE_AICL_TH_4P1V;
-#line 1756
+#line 1762
 		mca_log_info("discharging or done, should set aicl vth to 4.1V\n");
 		goto update_aicl_cfg;
 	}
@@ -1752,7 +1764,7 @@ static void strategy_buckchg_update_aicl_cfg(struct strategy_buckchg_dev *info)
 update_aicl_cfg:
 	platform_class_buckchg_ops_get_usb_aicl_cont_thd(MAIN_BUCK_CHARGER, &reg_aicl_thd);
 	if (aicl_thd != info->aicl_thd || aicl_thd != reg_aicl_thd) {
-#line 1782
+#line 1788
 		mca_log_info("vbat: %d, aicl_thd: %d, reg_aicl_thd: %d\n", info->proc_data.vbat, aicl_thd, reg_aicl_thd);
 		info->aicl_thd = aicl_thd;
 		strategy_class_buckchg_ops_set_usb_aicl_cont_thd(info, aicl_thd);
@@ -1774,16 +1786,16 @@ static void strategy_buckchg_check_cp_i2c_err(struct strategy_buckchg_dev *info)
 
 	if (info->cp_absent_retry_count >= 6) {
 		if (!info->cp_i2c_error_reported && info->vusb_ovp_location == VUSB_OVP_BEFORE_CP) {
-#line 1808
+#line 1814
 			mca_log_err("Max retries reached, CP still not present.");
-#line 1809
+#line 1815
 			mca_log_info("vusb_ovp_location is BEFORE_CP, forcing 5V, reporting error.");
 			mca_vote(info->input_voltage_voter, "cp_i2c_error", true, 0);
 			info->cp_i2c_error_reported = true;
 		}
 	} else {
 		info->cp_absent_retry_count++;
-#line 1818
+#line 1824
 		mca_log_info("CP not present, retrying... retry_count: %d", info->cp_absent_retry_count);
 	}
 }
@@ -1809,7 +1821,7 @@ static void strategy_buckchg_select_charg_para(struct strategy_buckchg_dev *info
 	if (info->base_flip_same && real_type == XM_CHARGER_TYPE_FLOAT) {
 		platform_class_cp_set_busovp(CP_ROLE_MASTER, 7000);
 		platform_class_cp_get_charging_enabled(CP_ROLE_MASTER, &cp_enabled);
-#line 1848
+#line 1854
 		mca_log_info("cp_enabled = %d \n", cp_enabled);
 	}
 
@@ -1827,7 +1839,7 @@ static void strategy_buckchg_select_charg_para(struct strategy_buckchg_dev *info
 				ibus_limit += 500;
 		}
 	}
-#line 1871
+#line 1877
 	mca_log_info("iin_pd = %d, ichg_pd = %d\n", ibus_limit, ibat_limit);
 
 	switch (real_type) {
@@ -1893,7 +1905,7 @@ static void strategy_buckchg_select_charg_para(struct strategy_buckchg_dev *info
 		pd_ibus = ibus_limit;
 		ibus_limit = min(ibus_limit, (unsigned int)max_cur);
 		if (max_cur == 0) {
-#line 1940
+#line 1946
 			mca_log_info("pdo broadcast abnormal %d \n", pos);
 			ibus_limit = pd_ibus;
 		}
@@ -1904,7 +1916,8 @@ static void strategy_buckchg_select_charg_para(struct strategy_buckchg_dev *info
 		break;
 	};
 
-	if (info->batt_missing)
+	/* G23c: stock monitor_workfunc (.text+0x2208..0x2210 [GLOBAL OS4.0.0.7]) tests batt_emerg (+0x920 of the work, = +2336 of info) here too: `batt_missing || batt_emerg`; the earlier chain review said "never read": wrong. Units of the 500/1000 not proven. */
+	if (info->batt_missing || info->batt_emerg)
 		ibus_limit = info->batt_type == 0 ? STAEGY_BATT_MISS_ICL : 1000;
 
 	if (ibus_limit != info->proc_data.ibus_limit || target_volt != info->proc_data.pre_volt) {
@@ -1936,7 +1949,7 @@ static void strategy_buckchg_select_charg_para(struct strategy_buckchg_dev *info
 	}
 
 	if (changed) {
-#line 1982
+#line 1988
 		mca_log_info("ibus_limit = %d, ibat_limit = %d\n", ibus_limit, ibat_limit);
 		platform_class_buckchg_ops_set_restart_aicl(MAIN_BUCK_CHARGER, true);
 	}
@@ -1951,14 +1964,14 @@ static void strategy_buckchg_check_charge_volt(struct strategy_buckchg_dev *info
 	int vbus = 0;
 
 	if (info->wls_revchg_en) {
-#line 2122
+#line 2128
 		mca_log_info("wireless reverse is charging, do not request volt\n");
 		return;
 	}
 
 	if ((info->proc_data.real_type >= XM_CHARGER_TYPE_PD &&
 		info->proc_data.real_type <= XM_CHARGER_TYPE_PD_VERIFY) && !info->pwr_cap.nums) {
-#line 2128
+#line 2134
 		mca_log_info("pd pwr_cap nums is null\n");
 		return;
 	}
@@ -1967,7 +1980,7 @@ static void strategy_buckchg_check_charge_volt(struct strategy_buckchg_dev *info
 	vbus /= 1000;
 	if ((target_volt == STATEGY_CHARGE_VBUS_9V && vbus < CHECK_VBUS_9V_HIGH_TH) ||
 		(target_volt == STATEGY_CHARGE_VBUS_5V && vbus > CHECK_VBUS_5V_LOW_TH)) {
-#line 2136
+#line 2142
 		mca_log_info("target_volt: %d, vbus: %d\n", target_volt, vbus);
 		strategy_buckchg_set_charge_volt(info, target_volt);
 	}
@@ -1976,7 +1989,7 @@ static void strategy_buckchg_check_charge_volt(struct strategy_buckchg_dev *info
 	vbus /= 1000;
 	if (target_volt == STATEGY_CHARGE_VBUS_9V && vbus >= VBUS_9V_OVP_VOLTAGE) {
 		mca_vote(info->buck_9v_in_voter, "pmic_inductor", true, PMIC_INDUCTOR_SECURE_ICL);
-#line 2144
+#line 2150
 		mca_log_err("hvdcp_9v vbus_ovp decrease input current limit\n");
 	} else {
 		mca_vote(info->buck_9v_in_voter, "pmic_inductor", false, 0);
@@ -1984,20 +1997,20 @@ static void strategy_buckchg_check_charge_volt(struct strategy_buckchg_dev *info
 
 	if (target_volt == STATEGY_CHARGE_VBUS_5V && vbus > VBUS_5V_OVP_VOLTAGE) {
 		mca_vote(info->buck_5v_in_voter, "pmic_inductor", true, PMIC_INDUCTOR_SECURE_ICL);
-#line 2151
+#line 2157
 		mca_log_err("lvdcp_5v vbus_ovp decrease input current limit\n");
 	} else {
 		mca_vote(info->buck_5v_in_voter, "pmic_inductor", false, 0);
 	}
 
 	if (info->is_non_compliant_qc && !info->non_compliant_run_once) {
-#line 2157
+#line 2163
 		mca_log_err("non_compliant_qc: target_volt: %d\n", target_volt);
 		strategy_buckchg_set_charge_volt(info, target_volt);
 		mca_vote(info->input_limit_voter, "non_compliant_qc", true, 1500);
 		strategy_class_buckchg_ops_set_chg(info, false);
 		strategy_class_buckchg_ops_set_chg(info, true);
-#line 2162
+#line 2168
 		mca_log_err("restart aicl and recover buck charging\n");
 		platform_class_buckchg_ops_set_rerun_aicl(MAIN_BUCK_CHARGER, true);
 		info->non_compliant_run_once = true;
@@ -2016,14 +2029,14 @@ static void strategy_buckchg_check_non_compliant_qc_charger(struct strategy_buck
 		return;
 
 	if (info->proc_data.chg_status == MCA_BUCK_CHG_STS_CHARGE_DONE) {
-#line 2180
+#line 2186
 		mca_log_info("charge done, no need check non_compliant_qc_charger\n");
 		return;
 	}
 
 	if (info->proc_data.real_type != XM_CHARGER_TYPE_HVDCP2 &&
 		info->proc_data.real_type != XM_CHARGER_TYPE_HVDCP3) {
-#line 2186
+#line 2192
 		mca_log_info("only qc2/qc3 need check\n");
 		return;
 	}
@@ -2034,14 +2047,14 @@ static void strategy_buckchg_check_non_compliant_qc_charger(struct strategy_buck
 	ibus = info->proc_data.ibus / 1000;
 	if (target_volt == STATEGY_CHARGE_VBUS_9V && vbus < VBUS_QC_VOL_THRESHOLD_LOW
 		&& ibus < NON_COMPLIANT_QC_IBUS_THR_LOW) {
-#line 2196
+#line 2202
 		mca_log_info("target_volt: %d, vbus: %d\n", target_volt, vbus);
 		count++;
 	}
 	if (count >= 3 && !info->is_non_compliant_qc) {
 		info->is_non_compliant_qc = true;
 		count = 0;
-#line 2202
+#line 2208
 		mca_log_err("qc is non-compliant, set request vol to 5V\n");
 		mca_vote(info->input_voltage_voter, "non_compliant_qc", true, 0);
 	}
@@ -2092,12 +2105,12 @@ static int strategy_buckchg_update_charge_status(struct strategy_buckchg_dev *in
 	if (charging_done)
 		info->proc_data.chg_status =  MCA_BUCK_CHG_STS_CHARGE_DONE;
 
-#line 2252
+#line 2258
 	mca_log_err("pmic_chg_status: %d, chg_status: %d, chg_en: [%d][%s], chg_type: %d, vbat: %d, vbus: %d, ibus: %d\n",
 		main_chg_status, info->proc_data.chg_status,
 		mca_get_effective_result(info->chg_enable_voter), mca_get_effective_client(info->chg_enable_voter),
 		info->proc_data.real_type, info->proc_data.vbat, info->proc_data.vbus, info->proc_data.ibus);
-#line 2256
+#line 2262
 	mca_log_err("ap_icl:[%s][%d], adsp_icl[%d], ichg:[%s][%d], input_suspend:[%s][%d]\n",
 		mca_get_effective_client(info->input_limit_voter), icl, adsp_icl,
 		mca_get_effective_client(info->charge_limit_voter), ichg,
@@ -2127,7 +2140,7 @@ static void strategy_buckchg_cp_to_pmic_decrease_vterm(struct strategy_buckchg_d
 			last_vterm = jeita_vterm;
 		}
 	}
-#line 2109
+#line 2115
 	mca_log_err("first_termination_flag: %d, taper_cp_to_pmic: %d, target_vterm: %d\n",
 		first_termination_flag, taper_cp_to_pmic, target_vterm);
 }
@@ -2151,7 +2164,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 	if (info->support_base_flip || info->base_flip_same) {
 		iterm = info->parallel_iterm;
 		ffc = fastcharge_mode != 0;
-#line 2286
+#line 2292
 		mca_log_info("iterm: %d\n", iterm);
 		if (info->base_flip_same && fastcharge_mode) {
 			if (info->proc_data.real_type == XM_CHARGER_TYPE_PD_VERIFY) {
@@ -2163,7 +2176,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 					ichg_pd = info->chg_pps;
 					if (info->proc_data.vbat > 4400)
 						in_pd += 500;
-#line 2297
+#line 2303
 					mca_log_info("iin_pd = %d, ichg_pd = %d\n", in_pd, ichg_pd);
 					if (info->proc_data.voltage == STATEGY_CHARGE_VBUS_5V) {
 						mca_vote(info->buck_5v_in_voter, "wire_chg_type", true, in_pd);
@@ -2180,7 +2193,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 		ffc = fastcharge_mode != 0;
 	}
 
-#line 2309
+#line 2315
 	mca_log_info("allow_start_ffc_batt_soc_thr: %d\n", info->allow_start_ffc_batt_soc_thr);
 	if (info->proc_data.real_type != XM_CHARGER_TYPE_PD_VERIFY)
 		return;
@@ -2191,7 +2204,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 				STRATEGY_STATUS_TYPE_QC_IBAT_MAX, &qc_ibat_max);
 		fcc = max(fcc, qc_ibat_max);
 	}
-#line 2317
+#line 2323
 	mca_log_info("batt_temp = %d, soc = %d, fcc = %d, quick_chg_status %d, iterm_com %d\n",
 		batt_temp, soc, fcc, info->quick_chg_status, info->curr_term_compensation);
 
@@ -2199,7 +2212,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 	if (!(info->ffc_terminated_by_cp || ffc) && soc <= 94 &&
 		batt_temp >= info->ffc_temp_low && batt_temp <= info->ffc_temp_high && info->batt_auth) {
 		(void)strategy_class_fg_ops_get_cyclecount(&cycle);
-#line 2323
+#line 2329
 		mca_log_info("batt_temp = %d, soc = %d, fcc = %d, cycle = %d\n", batt_temp, soc, fcc, cycle);
 		return;
 	}
@@ -2208,13 +2221,13 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 		batt_temp >= info->ffc_temp_low && batt_temp <= info->ffc_temp_high && info->batt_auth &&
 		info->drop_fv_cycle >= 1) {
 		strategy_class_fg_set_fastcharge(true);
-#line 2331
+#line 2337
 		mca_log_info("buck charger enable fast charge mode\n");
 		return;
 	}
 	if (batt_temp < info->ffc_temp_low || batt_temp > info->ffc_temp_high) {
 		strategy_class_fg_set_fastcharge(false);
-#line 2335
+#line 2341
 		mca_log_info("buck charger disable fast charge mode\n");
 		return;
 	}
@@ -2236,10 +2249,10 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 		thermal_fcc = mca_get_client_vote(info->buck_9v_ich_voter, "mca_thermal");
 		if (!strcmp(client, "fcc_limit")) {
 			if (info->base_flip_same && thermal_fcc >= 1 && thermal_fcc <= iterm) {
-#line 2344
+#line 2350
 				mca_log_info("thermal fcc = %d, less than the iterm\n", thermal_fcc);
 			} else {
-#line 2346
+#line 2352
 				mca_log_info("client_srt:%s is pmic + cp charging, skip\n", client);
 				return;
 			}
@@ -2247,7 +2260,7 @@ static void strategy_buckchg_enable_fast_charge_mode(struct strategy_buckchg_dev
 	}
 	strategy_class_fg_set_fastcharge(false);
 	mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE, MCA_EVENT_FCC_TOO_LOW, 0);
-#line 2354
+#line 2360
 	mca_log_info("buck charger disable fast charge mode by fcc too low or chg in buck\n");
 }
 
@@ -2273,7 +2286,7 @@ static int strategy_buckchg_charge_abnormal_cold_or_hot_zone(struct strategy_buc
 	if ( !IS_BETWEEN (temp, COLD_ZONE_LOW, COLD_ZONE_HIGH) &&
 		!IS_BETWEEN (temp, HOT_ZONE_LOW, HOT_ZONE_HIGH)) {
 		info->buck_abnormal_cnt = 0;
-#line 2381
+#line 2387
 		mca_log_info("temp: %d, not in cold or hot zone\n", temp);
 		return 0;
 	}
@@ -2289,7 +2302,7 @@ static int strategy_buckchg_charge_abnormal_cold_or_hot_zone(struct strategy_buc
 				else if (IS_BETWEEN (temp, HOT_ZONE_LOW, HOT_ZONE_HIGH))
 					mca_charge_mievent_report(CHARGE_DFX_HIGH_TEMP_DISCHARGING, &temp, 1);
 			} else {
-#line 2397
+#line 2403
 				mca_log_err("maybe buck enable later, cnt:%d\n", info->buck_abnormal_cnt);
 			}
 		} else {
@@ -2297,7 +2310,7 @@ static int strategy_buckchg_charge_abnormal_cold_or_hot_zone(struct strategy_buc
 		}
 	} else {
 		info->buck_abnormal_cnt = 0;
-#line 2391
+#line 2397
 		mca_log_info("user can stop charging icl: %d, chg_en: %d, vterm: %d, vbat: %d\n", icl, chg_en, vterm, info->proc_data.vbat, temp);
 	}
 
@@ -2348,14 +2361,14 @@ skip_debug_soc_limit:
 		case XM_CHARGER_TYPE_PPS:
 			if (info->is_eu_model) {
 				time_now = ktime_get_boottime();
-#line 2448
+#line 2455
 				mca_log_info("eu_start_time %lld, time_now %lld  delta = %lld\n", info->proc_data.eu_start_time , time_now,
 					ktime_ms_delta(time_now, info->proc_data.eu_start_time));
 				if (ktime_ms_delta(time_now, info->proc_data.eu_start_time) > STRATEGY_BUCKCHG_ENTER_QUICKCHG_TIME_MS) {
 					mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE,
 						MCA_EVENT_CHARGE_ACTION, 0);
 					info->proc_data.eu_start_time = time_now;
-#line 2454
+#line 2461
 					mca_log_info("trigger MCA_EVENT_CHARGE_ACTION\n");
 				}
 			} else if (info->verify_process_end) {
@@ -2385,7 +2398,7 @@ skip_debug_soc_limit:
 	strategy_buckchg_update_charge_status(info);
 	strategy_buckchg_check_non_compliant_qc_charger(info);
 	strategy_buckchg_update_aicl_cfg(info);
-#line 2485
+#line 2492
 	mca_log_info("pmic_chg_status: %d\n", info->proc_data.chg_status);
 
 	if (info->proc_data.chg_status == MCA_BUCK_CHG_STS_CHARGING) {
@@ -2400,7 +2413,7 @@ skip_debug_soc_limit:
 		}
 		// WA: rerun aicl if ibus too low
 		if (info->proc_data.ibus < 150000 && mca_get_effective_result(info->input_limit_voter) >= 500) {
-#line 2498
+#line 2505
 			mca_log_info("ibus abnormally low: %d, restart aicl\n", info->proc_data.ibus);
 			platform_class_buckchg_ops_set_restart_aicl(MAIN_BUCK_CHARGER, true);
 		}
@@ -2420,7 +2433,7 @@ skip_debug_soc_limit:
 
 	if (mca_is_client_vote_enabled(info->input_voltage_voter, "recover_force_5v") &&
 		info->proc_data.chg_status == MCA_BUCK_CHG_STS_CHARGING) {
-#line 2517
+#line 2524
 		mca_log_err("buck charging recovered, disable force 5V\n");
 		mca_vote(info->input_voltage_voter, "recover_force_5v", false, 0);
 	}
@@ -2434,13 +2447,13 @@ skip_debug_soc_limit:
 	chg_en = mca_get_effective_result(info->chg_enable_voter);
 	if (!input_suspend && chg_en && info->proc_data.chg_status == MCA_BUCK_CHG_NO_CHARGING) {
 		if (info->proc_data.vbus > 6000000) {
-#line 2531
+#line 2538
 			mca_log_err("9V buck charging abnormal, set to 5v\n");
 			mca_vote(info->input_voltage_voter, "recover_force_5v", true, 0);
 		}
 		strategy_class_buckchg_ops_set_chg(info, false);
 		strategy_class_buckchg_ops_set_chg(info, true);
-#line 2536
+#line 2543
 		mca_log_err("recover buck charging\n");
 	}
 	strategy_buckchg_charge_abnormal_cold_or_hot_zone(info);
@@ -2448,15 +2461,26 @@ skip_debug_soc_limit:
 	if (info->proc_data.chg_status == MCA_BUCK_CHG_STS_CHARGING &&
 		!info->sw_cv_running && vterm >= STATEGY_CHARGE_VTERM_LOW_TH) {
 		if (info->proc_data.vbat >= vterm - CHARGE_SW_CV_VBAT_ALARM_DELTA) {
-#line 2545
+#line 2552
 			mca_log_err("vbat: %d, vterm: %d, start sw_cv_work\n", info->proc_data.vbat, vterm);
 			strategy_buckchg_sw_cv_start(info);
 		}
 	} else if (info->sw_cv_running &&
 		(!chg_en || info->proc_data.vbat <= vterm - 20)) {
-#line 2548
+#line 2555
 		mca_log_err("vbat: %d, vterm: %d, chg_en: %d, stop sw_cv_work\n", info->proc_data.vbat, vterm, chg_en);
 		strategy_buckchg_sw_cv_stop(info);
+	}
+
+	/* GLOBAL OS4.0.0.7 (G14e): stop a running csd pulse when the charge-current limit vote has dropped below 1500 */
+	if (info->csd_flag) {
+		int csd_ichg = mca_get_effective_result(info->charge_limit_voter);
+
+		if (csd_ichg < 1500) {
+#line 2562
+			mca_log_info("ichg too low to stop csd pulse, ichg = %d", csd_ichg);
+			strategy_buckchg_process_csd_pulse(0, info);
+		}
 	}
 
 	if (info->quick_chg_status == MCA_QUICK_CHG_STS_CHARGE_DONE)
@@ -2476,7 +2500,7 @@ static void strategy_buckchg_sw_cv_start(struct strategy_buckchg_dev *info)
 
 static void strategy_buckchg_sw_cv_stop(struct strategy_buckchg_dev *info)
 {
-#line 2571
+#line 2586
 	mca_log_err("chg_status: %d, stop sw_cv_work\n", info->proc_data.chg_status);
 	cancel_delayed_work(&info->sw_cv_work);
 	cancel_delayed_work(&info->base_flip_sw_cv_work);
@@ -2508,7 +2532,7 @@ static void strategy_buckchg_sw_cv_workfunc(struct work_struct *work)
 	strategy_class_fg_ops_get_current(&info->proc_data.ibat);
 	vbat = info->proc_data.vbat;
 	ibat = -info->proc_data.ibat / 1000;
-#line 2605
+#line 2620
 	mca_log_info("vbat: %d, ibat: %d, vterm: %d, iterm: %d, fcc: %d\n", vbat, ibat, vterm, iterm, fcc);
 
 	for (i = 0; i < ARRAY_SIZE(sw_cv_volt_delta_map); i++) {
@@ -2558,7 +2582,7 @@ static void strategy_buckchg_sw_cv_workfunc(struct work_struct *work)
 	if (vbat >= vterm - 1) {
 		int old;
 
-#line 2644
+#line 2659
 		mca_log_err("WARNING: batt ov, reduce fv, count: %d\n", info->vbat_ov_count);
 		old = info->vbat_ov_count;
 		info->vbat_ov_count = old + 1;
@@ -2579,12 +2603,11 @@ static void strategy_buckchg_sw_cv_workfunc(struct work_struct *work)
 static __always_inline int strategy_buckchg_wireless_revchg_msleep(int ms, struct strategy_buckchg_dev *info)
 {
 	int i, count;
-	bool user_reverse_chg;
+	bool user_reverse_chg = false;	/* G52a: stock clears the flag once before the loop (emulator found: a callee that leaves it untouched keeps the old value) */
 
 	count = ms / 10;
 
 	for (i = 0; i < count; i++) {
-		user_reverse_chg = false;
 		mca_wireless_rev_get_user_reverse_chg(&user_reverse_chg);
 		if (!info->proc_data.online || !info->wls_revchg_en || !user_reverse_chg)
 			return -1;
@@ -2618,7 +2641,7 @@ static int strategy_buckchg_process_wireless_revchg(struct strategy_buckchg_dev 
 
 	real_type = info->proc_data.real_type;
 	if (real_type == XM_CHARGER_TYPE_DCP) {
-#line 2786
+#line 2801
 		mca_log_info("still DCP after sleeping, abort wls revchg\n");
 		return -1;
 	}
@@ -2638,7 +2661,7 @@ static int strategy_buckchg_process_wireless_revchg(struct strategy_buckchg_dev 
 	if (strategy_buckchg_wireless_revchg_msleep(300, info))
 		return -1;
 	(void)platform_class_buckchg_ops_get_bus_volt(MAIN_BUCK_CHARGER, &vbus);
-#line 2804
+#line 2819
 	mca_log_info("chg_type: %d, req_vadp: %d, vbus: %d, rev_vadp_valid_h: %d, rev_vadp_valid_l: %d\n",
 		real_type, rev_req_vadp, vbus, req_volt_valid_h, req_volt_valid_l);
 	cnt = 0;
@@ -2650,7 +2673,7 @@ static int strategy_buckchg_process_wireless_revchg(struct strategy_buckchg_dev 
 			(void)platform_class_buckchg_ops_get_bus_volt(MAIN_BUCK_CHARGER, &vbus);
 		} while ((vbus > req_volt_valid_h || vbus < req_volt_valid_l) && cnt++ < 5);
 		if (cnt >= 5) {
-#line 2815
+#line 2830
 			mca_log_err("request 9V vbus fail\n");
 			return -1;
 		}
@@ -2692,18 +2715,18 @@ static void strategy_csd_pulse_process_workfunc(struct work_struct *work)
 				struct strategy_buckchg_dev, csd_pulse_process_work.work);
 
 	if (info->csd_flag) {
-		mca_vote(info->charge_limit_voter, "csd_pulse", false, 0);
 		mca_vote(info->chg_enable_voter, "csd_pulse", true, STATEGY_CHARGE_DISENABLE);
+		mca_vote(info->charge_limit_voter, "csd_pulse", false, 0);
 		info->csd_flag = false;
 		schedule_delayed_work(&info->csd_pulse_process_work, msecs_to_jiffies(75000));
-#line 2859
-		mca_log_info("vote fcc and discharge logic\n");
+#line 2874
+		mca_log_info("csd pulse need to disable charge");
 	} else {
 		mca_vote(info->chg_enable_voter, "csd_pulse", false, STATEGY_CHARGE_DISENABLE);
 		mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_CHARGE,
 			MCA_EVENT_CSD_SEND_PULSE, 0);
-#line 2864
-		mca_log_info("resume charging logic\n");
+#line 2878
+		mca_log_info("csd pulse over to continue charging logic");
 	}
 }
 
@@ -2739,7 +2762,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 					n_data.event_len = snprintf(uevent, MCA_EVENT_NOTIFY_SIZE, "POWER_SUPPLY_REVERSE_QUICK_CHARGE=%d", 3);
 					n_data.event = uevent;
 					mca_event_report_uevent(&n_data);
-#line 2906
+#line 2920
 					mca_log_err("revchg request bcl\n");
 					status = 2;
 				}
@@ -2755,7 +2778,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 
 		if (check_ibat) {
 			strategy_class_fg_ops_get_current(&info->proc_data.ibat);
-#line 2888
+#line 2902
 			mca_log_info("source_status_monitor ibat: %d\n", info->proc_data.ibat);
 			if (info->proc_data.ibat > 2999999)
 				info->ibat_check_cnt = 0;
@@ -2769,7 +2792,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 	if (status != info->source_boost_status) {
 		if (info->support_revchg_screenon) {
 			if (info->last_gear_shift != status) {
-#line 2916
+#line 2930
 				mca_log_err("set gear shift: %d\n", status);
 				protocol_class_pd_set_gear_shift(TYPEC_PORT_0, status);
 				info->last_gear_shift = status;
@@ -2780,7 +2803,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 				while (1) {
 					if (info->cp_vendor == BQ25960_VENDOR) {
 						strategy_class_fg_ops_get_current(&info->proc_data.ibat);
-#line 2928
+#line 2942
 						mca_log_err("bq25960 can`t get ibus, get ibat: %d mA\n", info->proc_data.ibat);
 						if (info->proc_data.ibat > 6500000)
 							goto out;
@@ -2788,7 +2811,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 						platform_class_cp_enable_adc(CP_ROLE_MASTER, true);
 						mdelay(20);
 						ret = platform_class_cp_get_bus_current(CP_ROLE_MASTER, &ibus);
-#line 2935
+#line 2949
 						mca_log_err("ret: %d, ibus: %d\n", ret, ibus);
 						if (ret || ibus > 1500)
 							goto out;
@@ -2803,7 +2826,7 @@ static void strategy_source_status_monitor_workfunc(struct work_struct *work)
 			info->source_boost_status = status;
 		} else {
 			info->source_boost_status = status;
-#line 2952
+#line 2966
 			mca_log_err("set gear shift: %d\n", status);
 			protocol_class_pd_set_gear_shift(TYPEC_PORT_0, info->source_boost_status);
 		}
@@ -2986,7 +3009,7 @@ static int strategy_buckchg_if_set_input_suspend(const char *user,
 	if (kstrtoint(value, 0, &temp_value))
 		return -1;
 
-#line 3267
+#line 3281
 	mca_log_err("set_input_suspend: %d\n", temp_value);
 	/* G13o: stock clears the pmic_temp_term overrides only when the suspend is RELEASED (value == 0) */
 	if (temp_value) {
@@ -3047,7 +3070,7 @@ static int strategy_buckchg_soc_limit_sts_callback(void *data, int effective_res
 		return -1;
 
 	info->soc_limit = effective_result;
-#line 3340
+#line 3354
 	mca_log_info("effective_result: %d\n", effective_result);
 
 	if (info->support_charge_more) {
@@ -3168,7 +3191,7 @@ static void strategy_buckchg_base_flip_sw_cv_workfunc(struct work_struct *work)
 	vbat = info->proc_data.vbat;
 	ibat = -info->proc_data.ibat / 1000;
 	strategy_class_fg_get_first_termination(&first_termination);
-#line 2683
+#line 2698
 	mca_log_info("first_termination_flag:%d", first_termination);
 	vterm = vterm_jeita;
 	if (first_termination)
@@ -3178,7 +3201,7 @@ static void strategy_buckchg_base_flip_sw_cv_workfunc(struct work_struct *work)
 	actual_vterm = info->pmic_fv_compensation + vterm;
 	vadj = (fast_flag & same_flag) ? -5 : -3;
 	fv_step = (fast_flag & same_flag) ? 10 : 5;
-#line 2703
+#line 2718
 	mca_log_info("vbat: %d, ibat: %d, vterm: %d, actual_vterm: %d, iterm: %d, fcc: %d, fast_charge: %d, fv_step: %d\n",
 		vbat, ibat, vterm_jeita, actual_vterm, iterm, fcc, fast_flag, fv_step);
 
@@ -3201,7 +3224,7 @@ static void strategy_buckchg_base_flip_sw_cv_workfunc(struct work_struct *work)
 	}
 
 	if (vbat >= vterm_jeita + vadj) {
-#line 2728
+#line 2743
 		mca_log_err("WARNING: batt ov, reduce fv, count: %d\n", info->vbat_ov_count);
 		info->vbat_ov_count++;
 		platform_class_buckchg_ops_set_term_volt(MAIN_BUCK_CHARGER, actual_vterm - min(info->vbat_ov_count, 5) * fv_step);
@@ -3224,13 +3247,13 @@ static void strategy_buckchg_otg_monitor_workfunc(struct work_struct *work)
 	soc = strategy_class_fg_ops_get_soc();
 	temp /= 10;
 	protocol_class_pd_get_otg_plugin_status(0, &otg_present);
-#line 3007
+#line 3021
 	mca_log_err("otg_present = %d, batt_temp = %d, system_soc = %d\n", otg_present, temp, soc);
 
 	for (i = 0; i < info->otg_threshold_size; i++) {
 		if (temp < info->otg_temp_threshold[i] && soc <= info->otg_soc_threshold[i]) {
 			need_disable = true;
-#line 3013
+#line 3027
 			mca_log_info("OTG disable condition met: temp<%d && soc<=%d\n",
 				info->otg_temp_threshold[i], info->otg_soc_threshold[i]);
 			break;
@@ -3239,18 +3262,18 @@ static void strategy_buckchg_otg_monitor_workfunc(struct work_struct *work)
 
 	mutex_lock(&info->otg_incold_mutex);
 	was_disabled = info->disable_otg_incold;
-#line 3023
+#line 3037
 	mca_log_err("bat temp = %d, soc = %d, disable_otg_incold = %d, need_disable = %d\n",
 		temp, soc, was_disabled, need_disable);
 	if (was_disabled) {
 		if (info->support_disable_otg_incold && !(otg_present && need_disable)) {
 			info->disable_otg_incold = false;
-#line 3046
+#line 3060
 			mca_log_err("temp is above threshold or OTG removed, report now\n");
 			goto report;
 		}
 	} else if (info->support_disable_otg_incold && otg_present && need_disable) {
-#line 3029
+#line 3043
 		mca_log_err("temp is cold, disable otg now\n");
 		info->disable_otg_incold = true;
 		platform_class_buckchg_ops_set_boost_enable(MAIN_BUCK_CHARGER, (0 << 16) | (info->otg_boost_src << 8) | 0);
@@ -3280,7 +3303,7 @@ static noinline void __used strategy_buckchg_check_reverse_quick_charge(struct s
 	soc = strategy_class_fg_ops_get_soc();
 	temp /= 10;
 	protocol_class_pd_get_otg_plugin_status(0, &otg_present);
-#line 1112
+#line 1115
 	mca_log_info("otg_present = %d, batt_temp = %d, thermal_board_temp =%d\n", otg_present, temp, info->thermal_board_temp);
 	if (otg_present && !info->wls_online && !info->wls_revchg_online && temp >= 0 && info->thermal_board_temp <= 400)
 		ok = soc > (info->reverse_auth_sts ? 29 : 69);
@@ -3412,21 +3435,21 @@ static int strategy_buckchg_class_probe(struct platform_device *pdev)
 
 	platform_class_buckchg_ops_get_online(MAIN_BUCK_CHARGER, &online);
 	if (online) {
-#line 3446
+#line 3460
 		mca_log_info("avoid missing first usb connect event\n");
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGER_CONNECT, MCA_EVENT_USB_CONNECT, NULL);
 	}
 
 	g_buckchg_info = info;
-#line 3451
+#line 3465
 	mca_log_err("androidboot.mode=%d\n", mca_log_get_charge_boot_mode());
 	info->init_ok = 1;
-#line 3454
+#line 3468
 	mca_log_err("probe success\n");
 	return 0;
 
 voter_err:
-#line 3398
+#line 3412
 	mca_log_err("init voter err\n");
 	return -1;
 }

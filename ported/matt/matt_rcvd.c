@@ -119,7 +119,7 @@ static __always_inline void matt_sack_remove(struct sock *sk)
 	MATT_TRACE(0, 9, "num_sacks=%u fisrt_index=%u rcv_nxt=%u", n, idx, in->rcv_nxt);
 }
 
-static __always_inline void matt_ack_send_check_opt(struct sock *sk, struct matthdr *mh, u32 now, u32 pack_time)
+static __always_inline void matt_ack_send_check_opt(struct sock *sk, u8 mh_flags, u32 now, u32 pack_time)
 {
 	struct matt_input_ctx *in = &MATT_SK(sk)->input_ctx;
 	u32 to = 0, pto, delta, queue_bytes, trigger;
@@ -132,7 +132,7 @@ static __always_inline void matt_ack_send_check_opt(struct sock *sk, struct matt
 		matt_timer_start(sk, 2, to);
 	}
 	pto = in->rcv_period ?: 2000;
-	if ((mh->flags & 0x20) && in->rcv_max_bw <= 199999999)
+	if ((mh_flags & 0x20) && in->rcv_max_bw <= 199999999)
 		goto send;
 	delta = max_t(s64, (s64)now - (s64)pack_time, 0);
 	if (pto <= delta) {
@@ -160,7 +160,7 @@ send:
 static __always_inline void matt_drop_stat(struct matt_data_stats *ds, struct sk_buff *skb, u32 segs)
 {
 	ds->data_num += segs;
-	ds->data_bytes += skb->len - sizeof(struct matthdr);
+	ds->data_bytes += (u32)(skb->len - sizeof(struct matthdr));
 }
 
 static __always_inline void matt_sack_new_ofo_skb(struct sock *sk, struct sk_buff *skb)
@@ -358,6 +358,7 @@ void matt_rcv_data(struct sock *sk, struct sk_buff *skb)
 	struct matt_data_stats *ds;
 	const char *why;
 	u32 segs, old_rcv_nxt, start, now, pack_time, nack_time;
+	u8 mh_flags;	/* G15d HARDENING (S2): the skb may be freed by matt_data_queue_ofo(), stock re-reads mh->flags from it (1-byte UAF read) */
 	struct rb_root *root = &in->out_of_order_queue;
 
 	if (!matt_validate_incoming(sk, skb, mh)) {
@@ -366,6 +367,7 @@ void matt_rcv_data(struct sock *sk, struct sk_buff *skb)
 		why = matt_str_invalid;
 		goto drop;
 	}
+	mh_flags = mh->flags;
 #line 520
 	MATT_TRACE(0, 9, "rcv data to stack num:%u offset:%u rcv_nxt=%u copied=%u", ntohl(mh->num), ntohl(mh->offset), in->rcv_nxt, in->copied);
 	if (!in->rcv_high_seq || before(in->rcv_high_seq, cb->offset_start))
@@ -409,7 +411,7 @@ ack:
 	nack_time = in->nack_time;
 	in->rcv_nxt_num += (u8)segs;
 	if (before(in->rcv_wup, in->rcv_nxt) || start != old_rcv_nxt || READ_ONCE(root->rb_node))
-		matt_ack_send_check_opt(sk, mh, now, pack_time);
+		matt_ack_send_check_opt(sk, mh_flags, now, pack_time);
 	if ((s32)(READ_ONCE(sk->sk_rcvbuf) - (atomic_read(&sk->sk_rmem_alloc) + READ_ONCE(sk->sk_backlog.len))) > 3)
 		return;
 	{

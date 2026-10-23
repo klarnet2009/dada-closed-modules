@@ -811,8 +811,15 @@ static void sipa_resume(
 				goto err_sipa_resume;
 		}
 
-		level = SIPA_TYPE_IN(si_pa->chip_type, 0x19, 0x3b919c0) ?
-			0 : 1;	/* stock: 0 for the SIA91xx types, 1 for the analog ones */
+		/* stock: 0 for the SIA91xx types, 1 for the analog ones; two real branches (no select), the empty asm keeps
+		 * LLVM from folding them (g3w codegen hack) */
+		if (SIPA_TYPE_IN(si_pa->chip_type, 0x19, 0x3b919c0)) {
+			level = 0;
+			asm volatile("" : "+r"(level));
+		} else {
+			level = 1;
+			asm volatile("" : "+r"(level));
+		}
 		gpiod_set_raw_value(gpio_to_desc(si_pa->rst_pin), level);
 		usleep_range(1000, 1200);
 
@@ -1356,17 +1363,20 @@ static int sipa_audio_scene_set(
 {
 	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
 	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+	unsigned int scene;
 
 	if (!si_pa) {
 		pr_err("[  err][%s] %s: si_pa is NULL\n", LOG_FLAG, __func__);
 		return -EINVAL;
 	}
 
-	pr_debug("[debug][%s] %s: ucontrol = %ld, rst = %d, channle = %d \n",
-		LOG_FLAG, __func__, ucontrol->value.integer.value[0],
+	/* G40g: stock reads the value once as u32 and prints "%u ... channel" */
+	scene = ucontrol->value.integer.value[0];
+	pr_debug("[debug][%s] %s: ucontrol = %u, rst = %d, channel = %d \n",
+		LOG_FLAG, __func__, scene,
 		si_pa->rst_pin, si_pa->channel_num);
 
-	sipa_scene_set(si_pa, ucontrol->value.integer.value[0]);
+	sipa_scene_set(si_pa, scene);
 	return 0;
 }
 
@@ -1424,7 +1434,8 @@ static const char *const power_function[] = { "Off", "On" };
 #ifdef ALGO_SWITCH_EN
 static const char *const algo_enable[] = { "Off", "On" };
 #endif
-static const char *const audio_scene[] = { "Playback", "Voice", "Receiver", "Factory" };
+/* g15c: BEHAVIOUR FIX: the stock enum has all 6 scenes in enum order (Voip = 2, Receiver = 3, FM = 5); the old 4-entry list shifted Receiver/Factory onto Voip/Receiver */
+static const char *const audio_scene[] = { "Playback", "Voice", "Voip", "Receiver", "Factory", "FM" };
 
 static const struct soc_enum power_enum =
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(power_function), power_function);
@@ -1474,14 +1485,14 @@ static struct snd_soc_dai_driver sia91xx_dai[] = {
 		.playback = {
 			.stream_name = "AIF Playback",
 			.channels_min = 1,
-			.channels_max = 2,
+			.channels_max = 4,	/* g15c: stock DAI: 4 channels (was 2) */
 			.rates = SIA91XX_RATES,
 			.formats = SIA91XX_FORMATS,
 		},
 		.capture = {
 			 .stream_name = "AIF Capture",
 			 .channels_min = 1,
-			 .channels_max = 2,
+			 .channels_max = 4,	/* g15c: stock DAI: 4 channels (was 2) */
 			 .rates = SIA91XX_RATES,
 			 .formats = SIA91XX_FORMATS,
 		 },
@@ -1900,13 +1911,13 @@ void sipa_compatible_chips_adapt(
 		return;
 	}
 
-	if (0 == si_pa->disable_pin) {
-		if (SIPA_TYPE_IN(si_pa->chip_type, 0x18, 0x1b44000)) {
-			gpiod_set_raw_value(gpio_to_desc(si_pa->rst_pin), 1);
-			usleep_range(1000, 1200);
-		}
-		sipa_get_rst_value(si_pa);
+	/* g3w: two separate statements as in the stock (disable_pin is reloaded after the usleep) */
+	if (0 == si_pa->disable_pin && SIPA_TYPE_IN(si_pa->chip_type, 0x18, 0x1b44000)) {
+		gpiod_set_raw_value(gpio_to_desc(si_pa->rst_pin), 1);
+		usleep_range(1000, 1200);
 	}
+	if (0 == si_pa->disable_pin)
+		sipa_get_rst_value(si_pa);
 
 	for (j = 0; j < compat->num; j++) {
 		if (NULL != compat->chips
@@ -1967,13 +1978,11 @@ int sipa_pending_actions(sipa_dev_t *si_pa)
 	g_dyn_ud_vdd_port = extra_cfg.dyn_ud_vdd_port;
 
 	type = si_pa->chip_type;
-	if (type > 0x19)
-		return -EINVAL;
-
-	if (!((1u << type) & 0x3b919c0)) {
-		if (!((1u << type) & 0x2600))
-			return -EINVAL;
-
+	/* G53a (raw 0xff4..0x10d4): types in 0x3b919c0 only log "init done"; types in 0x2600 get the owi defaults and
+	 * sipa_suspend; every other type (also > 0x19) also gets sipa_suspend and then the same "init done" + 0 (NOT -EINVAL) */
+	if (type > 0x19 || (!((1u << type) & 0x3b919c0) && !((1u << type) & 0x2600))) {
+		sipa_suspend(si_pa);
+	} else if (!((1u << type) & 0x3b919c0)) {
 		si_pa->owi_delay_us = 10;
 		si_pa->owi_polarity = 0;
 		for (i = 0; i < 6; i++)
@@ -2078,8 +2087,9 @@ int sipa_i2c_probe(
 				pr_err("[  err][%s] %s: regmap_init_i2c error !!! \n", LOG_FLAG, __func__);
 				return PTR_ERR(si_pa->regmap);
 			}
+			/* G53a: stock reads the id register once more only after the re-init (a successful first read is printed directly) */
+			regmap_read(si_pa->regmap, 0, &val);
 		}
-		regmap_read(si_pa->regmap, 0, &val);
 		pr_info("[ info][%s] %s: read chip id = 0x%x !!! \n", LOG_FLAG, __func__, val);
 	}
 
@@ -2141,7 +2151,7 @@ int sipa_i2c_probe(
 	}
 	pr_info("[info][%s] snd_soc_register_codec ret = %d !\n", __func__, ret);
 
-	set_smartpa_codec(dev_name(&client->dev), dai[0].name);	/* GUESS: stock passes &client->dev */
+	set_smartpa_codec(&client->dev, dai[0].name);	/* g3w: stock passes &client->dev and the dai name */
 
 probe_tail:
 	/* g3t: the attribute is the one of the platform probe (stock .data+0x1b0 = sipa_cmd; sipa_device is .data+0x1d0), and the
@@ -2503,7 +2513,9 @@ static __always_inline int sipa_pinctrl_select(
 			gpiod_direction_output_raw(gpio_to_desc(si_pa->owi_pin), 0);
 
 put_pinctrl:
-		devm_pinctrl_put(pinctrl);
+		/* G53a: stock (sipa_probe raw 0x4074..0x4080): the pinctrl handle is put only when disable_pin (+0x1d8) == 0 */
+		if (si_pa->disable_pin == 0)
+			devm_pinctrl_put(pinctrl);
 		return ok ? 0 : -ENODEV;
 	}
 

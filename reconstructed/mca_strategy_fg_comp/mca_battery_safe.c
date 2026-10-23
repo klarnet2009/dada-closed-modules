@@ -117,15 +117,16 @@ static void report_isc_data_2(struct isc_detect_info *info)
 	char buf[BUF_SZ];
 	int qmax = 0;
 	unsigned int len;
-	int i, j;
+	int i, j, soc0, soc1;
+	time64_t t0, t1;
 
 	memset(buf, 0, sizeof(buf));
 	platform_fg_ops_get_batt_qmax(0, &qmax);
+	t1 = info->isc_data[1][0].time; t0 = info->isc_data[0][0].time; soc0 = info->isc_data[0][4].soc; soc1 = info->isc_data[1][4].soc;	/* G52a: stock loads the four fields into registers before the first snprintf */
 	len = snprintf(buf, BUF_SZ, "%s:%d-%d:", "BATTERY_SAFE_REPORT=ISC_det_2", 0, 2);
-	len += snprintf(buf + len, BUF_SZ - len, "qmax=%d,d_t=%d,", qmax,
-			(int)(info->isc_data[1][0].time - info->isc_data[0][0].time));
-	len += snprintf(buf + len, BUF_SZ - len, "p=%d,cc=%d,", 0, info->isc_data[0][4].soc);
-	len += snprintf(buf + len, BUF_SZ - len, "p=%d,cc=%d,", 1, info->isc_data[1][4].soc);
+	len += snprintf(buf + len, BUF_SZ - len, "qmax=%d,d_t=%d,", qmax, (int)(t1 - t0));
+	len += snprintf(buf + len, BUF_SZ - len, "p=%d,cc=%d,", 0, soc0);
+	len += snprintf(buf + len, BUF_SZ - len, "p=%d,cc=%d,", 1, soc1);
 	event_data.event = buf;
 	event_data.event_len = len;
 	mca_event_report_uevent(&event_data);
@@ -157,7 +158,6 @@ static void isc_do_point_sample_2(struct strategy_fg *fg)
 	int ret, idx, group, pos, i, j;
 	int avg_curr[2], avg_temp[2], delta_i, delta_t;
 	time64_t now;
-	struct batterydata *d;
 
 	ret = platform_fg_ops_get_curr(0, &curr);
 	ret |= platform_fg_ops_get_volt(0, &volt);
@@ -174,22 +174,22 @@ static void isc_do_point_sample_2(struct strategy_fg *fg)
 	group = idx / 5;
 	pos = idx - group * 5;
 	now = ktime_get_coarse_boottime() / NSEC_PER_SEC;
-	d = &fg->isc_det_2_info.isc_data[group][pos];
-	d->time = now;
-	d->temp = temp / 10;
-	d->volt = volt;
-	d->curr = curr / 1000;
+	/* G25c: direct member accesses: array-bounds trap `pos < 5` (stock `cmp #5`), not `pos <= 5` as for `d = &isc_data[group][pos]` */
+	fg->isc_det_2_info.isc_data[group][pos].time = now;
+	fg->isc_det_2_info.isc_data[group][pos].temp = temp / 10;
+	fg->isc_det_2_info.isc_data[group][pos].volt = volt;
+	fg->isc_det_2_info.isc_data[group][pos].curr = curr / 1000;
 	fg->isc_det_2_info.sample_index++;
 
 	if (pos == 4) {
-		platform_fg_ops_get_cc_coulomb_integral(0, &d->soc);
+		platform_fg_ops_get_cc_coulomb_integral(0, &fg->isc_det_2_info.isc_data[group][pos].soc);
 		if (idx >= 5) {
 			for (i = 0; i < 2; i++) {
 				int sum_i = 0, sum_t = 0;
 
 				for (j = 0; j < 5; j++) {
+					sum_t += fg->isc_det_2_info.isc_data[i][j].temp;	/* G25c: stock loads temp first (CODEGEN) */
 					sum_i += fg->isc_det_2_info.isc_data[i][j].curr;
-					sum_t += fg->isc_det_2_info.isc_data[i][j].temp;
 				}
 				avg_curr[i] = sum_i / 5;
 				avg_temp[i] = sum_t / 5;
@@ -225,7 +225,7 @@ static void isc_do_point_sample_2(struct strategy_fg *fg)
 	mca_log_info("average_point_done_cnt %d, sample_index %d", fg->isc_det_2_info.average_point_done_cnt,
 		     fg->isc_det_2_info.sample_index);
 #line 256
-	mca_log_info("sample [%d][%d] collected: time=%d, temp=%d, volt=%d, curr=%d", group, pos, (int)d->time, d->temp, d->volt, d->curr);
+	mca_log_info("sample [%d][%d] collected: time=%d, temp=%d, volt=%d, curr=%d", group, pos, (int)fg->isc_det_2_info.isc_data[group][pos].time, fg->isc_det_2_info.isc_data[group][pos].temp, fg->isc_det_2_info.isc_data[group][pos].volt, fg->isc_det_2_info.isc_data[group][pos].curr);
 }
 
 void strategy_isc_detect_2_work(struct work_struct *work)
@@ -289,7 +289,7 @@ void strategy_isc_detect_2_work(struct work_struct *work)
 		stop_isc_detect_2_work(info);
 		return;
 	}
-	queue_delayed_work(system_wq, &fg->isc_detect_2_work, msecs_to_jiffies(interval_ms ? 1000 : 1800000));
+	schedule_delayed_work(&fg->isc_detect_2_work, msecs_to_jiffies(interval_ms ? 1000 : 1800000));	/* G52a: stock loads system_wq after msecs_to_jiffies (schedule_delayed_work) */
 }
 
 static void isc_do_point_sample(struct isc_detect_info *info)
@@ -378,7 +378,7 @@ void strategy_isc_detect_work(struct work_struct *work)
 		stop_isc_detect_work(info);
 		return;
 	}
-	queue_delayed_work(system_wq, &fg->isc_detect_work, msecs_to_jiffies(interval_ms ? 1000 : 60000));
+	schedule_delayed_work(&fg->isc_detect_work, msecs_to_jiffies(interval_ms ? 1000 : 60000));	/* G52a: as isc_detect_2_work */
 }
 
 #define LI_PLATING_REPORT_TAG "BATTERY_SAFE_REPORT=Li_plating"
@@ -391,9 +391,11 @@ static void report_li_plating_data(struct li_plating_info *info)
 	int len = 0, group = 1, i;
 
 	memset(buf, 0, sizeof(buf));
-	d = &info->li_data_1[info->before_full_index];
+	/* G25c: direct member accesses (not `d = &li_data_1[idx]`): clang's array-bounds trap is `idx < 10` for an access, `idx <= 10` for an address-of: stock = `cmp #0xa` */
 	event_data.event_len = scnprintf(buf, BUF_SZ, "%s:%d-%d:t=%d,v=%d,i=%d", LI_PLATING_REPORT_TAG, 0, 3,
-					 d->temp, d->volt, d->curr);
+					 info->li_data_1[info->before_full_index].temp,
+					 info->li_data_1[info->before_full_index].volt,
+					 info->li_data_1[info->before_full_index].curr);
 	event_data.event = buf;
 	mca_event_report_uevent(&event_data);
 #line 419
@@ -426,7 +428,7 @@ void strategy_li_plating_work(struct work_struct *work)
 {
 	struct strategy_fg *fg = container_of(work, struct strategy_fg, li_plating_detect_work.work);
 	struct li_plating_info *info = &fg->li_plating_det_info;
-	int volt = 0, curr = 0, temp = 0;
+	int curr = 0, volt = 0, temp = 0;	/* G25c: stock stack slots: curr 0x24, volt 0x20, temp 0x1c (CODEGEN) */
 	bool need_stop = false;
 	int ret, idx;
 
@@ -458,10 +460,11 @@ void strategy_li_plating_work(struct work_struct *work)
 	switch (info->state) {
 	case LI_PLATING_BEFORE_FULL:
 		idx = info->sample_index % 10;
-		info->before_full_index = idx;
+		/* G23c (CODEGEN try): stock does the li_data_1[idx] bounds check before the store of before_full_index */
 		info->li_data_1[idx].temp = temp / 10;
 		info->li_data_1[idx].volt = volt;
 		info->li_data_1[idx].curr = curr / 1000;
+		info->before_full_index = idx;
 #line 481
 		mca_log_info("p1=%d, t=%d, v=%d, i=%d", idx, temp / 10, volt, curr / 1000);
 		break;

@@ -238,7 +238,11 @@ static void mitee_shm_rem_mem_handle(struct mitee_msgq_dev *qdev, u64 handle)
 		mutex_unlock(&qdev->shm_mutex);
 		return;
 	}
-	rhashtable_remove_fast(&qdev->shm_ht, &entry->node, shm_rhash_params);
+	if (rhashtable_remove_fast(&qdev->shm_ht, &entry->node, shm_rhash_params)) {
+		/* stock: -ENOENT returns after the unlock, the entry is not freed */
+		mutex_unlock(&qdev->shm_mutex);
+		return;
+	}
 	mutex_unlock(&qdev->shm_mutex);
 	kfree(entry);
 }
@@ -759,7 +763,7 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 	acl = kmalloc(struct_size(acl, acl_entries, 2), GFP_KERNEL | __GFP_ZERO);
 	if (!acl) {
 		ret = -ENOMEM;
-		goto free_table;
+		goto reclaim;	/* G56a r3: the stock (0x2f4) also does mem_reclaim(0, 0) + assign_sgt_perm_from_peer on this path (found by emu.py) */
 	}
 
 	nents = sgt->orig_nents;
@@ -813,7 +817,6 @@ int mitee_msgq_shm_register(struct tee_context *ctx, struct tee_shm *shm,
 reclaim:
 	ghd_rm_mem_reclaim(handle, 0);
 	assign_sgt_perm_from_peer(qdev, sgt);
-free_table:
 	sg_free_table(sgt);
 free_sgt:
 	kfree(sgt);
@@ -947,16 +950,15 @@ revert:
 static u32 mitee_msgq_rpc_callback(struct optee_msg_param_value *value, void *buf,
 				   u32 size_in, u32 *size_out)
 {
-	struct mitee_msgq_dev *qdev = g_msgq_dev;
 	u64 handle = 0;
 
-	switch (value->a) {
+	switch ((u32)value->a) {
 	case OPTEE_REE_CALLBACK_ALLOCATE_SECMEM: {
 		struct sg_table *sgt = NULL;
 		u32 size;
 		int ret;
 
-		if (value->b != 0)
+		if ((u32)value->b != 0)
 			return 0xffff0006;
 		size = value->c;
 		ret = mitee_alloc_memory_sgt(ALIGN(size, PAGE_SIZE), &sgt);
@@ -970,14 +972,16 @@ static u32 mitee_msgq_rpc_callback(struct optee_msg_param_value *value, void *bu
 		return 0;
 	}
 	case OPTEE_REE_CALLBACK_FREE_SECMEM: {
+		struct mitee_msgq_dev *qdev;
 		struct mitee_secmem *sm;
 		struct sg_table *sgt;
 		u32 size;
 		int ret;
 
-		handle = value->c;
-		if (value->b != 0)
+		if ((u32)value->b != 0)
 			return 0xffff0006;
+		handle = value->c;
+		qdev = g_msgq_dev;
 		mutex_lock(&qdev->secmem_mut);
 		/* as in the stock: no found-check, `sm` is the list-head container when nothing matched */
 		list_for_each_entry(sm, &qdev->secmem_list, node) {

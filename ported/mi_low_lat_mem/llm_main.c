@@ -6,7 +6,7 @@ int llm_enable;
 int calculate_start;
 unsigned int *dmabuf_data_tmp;
 int dmabuf_pool_nums;
-atomic_t largemem_data_tmp[2] __asm__("largemem_data_tmp.llvm.5013616374876433728");
+atomic_t largemem_data_tmp[2] __asm__("largemem_data_tmp.llvm.740304511759946376");
 struct cma_ref cma_refs[17];
 atomic_t cma_refs_count;
 struct cma_pfn_to_align cma_pfn_to_align[100];
@@ -19,7 +19,7 @@ int shrinking;
 int predo_pending;
 int mem_fault_reporting;
 int scene_code;
-u8 sys_scene;
+bool sys_scene;
 u8 sys_predo;
 spinlock_t cma_lock;
 struct mutex pending_lock;
@@ -253,7 +253,9 @@ linkage void name(void *data, void *pool_p, struct page *page, int from_buddy)		
 		return;									\
 	atomic_inc((atomic_t *)&dmabuf_data_tmp[pool->id]);				\
 }
-SMART_REFILL_HANDLER(mi_smart_refill_alloc, static)
+/* G14d: in the global OS4.0.0.7 the two probes are GLOBAL HIDDEN with the ThinLTO promotion suffix (mi_smart_refill_exit lives in another module of the LTO link) */
+void mi_smart_refill_alloc(void *data, void *pool_p, struct page *page, int from_buddy) __asm__("mi_smart_refill_alloc.llvm.1886359693443789063");
+SMART_REFILL_HANDLER(mi_smart_refill_alloc, )
 SMART_REFILL_HANDLER(mi_smart_refill_extend_alloc, )	/* GLOBAL in the stock symtab */
 
 /* ---- memcg vendor data ---- */
@@ -264,18 +266,21 @@ void mi_memcg_alloc(void *data, struct mem_cgroup *memcg)
 }
 void mi_memcg_free(void *data, struct mem_cgroup *memcg)
 {
-	struct mi_memcg_data **slot = (struct mi_memcg_data **)((char *)memcg + 0x8f8);
-	struct mi_memcg_data *d = *slot;
+	struct llm_vendor **slot = (struct llm_vendor **)((char *)memcg + 0x8f8);
+	struct llm_vendor *d = *slot;
 	int i;
 
 	if (!d)
 		return;
+	/* G14d: the global OS4.0.0.7 clears the global current_write_memcg when its memcg goes away and frees the record with kfree_rcu */
+	if (READ_ONCE(current_write_memcg) == memcg)
+		current_write_memcg = NULL;
 	for (i = 0; i < dmabuf_pool_nums; i++)
 		kfree(d->arr[i]);
 	if (d->arr)
 		kfree(d->arr);
 	*slot = NULL;
-	kfree(d);
+	kfree_rcu(d, rcu);
 	pr_info("low_lat_mem: low_lat_mem mi_memcg free.\n");
 }
 /* ---- scene_* show: per (process type, alloc type) latency histogram of one scene ---- */
@@ -344,47 +349,13 @@ static ssize_t memcg_write_start(struct kernfs_open_file *of, char *buf, size_t 
 	if (__builtin_expect_with_probability(!val, 1, 0.45))
 		current_write_memcg = NULL;
 	else if (val == 1)
-		current_write_memcg = memcg;
+		rcu_assign_pointer(current_write_memcg, memcg);	/* G14d: stlr in the global stock */
 	id = current_write_memcg ? *(int *)((char *)memcg + 0xe8) : 0;
 	pr_info("low_lat_mem: low_lat_mem start: %d, current_write_memcg: %d. \n", val, id);
 	return nbytes;
 }
 /* ---- pre-compact pools (order 4 / order 9 pages kept ready for allocation) ---- */
-/* private copy of mm/internal.h prep_compound_page() (not exported) */
-static void mi_prep_compound_tail(struct page *head, int tail_idx)
-{
-	struct page *p = head + tail_idx;
-
-	p->mapping = TAIL_MAPPING;
-	set_compound_head(p, head);
-	p->private = 0;
-}
-static void mi_folio_set_order(struct folio *folio, unsigned int order)
-{
-	if (WARN_ON_ONCE(!order || !folio_test_large(folio)))
-		return;
-	folio->_flags_1 = (folio->_flags_1 & ~0xffUL) | order;
-	folio->_folio_nr_pages = 1U << order;
-}
-/* the symbol keeps the stock name; mm.h already declares a global prep_compound_page() */
-__used void llm_prep_compound_page(struct page *page, unsigned int order) __asm__("prep_compound_page");
-static __always_inline void prep_compound_body(struct page *page, unsigned int order)
-{
-	int i;
-	int nr_pages = 1 << order;
-
-	__SetPageHead(page);
-	for (i = 1; i < nr_pages; i++)
-		mi_prep_compound_tail(page, i);
-	mi_folio_set_order((struct folio *)page, order);
-	atomic_set(&((struct folio *)page)->_entire_mapcount, -1);
-	atomic_set(&((struct folio *)page)->_nr_pages_mapped, 0);
-	atomic_set(&((struct folio *)page)->_pincount, 0);
-}
-__used void llm_prep_compound_page(struct page *page, unsigned int order)
-{
-	prep_compound_body(page, order);
-}
+/* G14d: the global OS4.0.0.7 has no private prep_compound_page() any more: it imports prep_new_page() */
 static __always_inline struct page *pool_remove_body(struct pre_compact_pool *pool)
 {
 	struct page *page;
@@ -412,9 +383,7 @@ noinline __used struct page *alloc_pre_compact_page(gfp_t gfp, int order)
 		return NULL;
 	page = pre_compact_pool_remove(((struct pre_compact_pool **)(mci.raw + 0x10))[order]);
 	if (page) {
-		barrier(); /* hack: keeps the stock order cbz(page) before tbz(GFP_COMP) */
-		if (gfp & __GFP_COMP)
-			llm_prep_compound_page(page, order);
+		prep_new_page(page, order, gfp & ~__GFP_DIRECT_RECLAIM, 0);
 	}
 	return page;
 }
@@ -460,7 +429,8 @@ static void do_compact_mem_collect(void *data, struct compact_control *cc, bool 
 	t4 = MCI_U32(4);
 	if (atomic_read(&((struct pre_compact_pool_hdr *)MCI_PTR(0x30))->collected) < t4)
 		collect_pages(4, t4 - atomic_read(&((struct pre_compact_pool_hdr *)MCI_PTR(0x30))->collected));
-	if (atomic_read(&((struct pre_compact_pool_hdr *)MCI_PTR(0x30))->collected) < t4)
+	/* stock re-reads the order-4 threshold here (mci+4), the order-9 one (t9) stays cached */
+	if (atomic_read(&((struct pre_compact_pool_hdr *)MCI_PTR(0x30))->collected) < MCI_U32(4))
 		enough = false;
 	else
 		enough = atomic_read(&((struct pre_compact_pool_hdr *)MCI_PTR(0x58))->collected) >= t9;
@@ -492,8 +462,7 @@ static void do_alloc_pages_big_order(void *data, gfp_t gfp_mask, int order, int 
 		*page = NULL;
 		return;
 	}
-	if (gfp_mask & __GFP_COMP)
-		prep_compound_body(p, order);
+	prep_new_page(p, order, gfp_mask & ~__GFP_DIRECT_RECLAIM, 0);
 	*page = p;
 	if (order == 4)
 		DFX_U64(0x940)++;
@@ -532,11 +501,18 @@ static ssize_t stats_history_show(struct kobject *kobj, struct kobj_attribute *a
 			}
 	for (k = 0; k < cnt; k++) {
 		struct pc_rec *r = &mci.hist[idx[k]];
-		u32 b4 = r->c4, b9 = r->c9;
-		u32 a4 = r->n4 < b4 ? 0 : r->n4 - b4, a9 = r->n9 < b9 ? 0 : r->n9 - b9;
-		u32 rate4 = r->t4 ? a4 * 100 / r->t4 : 100, rate9 = r->t9 ? a9 * 100 / r->t9 : 100;
+		u64 t = r->time;	/* g64a: the stock re-reads the time once and skips a record whose time is 0 now */
+		u32 b4, b9, a4, a9, rate4, rate9;
 
-		time64_to_tm(r->time / 1000000000, 28800, &tm);
+		if (!t)
+			continue;
+		b4 = r->c4;
+		b9 = r->c9;
+		a4 = r->n4 < b4 ? 0 : r->n4 - b4;
+		a9 = r->n9 < b9 ? 0 : r->n9 - b9;
+		rate4 = r->t4 ? a4 * 100 / r->t4 : 100;
+		rate9 = r->t9 ? a9 * 100 / r->t9 : 100;
+		time64_to_tm(t / 1000000000, 28800, &tm);
 		snprintf(tbuf, sizeof(tbuf), "%02d-%02d %02d:%02d:%02d", tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
 		len += sysfs_emit_at(buf, len,
 				     "%-9u %-19s %-9lu %u-%-5u %u-%-5u %-5u %-5u %-5u %-5u %-3u%s  %-3u%s  %-8u %-8u %-8lu %s\n",
@@ -580,7 +556,8 @@ noinline __used void mi_pre_compact_exit(void)
 }
 /* config of one qcom_dma_heaps pool (only the two fields used here) */
 /* how many pages the dma-buf pool may give back, depending on the zone watermarks */
-static void mi_smart_refill_pool_shrink(void *data, void *pool_p, gfp_t gfp_mask,
+void mi_smart_refill_pool_shrink(void *data, void *pool_p, gfp_t gfp_mask, int nr, int *out) __asm__("mi_smart_refill_pool_shrink.llvm.1886359693443789063");
+void mi_smart_refill_pool_shrink(void *data, void *pool_p, gfp_t gfp_mask,
 					int nr, int *out)
 {
 	struct mi_pool_cfg *pool = pool_p;
@@ -636,6 +613,14 @@ unreg_shrink:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(mi_smart_refill_init);
+/* G14d: new export of the global OS4.0.0.7 (CRC 2943964563): unregisters the three probes (order: alloc, pool_shrink, extend_alloc) */
+void mi_smart_refill_exit(void)
+{
+	tracepoint_probe_unregister(&__tracepoint_mi_smart_refill_alloc, mi_smart_refill_alloc, NULL);
+	tracepoint_probe_unregister(&__tracepoint_mi_smart_refill_pool_shrink, mi_smart_refill_pool_shrink, NULL);
+	tracepoint_probe_unregister(&__tracepoint_mi_smart_refill_extend_alloc, mi_smart_refill_extend_alloc, NULL);
+}
+EXPORT_SYMBOL_GPL(mi_smart_refill_exit);
 /* ---- cma pool shrinker ---- */
 static struct shrinker pool_shrinker;
 static unsigned long cma_pool_shrink_count(struct shrinker *shrinker, struct shrink_control *sc);
@@ -725,6 +710,28 @@ noinline __used int cma_area_init(struct cma *cma, void *data)
 	INIT_LIST_HEAD(&e->head);
 	return 0;
 }
+/* G14d: new in the global OS4.0.0.7: undo cma_area_init() (free every parked allocation and the per-area record) */
+noinline __used void cma_area_cleanup(void)
+{
+	int i, n = atomic_read(&cma_refs_count);
+
+	for (i = 0; i < n; i++) {
+		struct mi_cma *mi = cma_refs[i].ent;
+
+		if (mi) {
+			struct cma_page_ent *ent, *next;
+
+			list_for_each_entry_safe(ent, next, &mi->head, list) {
+				list_del(&ent->list);
+				kfree(ent);
+			}
+			kfree(mi);
+			cma_refs[i] = (struct cma_ref){};
+		}
+	}
+	atomic_set(&cma_refs_count, 0);
+	memset(cma_pfn_to_align, 0, sizeof(cma_pfn_to_align));
+}
 static atomic_t cur_index;
 /*
  * G1w (from the stock disassembly): end of a statistics window: store the largemem / dmabuf counters and the per-area CMA peaks of the
@@ -743,12 +750,18 @@ noinline __used void record_mem_data(int idx, bool sys)
 		if (!slot)
 			return;
 	} else {
-		if (!current_write_memcg)
+		struct mem_cgroup *m;
+
+		/* G14d: the global OS4.0.0.7 reads current_write_memcg under rcu_read_lock (ldar) */
+		rcu_read_lock();
+		m = READ_ONCE(current_write_memcg);
+		vend = m ? *(char **)((char *)m + 0x8f8) : NULL;
+		if (!vend) {
+			rcu_read_unlock();
 			return;
-		vend = *(char **)((char *)current_write_memcg + 0x8f8);
-		if (!vend)
-			return;
+		}
 		slot = (struct sys_mem_slot *)(vend + 8);
+		rcu_read_unlock();
 		if (!slot)
 			return;
 	}
@@ -794,12 +807,10 @@ noinline __used void record_mem_data(int idx, bool sys)
 	if (slot->arr) {
 		mutex_lock(&dmabuf_lock);
 		for (i = 0; i < dmabuf_pool_nums; i++) {
-			u32 *rec = slot->arr[i];
-
-			if (!rec)
+			if (!slot->arr[i])
 				continue;
-			rec[n] = READ_ONCE(dmabuf_data_tmp[i]);
-			pr_info("low_lat_mem: low_lat_mem, dmabuf:%d, %d.\n", i, rec[n]);
+			((u32 *)slot->arr[i])[n] = READ_ONCE(dmabuf_data_tmp[i]);
+			pr_info("low_lat_mem: low_lat_mem, dmabuf:%d, %d.\n", i, ((u32 *)slot->arr[i])[n]);
 		}
 		mutex_unlock(&dmabuf_lock);
 		pr_info("low_lat_mem: low_lat_mem, mi_mem:%d, %d.\n", slot->a[n], slot->b[n]);
@@ -1163,7 +1174,7 @@ static noinline __used void collect_pages(int order, unsigned int count)
 }
 static struct pre_compact_pool *pool_new(int order)
 {
-	struct pre_compact_pool *p = kmalloc(sizeof(*p), GFP_KERNEL);
+	struct pre_compact_pool *p = kzalloc(sizeof(*p), GFP_KERNEL);	/* stock: flags 0xdc0 = GFP_KERNEL | __GFP_ZERO */
 
 	if (!p)
 		return NULL;
@@ -1177,9 +1188,10 @@ noinline __used int mi_pre_compact_init(void)
 {
 	struct pre_compact_pool *pool;
 	struct page *page;
+	unsigned long ttfp;
 	int ret;
 
-	MCI_U32(0) = 0;				/* strh wzr,[mci] */
+	*(u16 *)mci.raw = 0;			/* strh wzr,[mci]: bytes 2-3 stay as in stock */
 	*(u64 *)(mci.raw + 4) = 0;
 	*(u64 *)(mci.raw + 0x68) = 0;
 	MCI_U32(0x70) = 3;			/* retry_times */
@@ -1203,6 +1215,7 @@ noinline __used int mi_pre_compact_init(void)
 			while ((page = pre_compact_pool_remove(pool)))
 				__free_pages(page, pool->order);
 			kfree(pool);
+			MCI_PTR(0x30) = NULL;	/* G48a: stock S+238 -> S+c8 clears mci+0x30 after the kfree */
 		}
 		pr_err("low_lat_mem: pre_compact pools init fail %d\n", -ENOMEM);
 		return -ENOMEM;
@@ -1225,20 +1238,22 @@ noinline __used int mi_pre_compact_init(void)
 	}
 	llm_ksym_lookup_name = (void *)llm_kallsym_kp.addr;
 	unregister_kprobe(&llm_kallsym_kp);
-	try_to_free_pages_symbol = llm_ksym_lookup_name("try_to_free_pages");
-	if (!try_to_free_pages_symbol) {
+	ttfp = llm_ksym_lookup_name("try_to_free_pages");
+	if (!ttfp) {
 		ret = -1;
 		goto sym_fail;
 	}
+	try_to_free_pages_symbol = ttfp;	/* stock stores only after the NULL check */
 	ret = sysfs_create_group(low_lat_mem_kobject, &pre_compact_attr_group);
 	if (ret) {
 		pr_err("low_lat_mem: add pre_compact sysfs fail %d\n", ret);
-		goto sym_fail;
+		goto unreg_hooks;	/* G40f: stock skips the "search pre_compact symbols fail" line on this path */
 	}
 	pr_info("low_lat_mem: mi_pre_compact_init success\n");
 	return 0;
 sym_fail:
 	pr_err("low_lat_mem: search pre_compact symbols fail: %d", ret);
+unreg_hooks:
 	unregister_trace_android_vh_compact_bypass(do_compact_mem_collect, NULL);
 	unregister_trace_android_vh_alloc_pages_reclaim_bypass(do_alloc_pages_big_order, NULL);
 out_exit:
@@ -1274,22 +1289,35 @@ noinline __used int predo_store_call(void *unused)
 
 		if (val == 301) {
 			char *vend;
+			struct mem_cgroup *m;
 
-			if (!current_write_memcg)
+			/* G14d: the global OS4.0.0.7 reads current_write_memcg under rcu_read_lock */
+			rcu_read_lock();
+			m = READ_ONCE(current_write_memcg);
+			if (!m) {
+				rcu_read_unlock();
 				goto done_keep;
-			vend = *(char **)((char *)current_write_memcg + 0x8f8);
-			if (!vend)
+			}
+			vend = *(char **)((char *)m + 0x8f8);
+			if (!vend) {
+				rcu_read_unlock();
 				goto done;
+			}
 			slot = (struct sys_mem_slot *)(vend + 8);
+			rcu_read_unlock();
+			if (!slot)
+				goto done_keep;
 			sys_predo = 1;
 			pr_info("low_lat_mem: low_lat_mem predo scene: fling.\n");
 		} else {
 			idx = val - 302;
-			if ((unsigned int)idx >= 4)
+			if (__builtin_expect_with_probability((unsigned int)idx < 4, 1, 0.5)) {
+				slot = &sys_mem_data[idx];
+				pr_info("low_lat_mem: low_lat_mem predo scene: %s, code: %d.\n", scene_name[idx], val);
+				sys_predo = 1;
+			} else {
 				goto done;
-			slot = &sys_mem_data[idx];
-			pr_info("low_lat_mem: low_lat_mem predo scene: %s, code: %d.\n", scene_name[idx], val);
-			sys_predo = 1;
+			}
 		}
 		if (!slot || READ_ONCE(calculate_start))
 			goto done;
@@ -1365,59 +1393,76 @@ static int __init low_lat_mem_init(void)
 	calculate_start = 0;
 	llm_enable = 0;
 	shrinking = 0;
-	mi_smart_refill_init(&dmabuf_pool_nums);
+	/* G14d: the global OS4.0.0.7 checks the result and unwinds everything (CN 0.6 ignored the failure) */
+	if (mi_smart_refill_init(&dmabuf_pool_nums))
+		return -ENOMEM;
 	INIT_LIST_HEAD(&cma_tmp_list);
-	cma_for_each_area(cma_area_init, &cma_area_nums);
 	spin_lock_init(&cma_tmp_lock);
+	cma_for_each_area(cma_area_init, &cma_area_nums);
 	smp_wmb();
 	atomic_set(&largemem_data_tmp[0], 0);
 	atomic_set(&largemem_data_tmp[1], 0);
 	if (dmabuf_data_tmp_init() || sys_mem_data_dmabuf_init()) {
-		kfree(dmabuf_data_tmp);
-		return -ENOMEM;
+		ret = -ENOMEM;
+		goto err_free;
 	}
-	if (cma_pool_init_shrinker())
-		pr_err("low_lat_mem: cma pool register failed!");
+	ret = cma_pool_init_shrinker();
+	if (ret) {
+		pr_err("low_lat_mem: cma pool register failed! ret=%d\n", ret);
+		goto err_sysmem;
+	}
 	if (cgroup_subsys_on_dfl(memory_cgrp_subsys)) {
-		pr_err("low_lat_mem: low_lat_mem support memcg v2\n");
-		cgroup_add_dfl_cftypes(&memory_cgrp_subsys, memcg_ctrl_files);
+		pr_info("low_lat_mem: low_lat_mem support memcg v2\n");
+		ret = cgroup_add_dfl_cftypes(&memory_cgrp_subsys, memcg_ctrl_files);
 	} else {
-		pr_err("low_lat_mem: low_lat_mem support memcg v1\n");
-		cgroup_add_legacy_cftypes(&memory_cgrp_subsys, memcg_ctrl_files);
+		pr_info("low_lat_mem: low_lat_mem support memcg v1\n");
+		ret = cgroup_add_legacy_cftypes(&memory_cgrp_subsys, memcg_ctrl_files);
+	}
+	if (ret) {
+		pr_err("low_lat_mem: cgroup_add_cftypes failed: %d\n", ret);
+		goto err_sysmem;
 	}
 	low_lat_mem_kobject = kobject_create_and_add("low_lat_mem", kernel_kobj);
 	if (!low_lat_mem_kobject) {
 		ret = -ENOMEM;
-		goto rm_cft;
+		goto err_cft;
 	}
 	ret = sysfs_create_groups(low_lat_mem_kobject, low_lat_mem_sysfs_groups);
 	if (ret) {
-		kobject_put(low_lat_mem_kobject);
-		goto rm_cft;
+		pr_err("low_lat_mem: sysfs_create_groups failed: %d\n", ret);
+		goto err_kobj;
 	}
-	mi_pre_compact_init();
-	mi_dfx_init();
+	ret = mi_pre_compact_init();
+	if (ret) {
+		pr_err("low_lat_mem: mi_pre_compact_init failed: %d\n", ret);
+		goto err_groups;
+	}
+	ret = mi_dfx_init();
+	if (ret) {
+		pr_err("low_lat_mem: mi_dfx_init failed: %d\n", ret);
+		goto err_pre;
+	}
 	ret = mi_memcg_vendor_alloc(root_mem_cgroup, true);
 	if (ret) {
 		pr_info("low_lat_mem: low_lat_mem mi_memcg alloc failed.\n");
-		goto rm_cft;
+		goto err_dfx;
 	}
 	predo_worker_task = kthread_create_on_node(predo_store_call, NULL, NUMA_NO_NODE, "predo_worker");
 	if (IS_ERR(predo_worker_task)) {
 		pr_err("low_lat_mem: failed to create predo_worker thread\n");
 		ret = PTR_ERR(predo_worker_task);
-		goto rm_cft;
+		goto err_memcg;
 	}
 	wake_up_process(predo_worker_task);
 	ret = register_trace_android_rvh_try_alloc_pages_gfp(mi_try_alloc_pages_gfp, NULL);
 	if (ret) {
 		pr_err("low_lat_mem: register rvh_try_alloc_pages_gfp failed! ret=%d\n", ret);
-		goto rm_cft;
+		goto err_thread;
 	}
 	ret = register_trace_android_vh_mem_cgroup_alloc(mi_memcg_alloc, NULL);
 	if (ret) {
 		pr_err("low_lat_mem: register vh_mem_cgroup_alloc failed! ret=%d\n", ret);
-		goto rm_cft;
+		goto err_thread;
 	}
 	ret = register_trace_android_vh_mem_cgroup_free(mi_memcg_free, NULL);
 	if (ret) {
@@ -1438,18 +1483,38 @@ static int __init low_lat_mem_init(void)
 	if (ret) {
 		pr_err("low_lat_mem: register vh_cma_release_bypass failed! ret=%d\n", ret);
 		unregister_trace_android_vh_cma_alloc_end(mi_cma_alloc_end, NULL);
-unreg_bypass:
-		unregister_trace_android_vh_cma_alloc_bypass(mi_cma_alloc_vh, NULL);
-unreg_free:
-		unregister_trace_android_vh_mem_cgroup_free(mi_memcg_free, NULL);
-unreg_alloc:
-		unregister_trace_android_vh_mem_cgroup_alloc(mi_memcg_alloc, NULL);
-		goto rm_cft;
+		goto unreg_bypass;
 	}
 	pr_info("low_lat_mem: %s ok.\n", "low_lat_mem_init");
 	return 0;
-rm_cft:
+unreg_bypass:
+	unregister_trace_android_vh_cma_alloc_bypass(mi_cma_alloc_vh, NULL);
+unreg_free:
+	unregister_trace_android_vh_mem_cgroup_free(mi_memcg_free, NULL);
+unreg_alloc:
+	unregister_trace_android_vh_mem_cgroup_alloc(mi_memcg_alloc, NULL);
+err_thread:
+	kthread_stop(predo_worker_task);
+	predo_worker_task = NULL;
+err_memcg:
+	mi_memcg_free(NULL, root_mem_cgroup);
+err_dfx:
+	mi_dfx_exit();
+err_pre:
+	mi_pre_compact_exit();
+err_groups:
+	sysfs_remove_groups(low_lat_mem_kobject, low_lat_mem_sysfs_groups);
+err_kobj:
+	kobject_put(low_lat_mem_kobject);
+	low_lat_mem_kobject = NULL;
+err_cft:
 	cgroup_rm_cftypes(memcg_ctrl_files);
+err_sysmem:
+	sys_mem_data_dmabuf_free();
+err_free:
+	kfree(dmabuf_data_tmp);
+	cma_area_cleanup();
+	mi_smart_refill_exit();
 	return ret;
 }
 static void __exit low_lat_mem_exit(void)
@@ -1457,6 +1522,8 @@ static void __exit low_lat_mem_exit(void)
 	sys_mem_data_dmabuf_free();
 	kfree(dmabuf_data_tmp);
 	mi_dfx_exit();
+	mi_smart_refill_exit();
+	cma_area_cleanup();
 	if (predo_worker_task) {
 		kthread_stop(predo_worker_task);
 		predo_worker_task = NULL;
@@ -1476,9 +1543,7 @@ static void __exit low_lat_mem_exit(void)
 }
 module_init(low_lat_mem_init);
 module_exit(low_lat_mem_exit);
-/* keep every address-taken callback alive (gives them the KCFI type word like the stock) */
-/* keep every address-taken callback alive (gives them the KCFI type word like the stock) */
-static const void *const mi_low_lat_mem_callbacks[] __used = { start_store, shrink_store, predo_store, enable_store, retry_times_show, retry_times_store, target_count_show, curr_collected_count_show, mi_try_alloc_pages_gfp, mi_smart_refill_alloc, mi_smart_refill_extend_alloc, mi_memcg_alloc, mi_memcg_free, memcg_read_appname, memcg_read_version, memcg_write_appname, memcg_write_version, memcg_write_start, predo_trigger, largemem_data_tmp_init, dmabuf_data_tmp_init, do_compact_mem_collect, do_alloc_pages_big_order, llm_prep_compound_page };
+/* G14h: the two hack tables that kept every callback alive for the KCFI type word are gone (kcfi-preamble stays 100 words PASS, objects PASS) */
 /* ======== G1r: fragmentation score, sys mem snapshot and the pre-compact fault record (from the stock disassembly) ======== */
 /* fragmentation score of the system for allocation order @order: per zone
  * frag = (free - suitable << order) * 100 / free, weighted by the share of the zone in its node */
@@ -1544,18 +1609,21 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 	unsigned long free_sum = 0, high_sum = 0;
 	u64 ttfp = 0, total = 0, t0;
 	unsigned int freq_b, freq_a, freq_avg = 0;
-	unsigned int pct4, pct9;
+	unsigned int pct4 = 100, pct9 = 100;	/* G48a: stock S+4e4..500 keeps 100/100 on the success exit, the pool counts are used only when the retries run out (S+59c) */
 	struct zone *zone;
-	u32 max_time;
+	u32 max_time, begin4, begin9;
 	int retry = 0;
 
 	if (!(order4 | order_ext)) {
 		pr_info("low_lat_mem: target order4 & %d all 0\n", 0);
 		return;
 	}
-	*(u16 *)mci.raw = 1;			/* strh #1: enable = 1, enough = 0 */
 	MCI_U32(4) = order4;
 	MCI_U32(8) = order_ext;
+	/* G14d: the global OS4.0.0.7 records the pool counts at the beginning of the round ("begin 4:%u 9:%u" in the final report) */
+	begin4 = MCI_POOL_COUNT(0x30);
+	begin9 = MCI_POOL_COUNT(0x58);
+	*(u16 *)mci.raw = 1;			/* strh #1: enable = 1, enough = 0 */
 	llm_for_each_zone(zone) {
 		if (!*(int *)((u8 *)&contig_page_data + 0x2100) && managed_zone(zone)) {
 			free_sum += zone_page_state(zone, NR_FREE_PAGES);
@@ -1645,15 +1713,14 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 			} else {
 				printk(KERN_INFO "low_lat_mem: %s fragmentation not improved or worsened\n", __func__);
 			}
+			if (MCI_U32(4))
+				pct4 = MCI_POOL_COUNT(0x30) * 100 / MCI_U32(4);
+			if (MCI_U32(8))
+				pct9 = MCI_POOL_COUNT(0x58) * 100 / MCI_U32(8);
 			break;
 		}
 		msleep(100);
 	}
-	pct4 = pct9 = 100;
-	if (MCI_U32(4))
-		pct4 = MCI_POOL_COUNT(0x30) * 100 / MCI_U32(4);
-	if (MCI_U32(8))
-		pct9 = MCI_POOL_COUNT(0x58) * 100 / MCI_U32(8);
 	if (total) {
 		atomic_inc(&DFX_ABKT(0x8d4, get_time_bucket(total)));
 		DFX_U64(0x8e8) += total;
@@ -1678,12 +1745,13 @@ noinline __used void pre_do_compact(int order4, int order_ext)
 	}
 	dfx_fill_bucket(pct4, 0x8f4);
 	dfx_fill_bucket(pct9, 0x908);
-	printk(KERN_INFO "low_lat_mem: %s target order4:%u order%d:%u current order4:%u order%d:%u\n", __func__, MCI_U32(4), 9,
-	       MCI_U32(8), MCI_POOL_COUNT(0x30), 9, MCI_POOL_COUNT(0x58));
+	printk(KERN_INFO "low_lat_mem: target 4:%u %d:%u begin 4:%u %d:%u curr 4:%u %d:%u async_compact:%lu ms try_to_free_pages:%lu ms frag_b:%u frag_a:%u\n",
+	       MCI_U32(4), 9, MCI_U32(8), begin4, 9, begin9, MCI_POOL_COUNT(0x30), 9, MCI_POOL_COUNT(0x58),
+	       (unsigned long)div_u64(total, 1000000), (unsigned long)div_u64(ttfp, 1000000), MCI_U32(0x68), MCI_U32(0x6c));
 	snprintf(buf, 256,
-		 "I|%d|target order4:%u order%d:%u current order4:%u order%d:%u async_compact time:%lu ms try_to_free_pages time:%lu ms\n",
-		 current->tgid, MCI_U32(4), 9, MCI_U32(8), MCI_POOL_COUNT(0x30), 9, MCI_POOL_COUNT(0x58),
-		 (unsigned long)div_u64(total, 1000000), (unsigned long)div_u64(ttfp, 1000000));
+		 "I|%d|target 4:%u %d:%u begin 4:%u %d:%u curr 4:%u %d:%u async_compact:%lu ms try_to_free_pages:%lu ms frag_b:%u frag_a:%u\n",
+		 current->tgid, MCI_U32(4), 9, MCI_U32(8), begin4, 9, begin9, MCI_POOL_COUNT(0x30), 9, MCI_POOL_COUNT(0x58),
+		 (unsigned long)div_u64(total, 1000000), (unsigned long)div_u64(ttfp, 1000000), MCI_U32(0x68), MCI_U32(0x6c));
 	tracing_mark_write(buf);
 	mci.raw[0] = 0;
 }

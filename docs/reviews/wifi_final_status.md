@@ -1,0 +1,50 @@
+# Wi-Fi (qca_cld3, 5 chips) final status after the dp_rx_cksum_offload fix, goal-G40d, 20.10.2026
+
+Base: GLOBAL OS4.0.0.7 stock modules (`<work-dir>`, copied read-only to the scratch `<work-dir>`; the Wi-Fi driver of dada is qca_cld3_peach_v2).
+Status of every chip: PARTIAL. Built from the PUBLIC CAF qcacld-3.0 tree + OnePlus 13 cmn + reconstructed Xiaomi additions, NOT strict-equivalent, NOT hardware-tested.
+Firmware blobs are not copied anywhere in the published files (only md5 and counts).
+
+## 1. Real Kleaf builds with the fixed package (all five chips, no hack and with the documented `#line` hack)
+
+Package = `<work-dir>` (G23d state: dp_rx.h without the two `dp_check_rx_from_reo_excpt` lines, policy_mgr_allow_4th_new_freq tail reordered), copied unchanged to
+`<work-dir>` (only the bazel label tag and, for wcn7750, `soc/qcom` added to the `includes` of `platform_inc/BUILD.bazel` so that `icnss2.h` is found: build environment, not driver code).
+Source tree md5 (sorted per-file md5 list, 5963 files): no hack `f079c1a1f3d048add07952d1f5ddd5e9`, hack `d336d6ab260dbc75c213daa13abc6af3` (hack = same tree + 573 functions in 52 files with `/*g4l-lh*/` `#line` lines, json `work/re/src/g40d_tools/lh_g40d.json`, generated from the no-hack peach_v2 build of this run; NOT restored code).
+Flags as g4u/g15a/g23d: `bazel build --lto=none --config=stamp //re/qcawlan_g40d[h]/qcacld3:qca_cld3_<chip>`, nice 10, one Bazel build at a time, load < 20, bazel-out removed after every compare (`work/re/src/g40d_tools/wbuild.sh`, `bchain.sh`).
+peach_v2 no hack is the G23d build (same package bytes, not rebuilt; md5 equal to the g23d .ko).
+
+| chip | functions | no hack: identical (was) | with hack: identical (was) | kCFI preamble mismatches | md5 .ko no hack | md5 .ko hack |
+|---|---|---|---|---|---|---|
+| peach_v2 | 18446 | 17826 (17825) | 18314 (18313) | 0 / 16958 | 321f0f372ab33c24e0ea1f019ed9f887 | df01b9eb8599a1288890d24a7d67a89f |
+| peach | 18324 | 17425 (17424) | 17904 (17903) | 0 / 16839 | d89c6ce4684739a1f07898106690835d | 77eb23def00d7e9bcfff482d99bab6c1 |
+| kiwi_v2 | 18271 | 17657 (17656) | 18138 (18137) | 0 / 16800 | ffa8d1c9af7a53a99b087a57617ed8f0 | 5c730c1b4d252fc44053fdcd0e1417b7 |
+| qca6750 | 15880 | 15309 (15309) | 15763 (15763) | 0 / 14744 | b92a1807da4ed4ddde6c20ef86bd959d | 9022f4b7570dd7e12052434b06a21524 |
+| wcn7750 | 17981 | 17369 (17368) | 17853 (17852) | 0 / 16542 | 4a8351eb5a9532c4209932faa87f5170 | df74be85eef38015a47dae0c2a112884 |
+
+Function set of every chip is complete (0 only in stock, 0 only in ours). Global stock md5: peach_v2 59d72a62e6988942e22cc0d77939e451, peach 46ce9c3925cd5096c9abfbc651bba5aa, kiwi_v2 2b172f22082fe2979426ed3ae3601c96, qca6750 547a8c55ba7afb47eb01665f7832f039, wcn7750 1e48f7ede11e0892146acdfac85e9844.
+Each module gained exactly one byte-identical function (dp_rx_process_be) except qca6750 (unchanged). The scratch files are `<work-dir>` (b2_wcn7750 = the wcn7750 rebuild after the include fix; the first wcn7750 try failed with `icnss2.h not found`, no .ko).
+
+compare_ko_v2 (all ten builds, `tbl/cmp_*.txt`): PASS function-set, function-binding, kcfi-preamble, unowned-code, imports, modinfo, buildmeta, depends, vermagic, notes, exports (qca6750: FAIL, 11 of 957 export CRCs differ, the same as g4u: stubs/headers of that chip, unchanged by this run); FAIL function-bytes / relocs / objects (8 or 7 placement artefacts) / anon-data / bug-table / bug-lines / jump-table / altinstructions as before: NOT STRICT-EQUIVALENT.
+
+### dp_rx_process_be / _li applicability
+- CONFIG_BERYLLIUM (kiwi-v2, peach, peach-v2, wcn7750 defconfigs, `configs/config_to_feature.h:85`) defines `DP_OFFLOAD_FRAME_WITH_SW_EXCEPTION`, so the removed early-out existed in all four; all four stocks contain `dp_rx_process_be`; in all four builds `dp_rx_process_be` is now BYTE-IDENTICAL to the stock (it is absent from the diff lists), i.e. the fix equals the stock in each of them.
+- qca6750 (CONFIG_LITHIUM, MOSELLE hardware): the macro is undefined, `dp_check_rx_from_reo_excpt` returns 0, `dp_rx_process_li` byte-identical both before and after; the fix does not apply (the chip was rebuilt anyway because policy_mgr, a shared file, changed; counts unchanged).
+
+## 2. Byte-level tails, read from raw listings of the real peach_v2 build (path-paired; tool `work/re/src/g40d_tools/dfun.py`)
+Result: NO proven behaviour difference; no source change made in this run (max iterations per function not used up).
+- lim_fill_pe_session (stock 3 calls of wlan_cm_set_disable_hi_rssi at +0x1dcc/+0x1e30/+0x1e44, ours 2 at +0x1e10/+0x1f00, both reading the same `x20+0x5670` object, `wzr`/`#1` argument): A `self_mld_roam` -> set(false); stock one call, ours jumps to the shared set(false) without the log. B `2.4 GHz && abs(rssi) > th-delta` -> log("Enabling HI_RSSI", th, delta), then set(false); stock log+call, ours log then fall-through into the shared call (same order log-before-set, same arguments w24/w25). C otherwise -> set(true), then log(freq, rssi). Every path has the same set of calls, argument values and order; all three paths merge at the same continuation (`ldr [x21+0x1c3c]` test). EQUAL; the byte difference is tail merging / register allocation (a spilled w22 reload in the stock), not steerable from source (G23d tried 2 variants).
+- cm_process_join_req (stock inlines lim_fill_rsn_ie twice, ours once): call multiset equal; stock non-NULL pmksa: log "PMKSA found", get_param(KEY_MGMT), PSK-mask test -> log+qdf_mem_set(pmkid), build_rsnie_with_pmksa(pmksa), success -> len store+copy -> shared tail (free, set_psk_pmk, update pmksa to profile, ext_hdl copies), failure -> log "Build RSN IE failed" then the same tail; stock NULL pmksa: get_param (dead), build_rsnie_with_pmksa(NULL), success -> len store, copy, free; failure log. Ours: the same sequence with one phi for pmksa and `if (pmksa)` guards. Equal per path (source order of lim_fill_rsn_ie, lines 4418-4500).
+- wlan_hdd_cfg80211_do_acs: the UBSAN bounds-trap conditions read in both listings (fill of the 2.4/5 GHz arrays: trap at index >= 102, third pair of arrays at >= 101, the per-element `x*4 == 0x198` checks in the safe-channel/PCL loops, final `count > 102`) are the same compare constants in both; ours has 17 branches to its trap vs 11 in the stock because the first loop is laid out differently (counters kept in stack slots), I paired the sites of the first three array loops and the final index by hand, NOT all 17 one by one; valid input behaves the same, invalid input traps in both. No source change.
+- wlan_hdd_cfg80211_vendor_add_scan_entry: after masking registers/stack offsets only the order of zero-initialisation and the default bandwidth branch differ; default: stock `is_24ghz ? 1 : 2` (tbz), ours `1 + !is_24ghz` (cinc): same values; the switch (0 -> 1, 1 -> 2, 2 -> 3) is equal.
+- wlan_hdd_update_wiphy (iface combination loop): 3 diff hunks after masking registers and stack offsets: ours tests the per-iteration fw_supports_dbs result in a register (`tbz w0` before the sap_sta_nan test) where the stock has the same test threaded into a duplicated block; same filter conditions (the query is a pure policy_mgr read).
+- target_if_direct_buf_rx_module_register: diffs are scheduling, `__LINE__` immediates of the inlined log/malloc lines (0x62f/0x5e2/0x5eb vs +3/+1/+2: file line vintage) and the register that carries the `__func__` string; the string itself is the same "target_if_dbr_init_ring" for the log and for `__qdf_mem_malloc` (checked in the stock .rodata). Equal.
+- policy_mgr_allow_4th_new_freq: size equal (3968), 3 words differ = branch order of `p2p == 3` and the `sta == 2 && p2p == 2` boolean at +0xd48 (stock tests the boolean first); same set of conditions, only the evaluation order of two pure comparisons; two iterations were done in G23d, no third one (value 0).
+
+## 3. Data tables of the new builds (tbl_audit3.py = g33a, tbl_audit.py = g22f, anon_pair2.py; scratch `<work-dir>`)
+- Named objects (2828 objects / 2095 names in peach_v2; the other chips analogous): content + resolved relocation targets equal except the known 8 PLACEMENT artefacts (opcls_131..137_cfis_lst: pointer of a zero-length array; global_op_class: those 7 pointer words) in peach_v2, peach, kiwi_v2, wcn7750; 7 in qca6750 (opcls_131..136). regdomain 125 names, PCL/policy_mgr 219 (7 = the same opcls objects), power 53, roam/11k/v/r 68, cfg/ini 139, rate/mcs 72: all equal in peach_v2, peach, kiwi_v2, wcn7750; qca6750 analogous (same classes, only the opcls objects differ).
+- Anonymous data (tbl_audit3): per chip 38 (qca6750 37) stock-only blobs without an identical counterpart = the weakly proven 2-5 byte OUI/IE-id blobs, 2 format/file strings with the build path, `field "..."` strings, 5 pointer switch tables; plus 1 `[DIFF]` (`reg_get_class_from_country`, 1 pointer word whose target is the placement of the empty cfis array). anon_pair2 (greedy longest match, all data sections): peach_v2, peach, kiwi_v2, wcn7750 `every non-zero byte covered`; qca6750 says `NOT PROVEN: 66 runs`, all in the two pointer tables reg_get_class_from_country / reg_chan_opclass_to_freq_auto (1-2 byte pieces between relocation fields; the hard-coded placement normalisation of the tool is for the 7 names of the other chips, qca6750 has 6): same placement artefact, jump-table check of tbl_audit3 for that table `JT-EQUIV`; send_aggr_qos_cmd_tlv table `JT-PREFIX-EQUIV` (function byte-identical, the stock chunk only includes padding of the next table).
+- Verdict: 0 content differences in the data tables of all five builds; the weak points of G22f remain (small blobs prove presence, not the reader).
+
+## 4. Not done / open
+- do_acs, lim_fill_pe_session, cm_process_join_req, allow_4th_new_freq stay byte-different (codegen); no behaviour difference found, so no source edit.
+- qca6750: 11 export CRCs differ from the stock (pre-existing, not examined here).
+- The hack builds are counts only (`#line` alignment hack, not restored code); nothing here was tested on hardware.

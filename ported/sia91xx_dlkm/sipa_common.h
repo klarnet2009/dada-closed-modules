@@ -223,7 +223,7 @@ int mievent_report(unsigned int eventid, const char *value, struct device *dev);
 bool check_smartpa_type(const char *name);
 int set_smartpa_type(const char *name, unsigned int type);
 int get_smartpa_type(void);
-void set_smartpa_codec(const char *codec_name, const char *dai_name);
+void set_smartpa_codec(struct device *dev, const char *dai_name);
 struct snd_kcontrol;
 struct snd_ctl_elem_value;
 int sipa_read_reg(struct regmap *regmap, unsigned char reg, unsigned int *val);

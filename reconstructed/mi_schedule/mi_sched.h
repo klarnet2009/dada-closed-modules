@@ -376,7 +376,7 @@ struct ls_group *find_ls_grp_by_task(struct mi_task_struct *mi_tsk);
 void APP_destory_ls_group(int pid);
 int thread_change_ls_group_auto(struct task_struct *p);
 void change_lsgroup_status(struct task_struct *p, enum MI_APP_TYPE type);
-bool mi_group_ls_group(struct task_struct *p, u64 unused);
+bool mi_group_ls_group(struct task_struct *p, int *unused);
 struct mi_default_group *alloc_mi_default_group(int id, enum MI_APP_TYPE type);
 struct mi_default_group *create_mi_default_group(struct user_struct *user);
 void free_mi_default_group(struct mi_default_group *d);

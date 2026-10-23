@@ -336,9 +336,14 @@ struct strategy_buckchg_dev {
 	int otg_temp_threshold[OTG_INCOLD_THRESHOLD_MAX];	/* +2292 */
 	int otg_soc_threshold[OTG_INCOLD_THRESHOLD_MAX];	/* +2312 */
 	int drop_fv_cycle;			/* +2332 */
+	/* GLOBAL OS4.0.0.7 (stock BTF, G14e): battery-emergency state */
+	int batt_emerg;				/* +2336: set to 1 by event BATT_EMERG (85); read in select_charg_para (G23c) */
+	bool support_batt_safe_lvl;		/* +2340: BTF name; nothing in the buckchg stock code reads or writes it (G14e: no use found) */
 };
 
-_Static_assert(sizeof(struct strategy_buckchg_dev) == 2336, "dev size");
+_Static_assert(sizeof(struct strategy_buckchg_dev) == 2344, "dev size");  /* GLOBAL 0.7 (CN 0.6: 2336) */
+_Static_assert(offsetof(struct strategy_buckchg_dev, batt_emerg) == 2336, "batt_emerg");
+_Static_assert(offsetof(struct strategy_buckchg_dev, support_batt_safe_lvl) == 2340, "support_batt_safe_lvl");
 _Static_assert(sizeof(struct strategy_buckchg_proc_data) == 80, "proc size");
 _Static_assert(offsetof(struct strategy_buckchg_dev, proc_data) == 336, "proc_data");
 _Static_assert(offsetof(struct strategy_buckchg_dev, monitor_work) == 560, "monitor_work");

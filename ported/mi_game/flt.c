@@ -85,9 +85,11 @@ void mi_set_flt_target_delta(int delta)
 }
 EXPORT_SYMBOL_GPL(mi_set_flt_target_delta);
 
+static struct frame_load_items *focused_frame_load;	/* G14c: tentative declaration, defined below in the stock order */
+
 void flt_update_fence_pending(void)
 {
-	if (!flt_fence_enable)
+	if (!flt_fence_enable || !focused_frame_load)
 		return;
 	global_frame_info.fence_pending = 1;
 	irq_work_queue(&global_frame_info.irq);
@@ -96,7 +98,7 @@ void flt_update_fence_pending(void)
 void flt_update_gpu(s64 t)
 {
 	global_frame_info.fence_pending = 0;
-	if (!flt_gpu_enable)
+	if (!flt_gpu_enable || !focused_frame_load)
 		return;
 	global_frame_info.gpu_time = t;
 	target_runtime1 -= t;
@@ -337,13 +339,12 @@ static int cpu_load_show(struct seq_file *m, void *v)
 	for (c = 0; c < cluster_number; c++) {
 		seq_printf(m, "---cluster %d--- \n", c);
 		for_each_cpu(cpu, &cluster_cpumask[c]) {
-			u64 rt = per_cpu(load_info, cpu).rt[0];
-
 			if (window <= 1)
 				window = 1;
+			/* g62a: the stock reads rt[0] twice (once for the debug printk, again for the division: S+118 / S+f0) */
 			if (global_frame_info.debug)
-				printk(KERN_ERR "flt: sum_exec_runtime:%llu,%lu", rt, (unsigned long)window);
-			seq_printf(m, "%9lu \t", (unsigned long)div_u64(rt, window));
+				printk(KERN_ERR "flt: sum_exec_runtime:%llu,%lu", per_cpu(load_info, cpu).rt[0], (unsigned long)window);
+			seq_printf(m, "%9lu \t", (unsigned long)div_u64(per_cpu(load_info, cpu).rt[0], window));
 		}
 		seq_printf(m, "\n");
 	}
@@ -413,10 +414,10 @@ static struct ctl_table frame_load_table[] __used = {
 void mist_frame_load_exit(void)
 {
 	irq_work_sync(&global_frame_info.irq);
-	unregister_plat_func(31);
-	unregister_plat_func(32);
-	unregister_plat_func(34);
-	unregister_plat_func(33);
+	unregister_plat_func(35);	/* G14c: ids 31..34 of the CN stock moved to 35..38 (4 hooks inserted in the global plat_common) */
+	unregister_plat_func(36);
+	unregister_plat_func(38);
+	unregister_plat_func(37);
 	unregister_sysctl_table(global_frame_info.header);
 	global_frame_info.header = NULL;
 }
@@ -453,7 +454,7 @@ static void mi_force_update_freq(unsigned int freq);
 extern void get_wakeup_info(struct task_struct *p);
 extern struct mi_game_task *get_gt_task(struct task_struct *p);
 extern u64 get_scale_exec_time(u64 delta, int cpu, void *wts);
-extern int is_new_task(struct task_struct *p);
+extern bool is_new_task(struct task_struct *p);
 extern int cpu_is_waiting_on_io(void *rq);
 #define TASK_U64(p, off)	(*(u64 *)((u8 *)(p) + (off)))
 #define TASK_U8(p, off)		(*(u8 *)((u8 *)(p) + (off)))
@@ -466,6 +467,11 @@ struct waltgov_callback {
 	void (*func)(struct waltgov_callback *cb, u64 time, unsigned int flags);
 };
 DECLARE_PER_CPU(struct waltgov_callback *, waltgov_cb_data);
+/* G14c: struct waltgov_cpu / waltgov_policy of the vendor walt governor (new import of the global stock); only the two fields read by
+ * mi_force_update_freq are declared: waltgov_cpu.wg_policy (+8), walt_load.ws at +0x30, and waltgov_policy.last_ws at +8 (offsets PROVEN by the sched-walt printk, G14i review) */
+struct waltgov_policy { u64 f0; u64 last_ws; };
+struct waltgov_cpu { struct waltgov_callback *cb; struct waltgov_policy *wg_policy; u8 pad[0x20]; u64 walt_load_ws; };
+DECLARE_PER_CPU(struct waltgov_cpu, waltgov_cpu);
 /* waltgov_run_callback() of the vendor walt scheduler: the cpu index comes from rq->cpu */
 static __always_inline void waltgov_run_callback(void *rq, unsigned int flags)
 {
@@ -576,7 +582,7 @@ unsigned long get_frame_vutil(u64 delta)
 
 	if (tgt >= 100 && max_time >= delta_ms) {
 		tmp = 1024U / max_time + delta_ms;
-		if (tmp - max_time > 0)
+		if (tmp > max_time)	/* g64a: stock compares tmp > max_time (subs/b.le), no wrapped difference */
 			vutil = (long)(int)((tmp - max_time) * delta_ms);
 		else
 			vutil = 0;
@@ -749,14 +755,17 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 			   unsigned long next_freq, unsigned int adaptive_low_freq, unsigned int adaptive_high_freq,
 			   unsigned int reasons)
 {
-	unsigned long target = 0, frame_load = 0, capacity;
+	/* g62a: the stock keeps target in a w register: next_freq is truncated to 32 bits (S+3e0/5b0, `mov w25,w25` at out) */
+	unsigned int target = 0;
+	unsigned long frame_load = 0, capacity;
 	u64 max_load = 0, flt_load = 0, frame_period;
-	unsigned int cl, last, lo, hi, low, avg, t, rs;
+	unsigned int cl, last, lo, hi, low, avg, t, rs, max_freq;
 
 	if (!global_frame_info.enable || !flt_target_fps)
 		return 0;
 	last = global_frame_info.cur_idx ? global_frame_info.cur_idx - 1 : 20;
 	cl = per_cpu(load_info, policy->cpu).f32;
+	max_freq = policy->cpuinfo.max_freq;	/* g62a: read once on entry in the stock (S+80) */
 	if (flt_render_hook && cl == flt_render_cluster)
 		return 0;
 	FLT_ITEM(last).real_util[cl] = cpu_util;
@@ -787,7 +796,7 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 			if (force_frame_boost)
 				cpu_util = max(frame_load, cpu_util);
 			flt_load = cpu_util * 100 / max;
-			t = flt_load * policy->cpuinfo.max_freq / 100;
+			t = flt_load * max_freq / 100;
 			target = flt_add_margin(t);
 			goto out;
 		}
@@ -805,7 +814,7 @@ unsigned long flt_cal_freq(struct cpufreq_policy *policy, unsigned long cpu_util
 		if (global_frame_info.debug)
 			printk(KERN_ERR "flt: flt_load, %llu, set to soft_minfreq\n", flt_load);
 	}
-	t = flt_load * policy->cpuinfo.max_freq / 100;
+	t = flt_load * max_freq / 100;
 	t = flt_add_margin(t);
 	if (cal_cur_cid == cl && new_render_frame < flt_new_render_cal_thresh) {
 		target = t;
@@ -886,7 +895,7 @@ after_clamp:
 	}
 out:
 	capacity = RQ_CAPACITY(per_cpu_ptr(&runqueues, policy->cpu));
-	trace_flt_cal_freq_mark(policy->cpu, frame_load, max_load, cpu_util, target, flt_load, max, capacity,
+	trace_flt_cal_freq_mark(policy->cpu, max_load, frame_load, cpu_util, target, flt_load, max, capacity,
 				render_scaling, adaptive_low_freq, adaptive_high_freq, next_freq);
 	return target;
 }
@@ -952,7 +961,7 @@ static void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_
 		mrq->frame_start = frame_start;
 		if (GFI_U32(0x28))
 			printk(KERN_ERR "flt: new frame---> pid %3d comm %16s rq %d frame_start %llu frame_period %llu aging %d\n",
-			       p->pid, p->comm, cpu, frame_start, period, 10);
+			       p->pid, p->comm, cpu, frame_start, period, frame_start - mark_start >= period);	/* G22b: stock prints w6 = cset hs of (frame_start - mark_start) >= period, not the constant 10 */
 		c = 10;
 	}
 	if (!cpu_busy)
@@ -962,7 +971,9 @@ static void update_cpu_frame_load(struct task_struct *p, void *rq, struct frame_
 
 		if (curr == p && irqtime && (TASK_U8(p, 0x44) & 2) && !cpu_is_waiting_on_io(rq)) {
 			/* the stock re-tests the flag here and BUG()s (brk #0x800) when it is gone; no new-task accounting on this path */
+#line 965 "kernel/sched/xiaomi_sched/qcom/mi_game/flt.c"
 			BUG_ON(!(TASK_U8(p, 0x44) & 2));
+#line 975 "flt.c"
 			if (frame_start < wallclock - irqtime) {
 				d = get_scale_exec_time(irqtime, cpu, TASK_WTS(p));
 				mrq->cur_frame_load.exec += d;
@@ -1045,7 +1056,7 @@ void update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat,
 {
 	struct frame_args fa;
 	struct mi_game_task *gt;
-	u64 frame_start, mark_start, period, d;
+	u64 frame_start, mark_start, period, d, bt;
 	int cpu, idx;
 
 	if (!GFI_U32(0x20) || !flt_target_fps || !GFI_U64(8))
@@ -1058,11 +1069,12 @@ void update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat,
 	fa.task_busy = (fstat >> 2) & 1;
 	fa.cpu_busy = (fstat >> 1) & 1;
 	fa.waiting_on_io = (fstat >> 3) & 1;
-	if (flt_preboost_enable && binder_time) {
+	/* g62a: the stock tests mark_start against the binder_time read of this test (S+c0/dc) and re-reads it for the value (S+e4) */
+	if (flt_preboost_enable && (bt = binder_time)) {
 		gt = get_gt_task(p);
 		if (gt) {
 			if (fa.task_busy) {
-				u64 st = WTS_MARK_START(p) < binder_time ? binder_time : WTS_MARK_START(p);
+				u64 st = WTS_MARK_START(p) < bt ? binder_time : WTS_MARK_START(p);
 
 				d = wallclock - st;
 				if (gt->type & 0x100)
@@ -1133,7 +1145,6 @@ static __always_inline int update_avg_freq(struct frame_load_items *cur, u64 now
 		int d, delta_ms;
 		u64 delta, s0, s1, sum_avg;
 		u32 avg;
-		int n;
 
 		if (GFI_U32(0x28) == 33)
 			printk(KERN_INFO "flt: sum_history_margin %d, history_margin %d %s", sum_hm, hm, __func__);
@@ -1155,8 +1166,8 @@ static __always_inline int update_avg_freq(struct frame_load_items *cur, u64 now
 		    (sum_hm + flt_down_thresh_margin < 0 ? flt_target_delta - flt_down_thresh_margin : flt_target_delta + sum_hm);
 		s0 = sum_freq_rt[j][0];
 		s1 = sum_freq_rt[j][1];
-		n = !!s0 + !!s1;
-		delta_ms = n * flt_target_delta;
+		cnt = !!s0 + !!s1;	/* G48a: stock reuses w27 (cnt): cluster j >= 1 takes sum_history_margin with the count of cluster j-1 (madd S+228, cinc S+35c) */
+		delta_ms = cnt * flt_target_delta;
 		sum_avg = div64_u64(s0 + s1, (u64)((s64)delta_ms * 10000));
 		cur->sum_avg_freq[j] = min(avg, (u32)sum_avg);
 		if (GFI_U32(0x28) == 33)
@@ -1177,6 +1188,7 @@ void update_flt_load(struct frame_load_items *cur)
 {
 	unsigned int scale;
 	u64 window, quot, rem;
+	unsigned long capacity = 0; /* G20b: the stock keeps the last cpu's capacity across clusters (x21 is not reset per cluster) */
 	int c, cpu;
 
 	if (smp_load_acquire(&flt_in_frame_boost))
@@ -1190,7 +1202,6 @@ void update_flt_load(struct frame_load_items *cur)
 	for (c = 0; c < cluster_number; c++) {
 		u64 max_load = 0, util;
 		unsigned long cpu_util;
-		unsigned long capacity = 0;
 
 		for_each_cpu(cpu, &cluster_cpumask[c]) {
 			u64 load = per_cpu(load_info, cpu).rt[0];
@@ -1198,19 +1209,20 @@ void update_flt_load(struct frame_load_items *cur)
 			capacity = RQ_CAPACITY(per_cpu_ptr(&runqueues, cpu));
 			max_load = max(max_load, load);
 			if (GFI_U32(0x28))
-				printk(KERN_INFO "flt: cpu %i capacity %lu cpu_load %llu max_load %llu cpu_util %llu \t", cpu,
-				       capacity, load, max_load, div_u64(load, (u32)window));
-			else if (flt_ftrace_debug == 0x220)
+				printk(KERN_ERR "flt: cpu %i capacity %lu cpu_load %llu max_load %llu cpu_util %llu \t", cpu,
+				       capacity, load, max_load, div_u64(load, (u32)GFI_U64(0x50)));
+			if (flt_ftrace_debug == 0x220) /* G20b: stock: printk and trace_printk are independent (the printk path falls into the 0x220 test) */
 				trace_printk("cpu %i capacity %lu cpu_load %llu max_load %llu cpu_util %llu \n", cpu, capacity,
-					     load, max_load, div_u64(load, (u32)window));
+					     load, max_load, div_u64(load, (u32)GFI_U64(0x50)));
 		}
-		util = div_u64(max_load, (u32)window);
+		/* G23a D2: stock re-reads the window (GFI+0x50) at each use (printk f13c/f1c0, util f258); `window` is only the scale input */
+		util = div_u64(max_load, (u32)GFI_U64(0x50));
 		if (flt_trigger_source == 1)
 			util = util * quot + ((util * rem) >> 10);
 		cpu_util = min_t(u64, capacity, util);
 		cur->cap_states[c].cpu_util = cpu_util;
 		if (GFI_U32(0x28))
-			printk(KERN_INFO "flt: cluter %d cpu_util %lu, target_frame_sclaing %d\t", c, cpu_util, scale);
+			printk(KERN_ERR "flt: cluter %d cpu_util %lu, target_frame_sclaing %d\t", c, cpu_util, scale);
 		trace_update_flt_load_mark(c, cpu_util, max_load, GFI_U64(0x58));
 	}
 }
@@ -1245,10 +1257,18 @@ static void mi_force_update_freq(unsigned int flags)
 		return;
 	list_for_each_entry_rcu(cluster, &cluster_head, list) {
 		raw_spinlock_t *lock;
+		struct waltgov_cpu *wgc;
+		struct waltgov_policy *wgp;
 		int cpu;
 
 		cpu = cpumask_first(&cluster->cpus);
 		if (cpu >= nr_cpu_ids)
+			continue;
+		wgc = per_cpu_ptr(&waltgov_cpu, cpu);	/* G14c: skip a cluster whose governor is not set up or whose cpu window (walt_load.ws) is older than the policy last_ws */
+		wgp = smp_load_acquire(&wgc->wg_policy);
+		if (!wgp)
+			continue;
+		if ((s64)(smp_load_acquire(&wgc->walt_load_ws) - smp_load_acquire(&wgp->last_ws)) < 0)
 			continue;
 		lock = (raw_spinlock_t *)per_cpu_ptr(&runqueues, cpu);
 		if (lock == (raw_spinlock_t *)this_cpu_ptr(&runqueues)) {
@@ -1366,7 +1386,7 @@ void mist_frame_load_reset(void)
 		frame_tperiod = t < 29 ? flt_tperiod_map[t] : 33333333;
 	}
 	GFI_U64(0x58) = (u32)frame_tperiod;
-	GFI_U64(0x50) = frame_tperiod >> 10;
+	GFI_U64(0x50) = (u32)frame_tperiod >> 10;	/* G20b: stock ubfx #10,#22 = 32-bit shift */
 	global_frame_info.cur_idx = 0;
 	for (c = 0; c < cluster_number; c++) {
 		for_each_cpu(cpu, &cluster_cpumask[c]) {
@@ -1416,16 +1436,17 @@ int mist_frame_load_init(void)
 	}
 	cluster_number = n;
 	GFI_U32(0) = 0;
-	BUG_ON(global_frame_info.header);
-	global_frame_info.dir = NULL;
+#line 2258 "kernel/sched/xiaomi_sched/qcom/mi_game/flt.c"
+	WARN_ON(global_frame_info.header);
+#line 1439 "flt.c"
 	init_irq_work(&global_frame_info.irq, flt_irq_work);
 	global_frame_info.header = register_sysctl_sz("migt", frame_load_table, 8);
-	register_plat_func(31, update_frame_load);
-	register_plat_func(32, flt_enable);
-	register_plat_func(34, mi_force_update_freq);
-	register_plat_func(33, get_wakeup_info);
+	register_plat_func(35, update_frame_load);
+	register_plat_func(36, flt_enable);
+	register_plat_func(38, mi_force_update_freq);
+	register_plat_func(37, get_wakeup_info);
 	android_rvh_probe_register(&__tracepoint_android_rvh_cpufreq_transition, android_rvh_cpufreq_transition, NULL);
-	GFI_U32(0) = 1;
+	GFI_U32(0x20) = 1;	/* G56a: the stock sets the enable word (+0x20) here, not +0 (x57: store to global_frame_info+32 vs +0) */
 	printk(KERN_ERR "flt: frame load init success\n");
 	return 0;
 }

@@ -162,7 +162,8 @@ static int idletimer_resume(struct notifier_block *notifier, unsigned long pm_ev
 	return NOTIFY_DONE;
 }
 
-void reset_timer(struct mi_idletimer_tg * const info_timer, const __u32 info_timeout, int *puid)
+/* static in the stock source (ThinLTO-promoted there: it is reached from minet_tc.c only through the imported mi_idletimer_tg_target_v1) */
+static void reset_timer(struct mi_idletimer_tg * const info_timer, const __u32 info_timeout, int *puid)
 {
 	unsigned long now = jiffies;
 	bool timer_prev;

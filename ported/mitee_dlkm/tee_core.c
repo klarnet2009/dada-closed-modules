@@ -1288,7 +1288,7 @@ int mitee_tee_init(void)
 {
 	int rc;
 
-
+	pr_info("mitee tee init\n");
 	tee_class = class_create("tee");
 	if (IS_ERR(tee_class)) {
 		pr_err("couldn't create class\n");
@@ -1306,7 +1306,6 @@ int mitee_tee_init(void)
 		pr_err("failed to register tee bus\n");
 		goto out_unreg_chrdev;
 	}
-	pr_info("mitee tee init\n");
 
 	return 0;
 

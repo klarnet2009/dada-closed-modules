@@ -1,0 +1,38 @@
+"""ndiff.py: stdin = fgq.sh output (unified diffs); re-diffs each function after masking sp offsets / frame sizes"""
+import sys,re,difflib
+txt=sys.stdin.read().split('\n')
+def norm(l):
+    l=re.sub(r'\[sp(, #0x[0-9a-f]+)?\]','[sp,#N]',l)
+    l=re.sub(r'(add\s+x\d+, sp, )#0x[0-9a-f]+',r'\1#N',l)
+    l=re.sub(r'(sub|add)\tsp, sp, #0x[0-9a-f]+',r'\1 sp,sp,#N',l)
+    l=re.sub(r'\[x29, #-?0x[0-9a-f]+\]','[x29,#N]',l)
+    l=re.sub(r'(stp|ldp)\t(x\d+), (x\d+), \[sp.*','\1 pair',l)
+    l=re.sub(r'(str|ldr)\t(x\d+), \[sp.*','\1 reg',l)
+    return l
+cur=None;S=[];M=[];name=''
+def ren(L):
+    mp={}
+    out=[]
+    for l in L:
+        def f(m):
+            r=m.group(2)
+            if r in('29','30'): return m.group(0)
+            if r not in mp: mp[r]=str(len(mp))
+            return 'R'+mp[r]
+        out.append(re.sub(r'(?<![0-9a-zA-Z#])([wx])([0-9]+)(?![0-9a-zA-Z])',f,l))
+    return out
+def flush():
+    if not name: return
+    a=ren([norm(x) for x in S]);b=ren([norm(x) for x in M])
+    d=[x for x in difflib.unified_diff(a,b,lineterm='',n=int(sys.argv[1]) if len(sys.argv)>1 else 2)][2:]
+    print('=== %s: normalized diff lines: %d'%(name,len([x for x in d if x[0] in '+-'])))
+    print('\n'.join(d[:int(sys.argv[2]) if len(sys.argv)>2 else 80]))
+for l in txt:
+    if l.startswith('=== '):
+        flush(); name=l[4:].split(':')[0]; S=[];M=[]; continue
+    if l.startswith('@@'): continue
+    if not name: continue
+    if l.startswith('-'): S.append(l[1:])
+    elif l.startswith('+'): M.append(l[1:])
+    elif l.startswith(' '): S.append(l[1:]);M.append(l[1:])
+flush()

@@ -647,7 +647,7 @@ static const struct proc_ops proc_get_log_ops = {
 	.proc_lseek = default_llseek,
 };
 
-static const struct proc_ops proc_debug_into_D_ops = {
+static const struct proc_ops debug_into_D_ops = {
 	.proc_read = debug_into_D_read,
 	.proc_write = debug_into_D_write,
 	.proc_lseek = default_llseek,
@@ -674,7 +674,7 @@ int init_D_task(struct proc_dir_entry *parent)
 	p1 = proc_create("detect_list", 0664, d_task_entry, &proc_detect_list_ops);
 	p2 = proc_create("ignore_list", 0664, d_task_entry, &proc_ignore_list_ops);
 	p3 = proc_create("get_log", 0664, d_task_entry, &proc_get_log_ops);
-	p4 = proc_create("debug_into_D", 0664, d_task_entry, &proc_debug_into_D_ops);
+	p4 = proc_create("debug_into_D", 0664, d_task_entry, &debug_into_D_ops);
 	if (!p1 || !p2 || !p3 || !p4) {
 #line 758
 		DTASK_ERR("dtask sub proc create failed!\n");

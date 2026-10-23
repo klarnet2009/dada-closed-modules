@@ -1,0 +1,5 @@
+load("/<build-dir>", "ddk_headers")
+package(default_visibility = ["//re:__subpackages__"])
+
+# g14e: GLOBAL OS4.0.0.7 variant of stubs_g13d_g2k (events 84/85, charger_partition info_1 68 B, fg ops +dynamic_fv/+batt_sn, smart_charge export). Previous: g13d copy of stubs_g2k with mca_event.h / mca_charge_mievent.h replaced by the OS4 stock BTF enums (names and values authoritative, no G2 compat names). Community-only.
+ddk_headers(name = "mca_headers", hdrs = glob(["include/**/*.h"]), includes = ["include"])

@@ -426,7 +426,7 @@ static void aw882xx_start_pa(struct aw882xx *aw882xx)
 	int ret;
 	int i;
 
-	aw_dev_info(aw882xx->dev, "enter, phase_sync=%d", aw882xx->phase_sync);
+	aw_dev_info(aw882xx->dev, "enter");
 
 	if (aw882xx->fw_status == AW_DEV_FW_OK) {
 		#ifndef OPLUS_FEATURE_SPEAKER_MUTE
@@ -1167,7 +1167,7 @@ static int aw882xx_algo_auth_tlv_rw(struct snd_kcontrol *kcontrol, int op_flag,
 	aw_snd_soc_codec_t *codec = aw_componet_codec_ops.kcontrol_codec(kcontrol);
 	struct aw882xx *aw882xx = aw_componet_codec_ops.codec_get_drvdata(codec);
 
-	struct aw_device *aw_pa = aw882xx->aw_pa;
+	struct aw_device *aw_pa;
 	struct algo_auth_data algo_data;
 
 	aw_dev_dbg(aw882xx->dev, "op_flag = [%d]", op_flag);
@@ -1187,6 +1187,7 @@ static int aw882xx_algo_auth_tlv_rw(struct snd_kcontrol *kcontrol, int op_flag,
 		aw_dev_dbg(aw882xx->dev, "get algo auth data");
 		memset(&algo_data, 0x0, sizeof(struct algo_auth_data));
 
+		aw_pa = aw882xx->aw_pa;
 		aw882xx_dev_algo_auth_get(aw_pa, &algo_data);
 
 		if (copy_to_user((void __user *)tlv, (char *)&algo_data, size))
@@ -1197,6 +1198,7 @@ static int aw882xx_algo_auth_tlv_rw(struct snd_kcontrol *kcontrol, int op_flag,
 		if (copy_from_user(&algo_data, (void __user *)tlv, size))
 			ret = -EFAULT;
 
+		aw_pa = aw882xx->aw_pa;
 		aw882xx_dev_algo_auth_set(aw_pa, &algo_data);
 		break;
 	default:
@@ -1432,9 +1434,9 @@ static void aw882xx_request_firmware(struct work_struct *work)
 			ACF_BIN_NAME, cont ? cont->size : 0);
 
 	mutex_lock(&g_aw882xx_lock);
-	if (g_awinic_cfg == NULL) {
+	if (__builtin_expect_with_probability(g_awinic_cfg == NULL, 1, 0.5)) {
 		aw_cfg = vzalloc(cont->size + sizeof(int));
-		if (aw_cfg == NULL) {
+		if (__builtin_expect_with_probability(aw_cfg == NULL, 1, 0.9)) {
 			release_firmware(cont);
 			aw_dev_err(aw882xx->dev, "malloc failed");
 			mutex_unlock(&g_aw882xx_lock);
@@ -1462,7 +1464,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 	mutex_lock(&aw882xx->lock);
 	/*aw device init*/
 	ret = aw882xx_dev_init(aw882xx->aw_pa, aw_cfg);
-	if (ret < 0) {
+	if (__builtin_expect_with_probability(ret < 0, 1, 0.5)) {
 		aw_dev_info(aw882xx->dev, "dev init failed");
 		mutex_unlock(&aw882xx->lock);
 		return;
@@ -1470,6 +1472,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 
 	/*create kcontrol by profile*/
 	aw882xx_dynamic_create_controls(aw882xx);
+	aw_dev_info(aw882xx->dev, "add dynamic controls done");
 
 	aw882xx->fw_status = AW_DEV_FW_OK;
 	aw882xx->fw_retry_cnt = 0;
@@ -2327,7 +2330,7 @@ static const struct snd_soc_codec_driver soc_codec_dev_aw882xx = {
 };
 #endif
 
-static __always_inline int aw_componet_codec_register(struct aw882xx *aw882xx)
+static __always_inline int aw_componet_codec_register(struct aw882xx *aw882xx, struct snd_soc_dai_driver **dai_out)
 {
 	int ret = 0;
 	struct snd_soc_dai_driver *dai_drv = NULL;
@@ -2356,6 +2359,7 @@ static __always_inline int aw_componet_codec_register(struct aw882xx *aw882xx)
 			dev_name(aw882xx->dev));
 	}
 
+	*dai_out = dai_drv;
 	return 0;
 }
 /*****************************************************
@@ -2795,8 +2799,7 @@ static int aw882xx_awrw_write(struct aw882xx *aw882xx, const char *buf, size_t c
 
 	for (i = 0; i < data_len; i++) {
 		if (sscanf(buf + AWRW_HDR_LEN + 1 + i * 5, "0x%02x", &temp_data) == 1) {
-			reg_data[i] = temp_data;
-			aw_dev_dbg(aw882xx->dev, "[%d] : 0x%02x", i, reg_data[i]);
+			*reg_data++ = temp_data;
 		} else {
 			kfree(data_buf);
 			data_buf = NULL;
@@ -2915,11 +2918,11 @@ static ssize_t awrw_show(struct device *dev,
 	}
 
 	data_len = AWRW_DATA_BYTES * packet->reg_num;
-	reg_data = kzalloc(data_len, GFP_KERNEL);
+	reg_data = kmalloc(data_len, GFP_KERNEL); /* G40g: stock __kmalloc(GFP_KERNEL), not zeroed */
 	if (reg_data == NULL)
 		return -ENOMEM;
 
-	ret = aw882xx_i2c_reads(aw882xx, packet->reg_addr, (char *)reg_data, data_len);
+	ret = aw882xx_i2c_reads(aw882xx->i2c, packet->reg_addr, (char *)reg_data, data_len); /* G40g: was passing struct aw882xx as the i2c_client (stock: aw882xx->i2c at +0x40) */
 	if (ret < 0) {
 		ret = -EFAULT;
 		goto exit;
@@ -3358,7 +3361,7 @@ static int oplus_aw_fpga_state_change(struct notifier_block *nb, unsigned long e
 /* g3n: machine_dlkm exports used by the stock probe (stub providers in stubs_a17C; prototype of set_smartpa_codec is a GUESS) */
 bool check_smartpa_type(const char *name);
 int set_smartpa_type(const char *name, unsigned int type);
-void set_smartpa_codec(const char *codec_name, const char *dai_name);
+void set_smartpa_codec(struct device *dev, const char *dai_name);
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 6, 0))
 static int aw882xx_i2c_probe(struct i2c_client *i2c)
@@ -3369,6 +3372,7 @@ static int aw882xx_i2c_probe(struct i2c_client *i2c,
 {
 	int ret;
 	struct aw882xx *aw882xx = NULL;
+	struct snd_soc_dai_driver *dai_drv;
 	struct device_node *np = i2c->dev.of_node;
 
 	aw_pr_info("enter addr=0x%x", i2c->addr);
@@ -3444,12 +3448,12 @@ static int aw882xx_i2c_probe(struct i2c_client *i2c,
 	aw882xx_interrupt_init(aw882xx);
 
 	/*codec register*/
-	ret = aw_componet_codec_register(aw882xx);
+	ret = aw_componet_codec_register(aw882xx, &dai_drv);
 	if (ret) {
 		aw_dev_err(&i2c->dev, "codec register failde");
 		return ret;
 	}
-	set_smartpa_codec(dev_name(&i2c->dev), "aw882xx-aif");	/* GUESS: arguments, the stock passes a codec/dai name from the registered dai */
+	set_smartpa_codec(aw882xx->dev, dai_drv[0].name);	/* g3w: stock passes aw882xx->dev and the name of dai_drv[0] (kept in a callee-saved register) */
 
 	/*create attr*/
 	ret = sysfs_create_group(&i2c->dev.kobj, &aw882xx_attribute_group);

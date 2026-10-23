@@ -102,7 +102,7 @@ enum platform_class_cp_pmid_error_stat { CP_PMID_ERROR_OK = 0, CP_PMID_ERROR_LOW
 #define MCA_QUICK_CHG_DIV2_VOLT_TH_LOW 6000
 #define MCA_QUICK_CHG_DIV1_VOLT_TH_HIGH 4500
 #define MCA_QUICK_CHG_DIV1_VOLT_TH_LOW 3600
-#define MCA_QUICK_CHG_DIV4_MAX_VOLT 20000
+#define MCA_QUICK_CHG_DIV4_MAX_VOLT 21000 /* G20d: stock cap 21000, no ratio */
 #define MCA_QUICK_CHG_DIV2_MAX_VOLT 11000
 #define MCA_QUICK_CHG_DIV1_MAX_VOLT 5500
 #define MCA_QUICK_CHG_VBAT_MAX 5000
@@ -548,7 +548,7 @@ struct mca_quick_charge_info {
 	struct mca_votable *buck_charge_enable_voter;
 	struct mca_votable *buck_charge_curr_voter;
 	struct mca_votable *buck_vterm_voter;
-	struct mca_votable *curr_max_voter;
+	struct mca_votable *curr_max_voter;	/* +0x30: NEVER assigned in the GLOBAL 0.7 stock (nor here), so the 'batt_safe' vote on it is a no-op (G17b, D3) */
 	struct delayed_work monitor_work;		/* +56, GUESS-NAME */
 	struct delayed_work pps_ptf_work;
 	struct delayed_work vfc_work;
@@ -699,9 +699,30 @@ struct mca_quick_charge_info {
 	int eu_ibus_max;
 	bool switch_normal;
 	int curr_max;
+	/* GLOBAL OS4.0.0.7 tail (+3168..3207, names/offsets from the global BTF; types of the 1-byte fields GUESSED as bool).
+	 * Only batt_safe_active (+3192, byte), batt_emerg (+3196, int) and support_batt_safe_lvl (+3200, byte) are used by the
+	 * stock code; the other fields have no reader or writer in the stock module (not set from any DT key here). */
+	bool support_100w_enable_loadsw;	/* +3168 */
+	bool loadsw_enable;			/* +3169 */
+	bool pmic_cp_overtemp;			/* +3170 */
+	bool adp_cc_max;			/* +3171 */
+	bool adp_cc_max_90;			/* +3172 */
+	bool adp_cc_max_95;			/* +3173 */
+	bool adapt_cc_mode;			/* +3174 */
+	bool first_five_data;			/* +3175 */
+	int support_charge_after_cap_change;	/* +3176 */
+	int cp_overtemp_threshold;		/* +3180 */
+	int cp_overtemp_fcc_limit;		/* +3184 */
+	int first_rbus;				/* +3188 */
+	bool batt_safe_active;			/* +3192 */
+	int batt_emerg;				/* +3196 */
+	bool support_batt_safe_lvl;		/* +3200 */
 };
 
-_Static_assert(sizeof(struct mca_quick_charge_info) == 3168, "info size");
+_Static_assert(sizeof(struct mca_quick_charge_info) == 3208, "info size");
+_Static_assert(offsetof(struct mca_quick_charge_info, batt_safe_active) == 3192, "batt_safe_active");
+_Static_assert(offsetof(struct mca_quick_charge_info, batt_emerg) == 3196, "batt_emerg");
+_Static_assert(offsetof(struct mca_quick_charge_info, support_batt_safe_lvl) == 3200, "support_batt_safe_lvl");
 _Static_assert(sizeof(struct mca_quick_charge_process_data) == 712, "proc size");
 _Static_assert(sizeof(struct mca_quick_charge_sysfs_data) == 92, "sysfs size");
 _Static_assert(sizeof(struct mca_quick_charge_volt_step_ex_para) == 24, "vstep_ex size");

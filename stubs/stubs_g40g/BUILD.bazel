@@ -1,0 +1,7 @@
+load("/<build-dir>", "ddk_module")
+package(default_visibility = ["//re:__subpackages__"])
+
+# g15c: private copy of the machine_dlkm stub of stubs_a17C with the real set_smartpa_codec(struct device *, const char *)
+# prototype and a genksyms-only CRC pad (export CRC 0x77aedcd7 == stock). Headers come from the shared stubs_a17C package.
+ddk_module(name = "stub_machine", srcs = ["stub_machine.c"], out = "machine_dlkm.ko", kernel_build = "//common:kernel_aarch64",
+           deps = ["//re/stubs_a17C:a17C_headers", "//common:all_headers_aarch64"])

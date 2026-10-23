@@ -204,7 +204,7 @@ void matt_inet6_udp_conf_init(struct sock *sk, struct udp_port_cfg *conf, union 
 	conf->use_udp6_rx_checksums = 1;
 	conf->local_udp_port = a->v6.sin6_port;
 	conf->ipv6_v6only = sk->sk_ipv6only;
-#line 101
+#line 100
 	MATT_TRACE(0, 9, "v6 only:%d port:%d any:%d %pI6c:%d", sk->sk_ipv6only, ntohs(a->v6.sin6_port),
 		   matt_is_any_addr2(a) != 0, &a->v6.sin6_addr, ntohs(a->v6.sin6_port));
 }

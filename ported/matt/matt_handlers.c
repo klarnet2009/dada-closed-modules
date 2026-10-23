@@ -50,7 +50,7 @@ void matt_reo_timer_handler(struct sock *sk)
 
 	matt_rack_detect_loss(sk, &reo_timeout);
 	if (prior_inflight != matt_packets_in_flight(oq)) {
-#line 119
+#line 118
 		MATT_TRACE(0, 8, "timeout: sk: %p prior_inflight:%u matt_packets_in_flight: %u", sk, prior_inflight,
 			   matt_packets_in_flight(oq));
 		matt_xmit_retransmit_queue(sk);

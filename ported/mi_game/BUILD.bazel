@@ -10,5 +10,5 @@ ddk_module(
     visibility = ["//re:__subpackages__"],
     kernel_build = "//common:kernel_aarch64",
     includes = ["."],
-    deps = ["//re/stubs_g1p/os4:os4_vip_sched", "//re/stubs_g1/os4:os4_sched-walt", "//re/stubs_g1/os4:os4_plat_common", "//re/stubs_g1/os4:os4_mist", "//common:all_headers_aarch64"],
+    deps = ["//re/stubs_g14c/os4:os4_vip_sched", "//re/stubs_g14c/os4:os4_sched-walt", "//re/stubs_g14c/os4:os4_plat_common", "//re/stubs_g14c/os4:os4_mist", "//common:all_headers_aarch64"],  # G14c: stubs generated from the GLOBAL OS4.0.0.7 providers (<build-dir> gen_stubs.py)
 )

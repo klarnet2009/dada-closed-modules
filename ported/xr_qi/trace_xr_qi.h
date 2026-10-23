@@ -908,31 +908,6 @@ TRACE_EVENT(qi_rcu_uninherit,
 	TP_printk("rcu uninherit: ret=%d pid=%d static_qos=%u dyn_qos=%u lock=%lu", __entry->ret, __entry->pid, __entry->static_qos, __entry->dyn_qos, __entry->lock)
 );
 
-TRACE_EVENT(qi_rwsem_reader_retry_lock,
-
-	TP_PROTO(struct rw_semaphore *sem, struct task_struct *task, u32 task_qos, const char *info),
-
-	TP_ARGS(sem, task, task_qos, info),
-
-	TP_STRUCT__entry(
-		__field(void *,	sem)
-		__field(pid_t,	task_pid)
-		__field(int,	task_prio)
-		__field(u32,	task_qos)
-		__array(char,	info,	32)
-	),
-
-	TP_fast_assign(
-		__entry->sem = sem;
-		__entry->task_pid = task ? task->pid : -1;
-		__entry->task_prio = task ? task->prio : -1;
-		__entry->task_qos = task_qos;
-		strscpy(__entry->info, info, sizeof(__entry->info));
-	),
-
-	TP_printk("sem=%p pid=%d prio=%d qos=%u info=%s", __entry->sem, __entry->task_pid, __entry->task_prio, __entry->task_qos, __entry->info)
-);
-
 #endif /* _TRACE_XR_QI_H */
 
 #undef TRACE_INCLUDE_PATH

@@ -14,7 +14,7 @@ static __used unsigned int choose_cluster_disable;
 static __used unsigned int fps_mexec_update_policy;
 unsigned int vip_task_schedboost;  /* raw object: type not recovered yet */
 unsigned int migt_item_index;  /* raw object: type not recovered yet */
-unsigned int force_forbidden_walt_lb;
+int force_forbidden_walt_lb;	/* G14j: signed in the stock (game_lb_control cmp #2; b.lt); module_param(uint) keeps the stock ops */
 unsigned int stask_prefer_cluster;  /* raw object: type not recovered yet */
 unsigned int render_prefer_cluster;  /* raw object: type not recovered yet */
 unsigned int vip_prefer_cluster;  /* raw object: type not recovered yet */
@@ -31,6 +31,12 @@ unsigned int mark_rule1_enable;
 unsigned int mark_rule3_enable;
 unsigned int mark_debug;
 u32 frame_migt_window[10][50];
+/* G14c: GC booster of the global OS4.0.0.7 stock (3 new module params + the new export is_doing_gc; the stock has them as plain globals) */
+int gc_booster_enable;
+atomic_t is_doing_gc;
+char gc_thread_name[16];
+char gc_main_thread_name[16];
+EXPORT_SYMBOL_GPL(is_doing_gc);
 static __used char user_stask[17];
 unsigned int mark_rule2_enable;
 unsigned long migt_reserve_cpus;  /* raw object: type not recovered yet */

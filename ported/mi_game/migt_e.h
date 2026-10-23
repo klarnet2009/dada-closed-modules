@@ -27,6 +27,7 @@ extern bool migt_choose_exclusive_cpu_enable(void);
 static void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p);
 extern int migt_choose_exclusive_cpu(struct task_struct *p);
 static bool migt_enable_gpsync(void);
+static void migt_game_schedule(struct task_struct *prev, struct task_struct *next, struct rq *rq);
 static void xr_game_find_energy_hook(struct task_struct *p, bool *need_idle);
 extern int game_load_init(void);
 extern void game_load_exit(void);
@@ -123,8 +124,8 @@ __used int migt_prefer_cpu(struct task_struct *p)
 		return -1;
 	util = READ_ONCE(top_task_util[0]) + READ_ONCE(top_task_util[1]);
 	if (unlikely(migt_debug_l))
-		trace_printk("migt: prefer cpu: util=%llu top=%llu/%llu window=%u\n", util, top_task_util[0],
-			     top_task_util[1], sched_ravg_window);
+		trace_printk("migt_prefer_cpu: total_util %llu, util[0] %llu, util[1] %llu,sched_ravg_window %u\n", util, READ_ONCE(top_task_util[0]),
+			     READ_ONCE(top_task_util[1]), sched_ravg_window);	/* stock reloads both (ldar) for the trace */
 	if (game_super_task(p))
 		return util < task_util_thresh ? stask_prefer_cpu_low : stask_prefer_cpu_high;
 	if (is_render_inl(p))
@@ -136,27 +137,27 @@ __used int migt_prefer_cpu(struct task_struct *p)
 
 static __always_inline bool reserve_usable_inl(void)
 {
-	u32 reserve = migt_reserve_cpus;
+	u32 reserve;
 
-	return migt_enable() && choose_cpu_exclusive_enable && choose_cpu_exclusive_enable_vote && reserve &&
-	       !(reserve & ~cpumask_bits(cpu_online_mask)[0]);
+	if (!migt_enable() || !choose_cpu_exclusive_enable || !choose_cpu_exclusive_enable_vote)
+		return false;
+	reserve = migt_reserve_cpus;	/* G14c: see migt_reserve_usable() */
+	return reserve && !(reserve & ~cpumask_bits(cpu_online_mask)[0]) && !atomic_read(&is_doing_gc);
 }
 
 __used bool migt_should_skip_migrate(struct task_struct *p, int cpu)
 {
 	if (!reserve_usable_inl())
 		return false;
-	if (test_bit(cpu, &migt_reserve_cpus)) {
-		struct task_struct *curr;
-
+	if (test_bit((unsigned int)cpu, &migt_reserve_cpus)) {	/* G14i: unsigned index like the stock */
 		if (!p)
 			return true;
 		if (!migt_enable() || !uid_traced_inl(p))
 			return !plat_is_relaxed_rt(p);
-		curr = RQ_CURR(per_cpu_ptr(&runqueues, cpu));
-		if (game_super_task(curr) && stask_prefer_cpu == cpu)
+		/* G56a: the stock re-reads rq->curr (per_cpu_ptr + load) after game_super_task(), not one snapshot */
+		if (game_super_task(RQ_CURR(per_cpu_ptr(&runqueues, cpu))) && stask_prefer_cpu == cpu)
 			return true;
-		if (is_render_inl(curr) && render_prefer_cpu == cpu)
+		if (is_render_inl(RQ_CURR(per_cpu_ptr(&runqueues, cpu))) && render_prefer_cpu == cpu)
 			return true;
 		if (is_render_inl(p) && render_prefer_cpu != -1)
 			return false;
@@ -303,14 +304,16 @@ struct metis_choose_cpu_args {	/* BTF of the stock, 48 bytes */
 
 static __used int game_choose_cpu_fastpath(struct task_struct *p, struct metis_choose_cpu_args *a, bool *should_skip)
 {
-	unsigned long avail, min_util, util;
+	unsigned long avail, min_util, util, min_task_util;
 	u32 m;
 	int best, c, i, prev_cpu, order;
+	/* g62a: the stock reads both mask pointers on entry, before the migt_boost_policy test (S+3c / S+50) */
+	struct cpumask *start_clus = a->start_clus_cpumask, *halt = a->cpu_halt_cpumask;
 
 	debugfs_walt_features = (debugfs_walt_features & ~1) | !!migt_walt_features;
 	if (!migt_boost_policy)
 		return -1;
-	avail = cpumask_bits(cpu_active_mask)[0] & ~(u32)cpumask_bits(a->cpu_halt_cpumask)[0];
+	avail = (u32)cpumask_bits(cpu_active_mask)[0] & ~(u32)cpumask_bits(halt)[0];	/* stock: ldr w + bic w (S+68/7c) */
 	avail &= cpumask_bits(p->cpus_ptr)[0];
 	if (test_ti_thread_flag(task_thread_info(p), TIF_32BIT)) {
 		avail &= cpumask_bits(system_32bit_el0_cpumask())[0];
@@ -320,10 +323,11 @@ static __used int game_choose_cpu_fastpath(struct task_struct *p, struct metis_c
 	}
 	if (migt_boost_policy) {
 		a->end_index = 0;
-		avail &= cpumask_bits(a->start_clus_cpumask)[0];
+		avail &= cpumask_bits(start_clus)[0];
 		if (migt_choose_exclusive_cpu_enable())
 			avail &= ~migt_reserve_cpus;
 	}
+	min_task_util = a->min_task_util;	/* g62a: stock S+ec, before game_vip_task() */
 	if (!game_vip_task(p) || !metis_lb_cpu_array)
 		return -1;
 	best = find_first_bit(&avail, 32);
@@ -334,7 +338,7 @@ static __used int game_choose_cpu_fastpath(struct task_struct *p, struct metis_c
 		return prev_cpu;
 	order = a->order_index;
 	min_util = cpu_util_without(best, p);
-	for (i = 0; i < num_sched_clusters; i++) {
+	for (i = 0; i < (int)num_sched_clusters; i++) {	/* g62a: signed in the stock (S+16c b.lt, S+200 ldrsw) */
 		unsigned long mask = (u32)avail & metis_lb_cpu_array[order][i];
 
 		for_each_set_bit(c, &mask, 32) {
@@ -349,7 +353,7 @@ static __used int game_choose_cpu_fastpath(struct task_struct *p, struct metis_c
 		if (i >= a->end_index)
 			break;
 	}
-	util = min_util + a->min_task_util;
+	util = min_util + min_task_util;
 	if (util < get_capacity_orig_of(best))
 		return best;
 	if (!game_choose_cpu_overutiled(p))
@@ -367,7 +371,7 @@ int migt_sched_init(void)
 
 	t = kthread_run(migt_hardwork, &g_work, "migt_thread");
 	migt_thread = t;
-	if (!t) {
+	if (IS_ERR_OR_NULL(t)) {	/* G14i: stock cmn x0,#0xfff */
 		printk(KERN_ERR "migt-gtc: migt_thread %s: error create thread!\n", "migt_sched_init");
 		return -1;
 	}
@@ -389,10 +393,13 @@ int migt_sched_init(void)
 	register_plat_func(23, migt_prefer_cpu);
 	register_plat_func(29, game_vvip_task);
 	register_plat_func(28, migt_cpu_check_rt);
+	register_plat_func(40, migt_game_schedule);	/* G14c: plat_mi_game_schedule (slot 40) */
 	printk(KERN_INFO "migt-gtc: migt_sched %s: inited!\n", "migt_sched_init");
 	migt_init_sucess = 1;
-	if (!migt_sched_header)
-		migt_sched_header = register_sysctl_sz("migt", migt_table, ARRAY_SIZE(migt_table));
+#line 1692 "kernel/sched/xiaomi_sched/qcom/mi_game/mi_game_ca.c"
+	WARN_ON(migt_sched_header);	/* G14c: the stock warns and registers anyway (flags 0x901 in its bug table) */
+	migt_sched_header = register_sysctl_sz("migt", migt_table, ARRAY_SIZE(migt_table));
+#line 402 "migt_e.h"
 	return 0;
 }
 
@@ -411,11 +418,12 @@ void migt_sched_exit(void)
 	unregister_plat_func(23);
 	unregister_plat_func(29);
 	unregister_plat_func(28);
+	unregister_plat_func(40);
 	migt_sched_header = NULL;
-	if (migt_thread && !IS_ERR(migt_thread)) {
+	if (migt_thread && !IS_ERR(migt_thread))
 		kthread_stop(migt_thread);
-		printk(KERN_INFO "migt-gtc: %s, success \n", "migt_sched_exit");
-	}
+	/* G56a: the stock prints the line on every path (x57: the trace was inside the if) */
+	printk(KERN_INFO "migt-gtc: %s, success \n", "migt_sched_exit");
 }
 EXPORT_SYMBOL_GPL(migt_sched_exit);
 
@@ -462,14 +470,10 @@ first_failed:
 		if (freq_qos_request_active(&per_cpu(qos_req_max, cpu)))
 			freq_qos_remove_request(&per_cpu(qos_req_max, cpu));
 	}
-	migt_err_at(1871, "migt_freq failed %d to wq!\n");
+	migt_err_at(1876, "migt_freq failed %d to wq!\n");
 	ret = cpufreq_register_notifier(&init_freq_qos_notifier, CPUFREQ_POLICY_NOTIFIER);
-	if (ret) {
-		cpufreq_unregister_notifier(&init_freq_qos_notifier, CPUFREQ_POLICY_NOTIFIER);
-		game_load_exit();
-		migt_sched_exit();
-		return ret;
-	}
+	if (ret)
+		goto fail_tail;
 first_ok:
 	hrtimer_init(&hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	hrtimer.function = do_boost_work;
@@ -539,7 +543,7 @@ devices_ok:
 	register_plat_func(14, update_pkg_load);
 	register_plat_func(15, xr_game_walt_get_indicies);
 	register_plat_func(20, game_choose_cpu_fastpath);
-	register_plat_func(35, migt_enable_gpsync);
+	register_plat_func(39, migt_enable_gpsync);	/* G14c: was 35 (4 hooks inserted before it in the global plat_common) */
 	register_plat_func(30, migt_enable);
 	return 0;
 misc_dereg:
@@ -560,6 +564,11 @@ unwind_qos:
 		if (freq_qos_request_active(&per_cpu(qos_req_max, cpu)))
 			freq_qos_remove_request(&per_cpu(qos_req_max, cpu));
 	}
+fail_tail:
+	/* G20b: stock 0x1e0: every error exit of init_module (also the qos unwind loop above) unregisters the notifier and undoes game_load / migt_sched */
+	cpufreq_unregister_notifier(&init_freq_qos_notifier, CPUFREQ_POLICY_NOTIFIER);
+	game_load_exit();
+	migt_sched_exit();
 	return ret;
 }
 
@@ -572,7 +581,7 @@ static void __exit migt_exit(void)
 	unregister_plat_func(14);
 	unregister_plat_func(15);
 	unregister_plat_func(20);
-	unregister_plat_func(35);
+	unregister_plat_func(39);
 	misc_deregister(&migt_misc);
 	device_destroy(migt_reset_device.class, migt_reset_dev.devt);
 	class_destroy(migt_reset_device.class);

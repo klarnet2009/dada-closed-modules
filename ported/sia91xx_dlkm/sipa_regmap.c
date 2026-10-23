@@ -300,17 +300,15 @@ static bool sipa_volatile_register(
 
 /* g3o: the stock only range-checks the chip type here (inlined, message with the caller's name); the template also
  * compared the register widths with the loaded firmware [removed: the stock functions have no such check] */
-static __always_inline int verify_chip_type(
-	unsigned int ch,
-	unsigned int type)
-{
-	if (type >= ARRAY_SIZE(reg_map_info_table)) {
-		pr_err("[  err][%s] %s: chip_type(%u) is err \n", LOG_FLAG, __func__, type);
-		return -ENODEV;
-	}
-
-	return 0;
-}
+#define verify_chip_type(ch, type) ({ \
+	int g41a_r = 0; \
+	if ((type) >= ARRAY_SIZE(reg_map_info_table)) { \
+		pr_err("[  err][%s] %s: chip_type(%u) is err \n", LOG_FLAG, __func__, (type)); \
+		g41a_r = -ENODEV; \
+	} \
+	g41a_r; })
+/* G41a: stock init / check_trimming / set_pvdd_limit range-check without a message */
+#define verify_chip_type_q(ch, type) (((type) >= ARRAY_SIZE(reg_map_info_table)) ? -ENODEV : 0)
 
 struct regmap *sipa_regmap_init(
 	struct i2c_client *client,
@@ -322,7 +320,7 @@ struct regmap *sipa_regmap_init(
 	if (NULL == client)
 		return NULL;
 
-	if (0 != verify_chip_type(ch, chip_type))
+	if (0 != verify_chip_type_q(ch, chip_type))
 		return NULL;
 
 	config.name = "sipa";
@@ -357,14 +355,19 @@ int sipa_regmap_check_chip_id(
 	int i = 0;
 	unsigned int val = 0;
 
-	if (NULL == regmap)
+	if (NULL == regmap) {
+		pr_err("[  err][%s] %s: NULL == regmap \n", LOG_FLAG, __func__);
 		return -EPERM;
+	}
 
 	if (0 != verify_chip_type(ch, chip_type))
 		return -EPERM;
 
-	if (0 != regmap_read(regmap, reg_map_info_table[chip_type].chip_id_addr, &val))
+	if (0 != sipa_read_reg(regmap, reg_map_info_table[chip_type].chip_id_addr, &val)) {  /* G53a: stock calls sipa_read_reg (5 retries) */
+		/* g15c: message present in the stock (string comparison of the .ko) */
+		pr_err("[  err][%s] %s: failed to read CHIP_ID\n", LOG_FLAG, __func__);
 		return -1;
+	}
 
 	for (i = 0; i < reg_map_info_table[chip_type].chip_id_range_num; i++) {
 		if (val >= reg_map_info_table[chip_type].chip_id_ranges[i].begin 
@@ -372,7 +375,7 @@ int sipa_regmap_check_chip_id(
 			return 0;
 	}
 
-	pr_err("[  err][%s] %s: chip_id_addr(0x%04x), val(0x%04x) \n",
+	pr_err("[  err][%s] %s: chip_id_addr(0x%04x), val(0x%04x) out of range\n",
 		LOG_FLAG, __func__, reg_map_info_table[chip_type].chip_id_addr, val);
 	return -1;
 }
@@ -529,7 +532,7 @@ static __always_inline int g3o_proc_1_reg_list_body(sipa_dev_t *si_pa,
 
 	if (list->node_size != sizeof(SIPA_REG_PROC)) {
 		pr_err("[  err][%s] %s: node_size(%u) != sizeof(SIPA_REG_PROC)(%lu)", 
-			LOG_FLAG, __func__, list->node_size, sizeof(SIPA_REG_PROC));
+			LOG_FLAG, "sipa_regmap_proc_1_reg_list", list->node_size, sizeof(SIPA_REG_PROC));
 		return -ENOEXEC;
 	}
 
@@ -537,7 +540,7 @@ static __always_inline int g3o_proc_1_reg_list_body(sipa_dev_t *si_pa,
 		ret = sipa_regmap_proc_1_reg(si_pa, &regs[i], val_width);
 		if (0 != ret) {
 			pr_err("[  err][%s] %s: ret = %d, chip_type = %u, regmap = %p, addr = 0x%x\n",
-				LOG_FLAG, __func__, ret, si_pa->chip_type, si_pa->regmap, regs[i].addr);
+				LOG_FLAG, "sipa_regmap_proc_1_reg_list", ret, si_pa->chip_type, si_pa->regmap, regs[i].addr);
 			return ret;
 		}
 	}
@@ -559,8 +562,10 @@ bool sipa_regmap_set_chip_on(
 	const SIPA_PARAM_LIST *startup_list = NULL;
 	SIPA_REG_PROC *startup_regs = NULL;
 
-	if (NULL == si_pa)
+	if (NULL == si_pa) {
+		pr_err("[  err][%s] %s: si_pa is null \n", LOG_FLAG, __func__);
 		return false;
+	}
 
 	if (0 != verify_chip_type(si_pa->channel_num, si_pa->chip_type))
 		return false;
@@ -593,8 +598,10 @@ bool sipa_regmap_set_chip_off(
 	const SIPA_PARAM_LIST *shutdown_list = NULL;
 	SIPA_REG_PROC *shutdown_regs = NULL;
 
-	if (NULL == si_pa)
+	if (NULL == si_pa) {
+		pr_err("[  err][%s] %s: si_pa is null \n", LOG_FLAG, __func__);
 		return false;
+	}
 
 	if (0 != verify_chip_type(si_pa->channel_num, si_pa->chip_type))
 		return false;
@@ -673,7 +680,7 @@ void sipa_regmap_set_pvdd_limit(
 		return;
 	}
 
-	if (0 != verify_chip_type(ch, chip_type))
+	if (0 != verify_chip_type_q(ch, chip_type))
 		return;
 
 	data = sipa_param_read_chip_cfg(ch, chip_type, &chip_cfg);
@@ -690,13 +697,13 @@ void sipa_regmap_set_pvdd_limit(
 	else if (cp_ovp > pvdd_limit->valid_range.end)
 		cp_ovp = pvdd_limit->valid_range.end;
 
-	if (0 != regmap_read(regmap, pvdd_limit->reg.addr, &pvdd_limit->reg.val))
+	if (0 != sipa_read_reg(regmap, pvdd_limit->reg.addr, &pvdd_limit->reg.val))  /* G53a: stock sipa_read_reg/sipa_write_reg (retries) */
 		return;
 
 	pvdd_limit->reg.val = (pvdd_limit->reg.val	& (~pvdd_limit->reg.mask)) | 
 		((cp_ovp << pvdd_limit->bit_offset) & pvdd_limit->reg.mask);
 
-	if (0 != regmap_write(regmap, pvdd_limit->reg.addr, pvdd_limit->reg.val))
+	if (0 != sipa_write_reg(regmap, pvdd_limit->reg.addr, pvdd_limit->reg.val))
 		return;
 }
 
@@ -762,7 +769,7 @@ void sipa_regmap_check_trimming(
 	if (NULL == si_pa)
 		return;
 
-	if (0 != verify_chip_type(si_pa->channel_num, si_pa->chip_type))
+	if (0 != verify_chip_type_q(si_pa->channel_num, si_pa->chip_type))
 		return;
 
 	data = sipa_param_read_chip_cfg(si_pa->channel_num, si_pa->chip_type, &chip_cfg);
@@ -778,7 +785,7 @@ void sipa_regmap_check_trimming(
 	val_width = chip_cfg.reg_val_width;
 	reg_list = &chip_cfg.trim_regs.efuse;
 	if (!reg_list->num) {
-		printk(KERN_DEBUG "[debug][%s] no efuse return\n", LOG_FLAG);
+		printk(KERN_DEBUG "[debug][%s] no efuse return\n", __func__);
 		return;
 	}
 		

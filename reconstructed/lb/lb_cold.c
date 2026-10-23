@@ -347,8 +347,11 @@ noinline int mi_lb_dealwith_collect_cmd(enum APP_LAUNCH_CMD cmd, struct cmd_app_
 			LB_E(560, "get_pid_task fail");
 			goto fail;
 		}
-		if (!strcmp(task->comm, "RenderThread"))
+		if (!strcmp(task->comm, "RenderThread")) {
 			LB_E(565, "first launch process is %s, maybe timeout 2s", task->comm);
+			put_task_struct(task);
+			goto fail;
+		}
 		put_task_struct(task);
 		if (mb_lb_dealwith_collect_start(app_info)) {
 			LB_E(575, "launch app %s failed", owner->package_name);
@@ -431,7 +434,7 @@ free_mgr:
 	return ret;
 }
 
-static const char * const file_type_list[] = { "so", "dex", "vdex", "odex", "art", "apk", "jar", NULL };
+static const char * const file_type_list[] = { "so", "apk", "dex", "vdex", "odex", "art", "jar", NULL };
 
 /* the path of a file as the user space sees it: mount root prefix (unless /data or /media) + d_path */
 static noinline char *lb_file_path(struct file *file, char *buf)
@@ -673,7 +676,7 @@ static noinline unsigned short real_timing_lookup_file_index(struct package_info
 	}
 	node->dev = collect_info->file->f_inode->i_sb->s_dev;
 	node->ino = collect_info->file->f_inode->i_ino;
-	memcpy(node->path, path, len);
+	memcpy(node->path, path, node->path_len);	/* G55a: stock reloads path_len after kzalloc (FORTIFY compares it with the allocation size) */
 	node->i_mtime = collect_info->file->f_inode->i_mtime.tv_sec;
 	INIT_LIST_HEAD(&node->file_head);
 	if (g_file_page_reclaim_supported && package->is_file_page_reclaimed && strstr(node->path, package->owner.package_name))
@@ -716,8 +719,12 @@ static noinline void dex_files_for_bitmap_record(struct package_info *package, s
 			LB_E(807, "alloc file_info bitmaps err");
 			return;
 		}
-		package->mm_size += rf->bitmap_longs * sizeof(unsigned long);
-		g_manager->total_memory += rf->bitmap_longs * sizeof(unsigned long);
+		{
+			unsigned int bytes = rf->bitmap_longs * sizeof(unsigned long);	/* G55a: stock shifts in 32 bit (lsl w8,w8,#3) and adds the same value to both */
+
+			package->mm_size += bytes;
+			g_manager->total_memory += bytes;
+		}
 	}
 	if (collect_info->index + collect_info->nr > nr_pages)
 		return;
@@ -842,7 +849,7 @@ static __always_inline void real_timing_file_range_merge(struct package_info *pa
 static __always_inline void real_timing_file_range_copy_to_array(struct package_info *package, struct list_head *range_list)
 {
 	struct real_timing_range_node *r, *tmp;
-	unsigned int n = 0;
+	int n = 0;	/* G55a: stock indexes the ranges array with a signed counter (smaddl) */
 
 	package->ranges = kvmalloc(package->range_nums * sizeof(*package->ranges), GFP_KERNEL);
 	if (!package->ranges) {
@@ -1085,7 +1092,7 @@ noinline int mi_lb_dealwith_preread_size_cmd(struct lb_app_preread_info_size *in
 		goto out;
 	}
 	if (package->is_real_timing) {
-		size = package->file_info.i_mtime_buffer_size + package->file_info.paths_buffer_size +
+		size = (size_t)package->file_info.i_mtime_buffer_size + package->file_info.paths_buffer_size +
 		       package->ranges_buffer_size + sizeof(struct lb_app_preread_info);
 		goto set_size;
 	}
@@ -1261,7 +1268,7 @@ static int lb_collect_show(struct seq_file *m, void *v)
 
 	seq_printf(m, "iorap version: %u.%u.%u\n", 3, 0, 0);
 	seq_printf(m, "total memory size %lu app_num: %u\n", g_manager->total_memory,
-		   g_manager->nr_real_timing_apps + g_manager->nr_file_sequential_apps);
+		   g_manager->nr_file_sequential_apps + g_manager->nr_real_timing_apps);
 	mutex_lock(&g_manager->file_sequential_list_lock);
 	if (list_empty(&g_manager->file_sequential_list)) {
 		seq_puts(m, "file sequential collect app is empty\n");

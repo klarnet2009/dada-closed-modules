@@ -12,7 +12,7 @@
  */
 
 #define DEBUG
-#define LOG_FLAG	"sia91xx_common"
+#define LOG_FLAG	"sipa_91xx"
 
 
 #include <linux/regmap.h>
@@ -125,7 +125,7 @@ void sia91xx_interrupt(struct work_struct *work)
 		pr_err("[  err][%s] %s: interrupt source error !!! \n",LOG_FLAG, __func__);
 		return;
 	}
-	IntVal = IntReg & 0xff;
+	IntVal = IntReg & 0xffff;	/* G41a: stock and w20, w8, #0xffff */
 
 	for (i = 0; i < ARRAY_SIZE(irq_range); i++) {
 		if (IntVal == irq_range[i].index)
@@ -155,7 +155,7 @@ void sia91xx_interrupt(struct work_struct *work)
 #endif
 
 	sipa_read_reg(si_pa->regmap, SIA91XX_REG_INT_STAT, &regVal);
-	msleep(1);
+	usleep_range(1000, 2000);	/* G41a: stock usleep_range_state(1000, 2000) */
 	sipa_write_reg(si_pa->regmap, SIA91XX_REG_INT_WC_REG, IntVal);
 }
 
@@ -248,7 +248,7 @@ int sia91xx_detect_chip(
 	ret = sipa_regmap_check_chip_id(si_pa->regmap,
 		si_pa->channel_num, si_pa->chip_type);
 	if (ret < 0) {
-		pr_err("[  err][%s] %s: Failed to read Revision register: %d \r\n",
+		pr_err("[  err][%s] %s: Failed to read Revision register: %d \n",
 			LOG_FLAG, __func__, ret);
 		return -EIO;
 	}
@@ -274,8 +274,9 @@ int sia91xx_hw_params(
 	}
 
 	rate = params_rate(params);
-	pr_info("[ info][%s] %s: i2s rate: %u !!! \n", 
-		LOG_FLAG, __func__, rate);
+	/* g15c: stock format (disassembly: x3 = dai->name, x4 = substream->name, w5 = rate) */
+	pr_info("[ info][%s] %s: dai:%s %s i2s rate: %u !!! \n",
+		LOG_FLAG, __func__, dai->name, substream->name, rate);
 
 	channels = params_channels(params);
 	pr_info("[ info][%s] %s: i2s channel: %u !!! \n", 
@@ -469,7 +470,18 @@ int sia91xx_component_probe(struct snd_soc_component *component)
 	struct snd_soc_dapm_widget *widgets;
 	struct snd_soc_dapm_context *dapm;
 	unsigned int num_dapm_widgets = ARRAY_SIZE(sia91xx_dapm_widgets_common);
-	sipa_dev_t *si_pa = snd_soc_component_get_drvdata(component);
+	sipa_dev_t *si_pa;
+
+	/* G40g: the two stock NULL checks (messages "component is NULL" / "si_pa is NULL") */
+	if (!component) {
+		pr_err("[  err][%s] %s: component is NULL\n", LOG_FLAG, __func__);
+		return -EINVAL;
+	}
+	si_pa = snd_soc_component_get_drvdata(component);
+	if (!si_pa) {
+		pr_err("[  err][%s] %s: si_pa is NULL\n", LOG_FLAG, __func__);
+		return -EINVAL;
+	}
 
 	dapm = snd_soc_component_get_dapm(component);
 

@@ -365,7 +365,8 @@ int optee_open_session(struct tee_context *ctx,
 	int rc;
 
 	memset(buf, 0, sizeof(buf));
-	path = d_path(&current->mm->exe_file->f_path, buf, sizeof(buf));
+	/* stock reads task_struct.active_mm (+0x5a8), not mm (+0x5a0): kernel threads have mm == NULL */
+	path = d_path(&current->active_mm->exe_file->f_path, buf, sizeof(buf));
 
 	if (auth_ca_name(path)) {
 		pr_err("auth ca name error\n");

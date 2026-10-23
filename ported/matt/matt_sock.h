@@ -394,12 +394,12 @@ int matt_set_bind_port(struct sock *sk, struct matt_addr *addr)
 
 	matt_inet_get_local_port_range(net, &low, &high);
 	remaining = high - low + 1;
-	snum = low + reciprocal_scale(get_random_u32(), remaining);
+	snum = low + (u32)(((u64)get_random_u32() * remaining) >> 32);	/* stock: sxtw(remaining) * rand, not reciprocal_scale */
 #line 1355
 	MATT_TRACE(0, 9, "port:%d range(%d, %d) remaining=%d", snum, low, high, remaining);
 	do {
 		snum++;
-		if (snum > high || snum < low)
+		if ((u32)snum > (u32)high || (u32)snum < (u32)low)	/* stock: unsigned compares */
 			snum = low;
 		if (inet_is_local_reserved_port(net, (u16)snum))
 			continue;
@@ -708,8 +708,8 @@ void matt_write_space(struct sock *sk)
 			sock_wake_async(wq, SOCK_WAKE_SPACE, POLL_OUT);
 		rcu_read_unlock();
 	} else {
-#line 925
-		MATT_TRACE(0, 9, "sk:%p sk_wmem_alloc:%d sk_sndbuf:%d sk_wmem_queued:%d min_wspace:%d sk_stream_wspace:%d memfree: %s", sk,
+#line 923
+		MATT_TRACE(0, 9, "sk:%p sk_wmem_alloc:%d sk_sndbuf:%d sk_wmem_queued:%d min_wspace:%d sk_stream_wspace:%d sk_mem_free:%s", sk,
 			   refcount_read(&sk->sk_wmem_alloc), sk->sk_sndbuf, sk->sk_wmem_queued, sk_stream_min_wspace(sk),
 			   sk_stream_wspace(sk), __sk_stream_memory_free(sk, 1) ? "true" : "false");
 	}
@@ -986,7 +986,7 @@ static inline bool matt_epollin_ready(struct sock *sk, int target)
 	int avail;
 
 	if (!skb_queue_empty(&sk->sk_receive_queue)) {
-#line 453
+#line 452
 		MATT_TRACE(0, 9, "sk_receive_queue not empty target=%u copied=%u nxt=%u backlog=%u r_alloc=%u", target,
 			   msk->input_ctx.copied, msk->input_ctx.rcv_nxt, sk->sk_backlog.len, atomic_read(&sk->sk_rmem_alloc));
 		return true;
@@ -1146,7 +1146,7 @@ int matt_recvmsg(struct sock *sk, struct msghdr *msg, size_t len, int flags, int
 	int ret;
 
 	if (sk_can_busy_loop(sk) && skb_queue_empty_lockless(&sk->sk_receive_queue) && sk->sk_state == MATT_SS_ESTABLISHED) {
-		bool nonblock = flags & MSG_DONTWAIT;
+		int nonblock = flags & MSG_DONTWAIT;	/* G56a: the stock passes the raw masked value (0x40 or 0) to the trace, not a bool */
 		unsigned int napi_id;
 
 #line 2315

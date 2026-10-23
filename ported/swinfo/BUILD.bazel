@@ -1,0 +1,18 @@
+load("/<build-dir>", "ddk_module")
+
+# MiCode dada-v-oss drivers/xiaomi/swinfo (public source), global OS4.0.0.7 variant.
+# config_platform_data.h = the gzipped (as .byte data, .incbin is impossible in DDK) platform .config embedded in the stock module (IKCFG_ST..IKCFG_ED), extracted from the stock .ko
+# (kernel config text only, no firmware); it is NOT produced from our own config, otherwise the .rodata would not match the stock.
+ddk_module(
+    name = "swinfo",
+    srcs = ["swinfo_func.c", "config_platform_data.h"],
+    out = "swinfo.ko",
+    local_defines = ["CONFIG_LTO=1", "CONFIG_QCOM_MINIDUMP=1"],
+    copts = ["-ffunction-sections", "-fdata-sections"],
+    defconfig = "swinfo_defconfig",  # stock was built with CONFIG_LTO_CLANG_THIN
+    kernel_build = "//common:kernel_aarch64",
+    deps = [
+        "//common:all_headers_aarch64",
+        "//re/stubs_g12:os4_minidump",  # msm_minidump_add_region (forged CRC of the stock)
+    ],
+)

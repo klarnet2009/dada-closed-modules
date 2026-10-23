@@ -152,7 +152,8 @@ int tfa_set_swprofile(struct tfa_device *tfa, unsigned short new_value)
 
 static int tfa_get_swprofile(struct tfa_device *tfa)
 {
-	return TFA_GET_BF(tfa, SWPROFIL) - 1;
+	/* g3w: stock returns the cached profile (tfa+0x40, stored as value-1 by tfa_set_swprofile), no register read */
+	return tfa->profile;
 }
 
 static int tfa_set_swvstep(struct tfa_device *tfa, unsigned short new_value)
@@ -178,8 +179,8 @@ static int tfa_get_swvstep(struct tfa_device *tfa)
 	/* Set the new value in the hw register */
 	value = TFA_GET_BF(tfa, SWVSTEP);
 
-	/* Also set the new value in the struct */
-	tfa->vstep = value;
+	/* Also set the new value in the struct. G53a: the stock stores value - 1 (raw: sub w0,w0,#1; str w0,[tfa,#0x44]) */
+	tfa->vstep = value - 1;
 
 	return value - 1; /* invalid if 0 */
 }
@@ -360,6 +361,8 @@ static enum Tfa98xx_Error tfa9912_specific(struct tfa_device *tfa)
 
 		/* PLMA5505: MTP key open makes vulanable for MTP corruption */
 		tfa9912_faim_protect(tfa, 0);
+	} else {
+		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n", tfa->rev);
 	}
 
 	return error;
@@ -382,18 +385,29 @@ static enum Tfa98xx_Error tfa9912_factory_trimmer(struct tfa_device *tfa)
 		result = TFA_GET_BF(tfa, DCMCCSB);
 		if (result == 0) {
 			/* Do not exceed the maximum value of 15 */
-			if (currentValue + delta < 15)
+			/* g15c: stock prints the new value when tfa->verbose is set (offset 0x138) */
+			if (currentValue + delta < 15) {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC,
 						    currentValue + delta);
-			else
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: %d \n", currentValue + delta);
+			} else {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC, 15);
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: 15 \n");
+			}
 		} else if (result == 1) {
 			/* Do not exceed the minimum value of 0 */
-			if (currentValue - delta > 0)
+			if (currentValue - delta > 0) {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC,
 						    currentValue - delta);
-			else
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: %d \n", currentValue - delta);
+			} else {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC, 0);
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: 0 \n");
+			}
 		}
 	}
 
@@ -492,8 +506,12 @@ static uint16_t tfa9912_vboost_fixup(struct tfa_device *tfa, uint16_t dcdc_cnt6)
 	tfa_set_bf_value(TFA9912_BF_DCVOS, boost_v_2nd, &new_dcdc_cnt6);
 
 	/* Change register value only when it's necessary */
-	if (new_dcdc_cnt6 != dcdc_cnt6)
+	if (new_dcdc_cnt6 != dcdc_cnt6) {
+		/* g15c: stock prints this when tfa->verbose (+0x138) is set */
+		if (tfa->verbose)
+			pr_debug("tfa9912: V boost fixup applied. Old 0x%04x, new 0x%04x\n", dcdc_cnt6, new_dcdc_cnt6);
 		dcdc_cnt6 = new_dcdc_cnt6;
+	}
 
 	return dcdc_cnt6;
 }
@@ -618,7 +636,7 @@ static enum Tfa98xx_Error tfa9872_specific(struct tfa_device *tfa)
 		/* ----- generated code end   ----- */
 		break;
 	default:
-		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n",
+		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x \n",
 			tfa->rev);
 		break;
 	}
@@ -649,7 +667,7 @@ static int tfa9872_set_swprofile(struct tfa_device *tfa,
 	int active_value = tfa_dev_get_swprof(tfa);
 
 	/* Set the new value in the struct */
-	tfa->profile = new_value;
+	tfa->profile = new_value - 1;	/* G53a: stock stores value - 1 (raw: sub w8,w8,#1; str w8,[tfa,#0x40]) */
 
 	/* Set the new value in the hw register */
 	tfa_set_bf_volatile(tfa, TFA9872_BF_SWPROFIL, new_value);
@@ -818,6 +836,8 @@ static enum Tfa98xx_Error tfa9873_specific(struct tfa_device* tfa)
 		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x \n", tfa->rev);
 		break;
 	}
+	tfa->interrupt_enable[0] = 0x011e;
+	tfa_irq_init(tfa);
 	error = tfa_set_bf_volatile(tfa, TFA9873_BF_FSSYNCEN, 0);
 	pr_info("info : disabled FS synchronisation! \n");
 	return error;
@@ -929,10 +949,13 @@ static enum Tfa98xx_Error tfa9874_specific(struct tfa_device *tfa)
 		/* ----- generated code end   ----- */
 		break;
 	default:
-		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n",
+		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x \n",
 			tfa->rev);
 		break;
 	}
+
+	tfa->interrupt_enable[0] = 0x011e;
+	tfa_irq_init(tfa);
 
 	return error;
 }
@@ -943,7 +966,7 @@ static int tfa9874_set_swprofile(struct tfa_device *tfa,
 	int active_value = tfa_dev_get_swprof(tfa);
 
 	/* Set the new value in the struct */
-	tfa->profile = new_value;
+	tfa->profile = new_value - 1;	/* G53a: stock stores value - 1 (raw: sub w8,w8,#1; str w8,[tfa,#0x40]) */
 
 	/* Set the new value in the hw register */
 	tfa_set_bf_volatile(tfa, TFA9874_BF_SWPROFIL, new_value);
@@ -1050,6 +1073,8 @@ static enum Tfa98xx_Error tfa9888_specific(struct tfa_device *tfa)
 		tfa_reg_write(tfa, 0x71, 0x1074); //POR=0x3074
 		tfa_reg_write(tfa, 0x83, 0x0014); //POR=0x0013
 		/* ----- generated code end   ----- */
+	} else {
+		pr_info("Warning: Optimal settings not found for device with revid = 0x%x \n", tfa->rev);
 	}
 
 	patch_version = tfa_cnt_get_patch_version(tfa);
@@ -1140,18 +1165,29 @@ static enum Tfa98xx_Error tfa9888_factory_trimmer(struct tfa_device *tfa)
 		result = TFA_GET_BF(tfa, DCMCCSB);
 		if (result == 0) {
 			/* Do not exceed the maximum value of 15 */
-			if (currentValue + delta < 15)
+			/* g15c: stock prints the new value when tfa->verbose is set (offset 0x138) */
+			if (currentValue + delta < 15) {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC,
 						    currentValue + delta);
-			else
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: %d \n", currentValue + delta);
+			} else {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC, 15);
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: 15 \n");
+			}
 		} else if (result == 1) {
 			/* Do not exceed the minimum value of 0 */
-			if (currentValue - delta > 0)
+			if (currentValue - delta > 0) {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC,
 						    currentValue - delta);
-			else
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: %d \n", currentValue - delta);
+			} else {
 				TFA_SET_BF_VOLATILE(tfa, DCMCC, 0);
+				if (tfa->verbose)
+					pr_debug("Max coil current is set to: 0 \n");
+			}
 		}
 	}
 
@@ -1766,9 +1802,6 @@ static enum Tfa98xx_Error tfa9894_specific(struct tfa_device *tfa)
 
 	if (tfa->in_use == 0)
 		return Tfa98xx_Error_NotOpen;
-	if (tfa->verbose)
-		if (tfa_is_94_N2_device(tfa))
-			pr_debug("check_correct\n");
 	/* Unlock keys to write settings */
 	error = tfa_reg_write(tfa, 0x0F, 0x5A6B);
 	error = tfa_reg_read(tfa, 0xFB, &value);
@@ -1813,16 +1846,17 @@ static enum Tfa98xx_Error tfa9894_specific(struct tfa_device *tfa)
 		/* ----- generated code end ----- */
 
 	} else if (tfa->rev == 0x2a94 || tfa->rev == 0x3a94) {
+		/* G41a: sequence of the stock (no reg 0x00, reg 0x04 = 0x0200, 0x61 = 0x32, 0x72 = 0xb4a9) */
 		/* ----- generated code start ----- */
-		tfa_reg_write(tfa, 0x00, 0xa245); //POR=0x8245
 		tfa_reg_write(tfa, 0x01, 0x15da); //POR=0x11ca
 		tfa_reg_write(tfa, 0x02, 0x51e8); //POR=0x55c8
+		tfa_reg_write(tfa, 0x04, 0x0200);
 		tfa_reg_write(tfa, 0x52, 0xbe17); //POR=0xb617
 		tfa_reg_write(tfa, 0x53, 0x0dbe); //POR=0x0d9e
 		tfa_reg_write(tfa, 0x57, 0x0344); //POR=0x0366
-		tfa_reg_write(tfa, 0x61, 0x0033); //POR=0x0073
+		tfa_reg_write(tfa, 0x61, 0x0032); //POR=0x0073
 		tfa_reg_write(tfa, 0x71, 0x6ecf); //POR=0x6f8d
-		tfa_reg_write(tfa, 0x72, 0x34a9); //POR=0x44e8
+		tfa_reg_write(tfa, 0x72, 0xb4a9); //POR=0x44e8
 		tfa_reg_write(tfa, 0x73, 0x38c8); //POR=0x3806
 		tfa_reg_write(tfa, 0x76, 0x0067); //POR=0x0065
 		tfa_reg_write(tfa, 0x80, 0x0000); //POR=0x0003

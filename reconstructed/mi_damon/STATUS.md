@@ -1,4 +1,13 @@
-# mi_damon - PARTIAL (187 of 188 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
+# mi_damon - EQUIVALENT vs the GLOBAL OS4.0.0.7 stock (G55a 22.10.2026: compare_ko_v2 all 190 functions byte-identical, tables/imports/CRC/kCFI PASS; only the build-system buildmeta tags differ); NOT hardware-tested, DO NOT LOAD until a hardware test
+
+## G27b (20.10.2026) - kdamond_fn read by hand (first line unchanged; no source change)
+- symcmp5 stays INCONCLUSIVE (BDD cap, also with S5TMO=900). By hand against the global stock (md5 ba1e74b31ab8403626cf51ca41f679c7): 1596 vs 1594 instructions, the call multiset (relocation targets) is identical, and the register-name-agnostic instruction multiset differs only in: spill/reload forms (`ldr/str/ldp [sp]`), one `eor/csinc/tbnz` vs `csel/cmp/b.ne` form of the same boolean `(i < nr_subs - 1) && sz_region > 2*(unsigned)damon_min_vma` (inlined damon_split_regions_of: checked, equal), and 2 extra `adrp+ldr damon_min_vma`. Verdict CODEGEN.
+- Only observable nuance: stock reads `damon_min_vma` once per region (LTO makes the global internal, so the load is hoisted over the loop calls), ours reloads it per iteration (non-LTO build, external global). Only a concurrent sysfs write of min_vma could see the difference; not changed.
+
+## G17a (19.10.2026) - global OS4.0.0.7 re-measurement and function classification (first line unchanged unless noted: still PARTIAL, no hardware test)
+Global OS4.0.0.7 stock (<work-dir>) vs CN OS4.0.0.6 stock: code-identical (cn_vs_gl.csv, compare_ko_v2 stock-vs-stock: only buildmeta/scmversion differs). Real Kleaf build (scratch <work-dir> tag g17a, bazel-out removed) vs the GLOBAL stock: function set 190 OK, kCFI 178 OK, imports OK; 189 of 190 byte-identical; kdamond_fn differs and is symbolically identical (symcmp4 CLASS-A-auto: 315/315 facts, 0 guard differences) = pure CODEGEN (stack-slot numbering). The jump-table/altinstructions failures follow from that one function. 0 BEHAVIOUR differences, no source change.
+Tools: <work-dir> (kb17.sh = Kleaf build + compare_ko_v2 + preamble_cmp, sym17.sh = symcmp4 on every differing function, str17.py = printk format scan, fd17.sh = disassembly diff), results in res/<module>.cmp / .sym. Hacks: none added; earlier hacks (forged CRC / stubs / codegen hints) unchanged and still listed above.
+
 
 g1aj (18.10.2026): REAL difference found by the multiset audit in `kdamond_fn` (inlined damon_split_regions_of): the stock tests `sz_region > 2 * damon_min_vma` with the GLOBAL variable (`ldr w8,[damon_min_vma]; lsl w28,w8,#1`, 32-bit, default 0x8000 = split only regions larger than 64 KiB); ours compared with the compile-time `2 * DAMON_MIN_REGION` (= 2 * PAGE_SIZE, 8 KiB). Now `2 * (unsigned int)damon_min_vma` (core.c). The ALIGN_DOWN of the split size stays 0x1000 (stock `and #0x1fff...f000`). Real Kleaf + compare_ko_v2 after the change: still 189 of 190 functions byte-identical, only kdamond_fn differs (jump-table/altinstructions offsets +32 follow from it), function set, binding, kcfi 181, objects, anon-data, bug-table, exports, imports, modinfo PASS. The residual of kdamond_fn is stack-slot layout (emulation multiset 89-99, no constant or call left).
 
@@ -61,3 +70,15 @@ adapted by `work/re/poc_perfA/adapt_damon.py`) built as one module `mi_damon` wi
 - codegen workarounds (noted in the source): `asm("" : "+r"(size))` keeps the 64-bit `end - start` before the `(int)` compare in `damon_vma_need_sample` / `damon_get_vmas`.
 - fast loops without bazel: `bash work/scripts/perfA_qd.sh mi_damon --lto [-d -f <func>] [--regnorm]` (ThinLTO emulation, ~7 s); `perfA_batch.py` (many variants in parallel),
   `perfA_ir.sh` (per-pass IR/MIR dump), `perfA_dis.sh` (disassembly of ours/stock).
+
+
+## G55a (22.10.2026) - module-finish pass: block-level verdict for EVERY previously differing function (GLOBAL OS4.0.0.7 stock unless noted; no hardware, no git, no phone)
+Method: real Kleaf build of the sources below (scratch <work-dir> bazel-out removed), compare_ko_v2 + preamble_cmp + tbl_audit3 (data tables by CONTENT), then for every differing function the raw `llvm-objdump -dr` listing of stock vs ours was read block by block (compact views + alpha/hunk diffs in work\a17\review\g55a_ev\ev\<module>.<function>.{stock.c,ours.c,diff,pdiff}; symcmp5b/s5ms used only as a corroborating filter). Evidence is disassembly of stock code: local review material, never export.
+Build: real Kleaf build md5 4087beb119d5dbc106a579be951286cb (core.c md5 337ada48d05c0e15d314756a5b5d4454). compare_ko_v2 (full): function set 190, **function bytes all 190 identical**, kCFI 181/181, objects 175, anon-data 2, jump-table 18, other-tables 62, bug-table 0, imports 97 + CRC, modinfo PASS; the only FAIL is buildmeta (intree/scmversion/built_with/srcversion, build-system tags).
+FIX (real codegen difference found by reading kdamond_fn): damon_split_regions_of() read `damon_min_vma` in the loop condition (3 loads per region, 64-bit `ldr x8` + `lsl w`), the stock reads it ONCE before the region loop as a 32-bit value (`ldr w8,[x8]; lsl w28,w8,#1`). Source: `unsigned int min_sz = damon_min_vma;` before the loop, condition `sz_region > 2 * min_sz`. Semantics identical (u32 truncation as before); with it kdamond_fn is byte-identical (1513 insns).
+
+| function | verdict | argument (raw-listing blocks) |
+|---|---|---|
+| kdamond_fn | FIXED -> IDENTICAL | Hunks before the fix (63): stp/ldp vs str/ldr pairs of spill slots, `damon_min_vma` loaded 3x as 64-bit vs once as 32-bit, region_cache reload, `eor/csinc/tbnz` vs `csel/cmp/b.ne` form of (i < nr_subs-1 && sz > 2*min); after the source change the listing is byte-equal. |
+
+Evidence files: `work\a17\review\g55a_ev\ev\mi_damon.<function>.{stock.c,ours.c,diff,pdiff}`.

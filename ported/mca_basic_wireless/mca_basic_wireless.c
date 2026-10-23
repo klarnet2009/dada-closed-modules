@@ -1105,8 +1105,8 @@ static int strategy_wireless_adapter_handle(struct strategy_wireless_dev *info)
 			info->proc_data.pre_vout = EPP_PLUS_VOUT;
 			fcc = info->project_vendor == WLS_CHIP_VENDOR_SC96281 ? 3800 : 4000;	/* OS4 */
 			strategy_wireless_fcc_setting(info, true, fcc);
+			info->proc_data.wireless_power.max_fcc = fcc;	/* G52a: stock stores max_fcc before qc_enable */
 			info->proc_data.qc_enable = true;
-			info->proc_data.wireless_power.max_fcc = fcc;
 			info->proc_data.qc_type = ADP_ICON_TYPE_FLASH;
 #line 1102
 			mca_log_info("[xiaomi]20W adapter set fcc as requested\n");
@@ -1116,8 +1116,8 @@ static int strategy_wireless_adapter_handle(struct strategy_wireless_dev *info)
 			info->proc_data.pre_vout = EPP_PLUS_VOUT;
 			fcc = info->project_vendor == WLS_CHIP_VENDOR_SC96281 ? 5400 : 6000;	/* OS4 */
 			strategy_wireless_fcc_setting(info, true, fcc);
+			info->proc_data.wireless_power.max_fcc = fcc;	/* G52a: stock stores max_fcc before qc_enable */
 			info->proc_data.qc_enable = true;
-			info->proc_data.wireless_power.max_fcc = fcc;
 			info->proc_data.qc_type = ADP_ICON_TYPE_SUPER;
 #line 1116
 			mca_log_info("[xiaomi]30W adapter set fcc as requested\n");
@@ -1388,8 +1388,10 @@ static int strategy_wireless_send_vout_range_request(struct strategy_wireless_de
 static int strategy_wireless_transparent_success(struct strategy_wireless_dev *info)
 {
 	int ret = 0;
-	const struct mca_hwid *hwid = mca_get_hwid_info();
-	info->proc_data.set_tx_voltage_cnt = 0;
+	const struct mca_hwid *hwid;
+
+	info->proc_data.set_tx_voltage_cnt = 0;	/* G52a: stock stores the counter before it calls mca_get_hwid_info() */
+	hwid = mca_get_hwid_info();
 
 	switch (info->proc_data.current_for_tx_cmd) {
 	case TX_CMD_TYPE_FREQUENCE:
@@ -2272,14 +2274,14 @@ static void  strategy_wireless_reset_charge_para(struct strategy_wireless_dev *i
 
 static void strategy_wireless_reset_trans_list(struct strategy_wireless_dev *info)
 {
-	struct trans_data_lis_node *node;
-
+	struct trans_data_lis_node *node, *tmp;
 	while (!list_empty(&info->header)) {
-		spin_lock(&info->list_lock);
-		node = list_first_entry(&info->header, struct trans_data_lis_node, lnode);
-		list_del(&node->lnode);
-		kfree(node);
-		info->head_cnt--;
+		spin_lock(&info->list_lock); /* G31a: stock drains the whole list under one lock hold (list_for_each_entry_safe) */
+		list_for_each_entry_safe(node, tmp, &info->header, lnode) {
+			list_del(&node->lnode);
+			kfree(node);
+			info->head_cnt--;
+		}
 		spin_unlock(&info->list_lock);
 	}
 #line 2191
@@ -2373,7 +2375,7 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 	u8 rcv_value[128];
 	u8 rcv_val = 0;
 	u8 err_code = 0;
-	u8 dfx_code = 0;
+	u8 dfx_code = 64;	/* G43a: stock initialises [sp+0xc8] to 0x40 (process_irq 0x6100/0x613c) */
 	int ret = 0;
 	int num = -1;	/* stock: per-call value (G13h: was a static initialised to 10); recomputed by get_compatible_info where the stock does */
 	int tx_q2 = 0;
@@ -2583,7 +2585,7 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 					info->project_vendor == WLS_CHIP_VENDOR_FUDA1661 ||
 					info->project_vendor == WLS_CHIP_VENDOR_SC96281) {
 				if (info->proc_data.adapter_type < ADAPTER_XIAOMI_PD_50W ||
-					((num != -1) && info->uuid_adapter_info[num].compatible_info.car_mounted) ||
+					((num != -1) && info->uuid_adapter_info[num].compatible_info.car_mounted && info->proc_data.uuid_value != 0x0e0e0205) ||
 					info->support_mode == 2) {
 					info->proc_data.pre_fastchg = true;
 					strategy_wireless_adapter_handle(info);
@@ -2623,6 +2625,8 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 		}
 		break;
 	case RX_INT_TRANSPARENT_SUCCESS:
+#line 2534
+		mca_log_info("RX_INT_TRANSPARENT_SUCCESS\n");
 		platform_class_wireless_receive_transparent_data(WIRELESS_ROLE_MASTER, rcv_value, ARRAY_SIZE(rcv_value), &val_length);
 		cancel_delayed_work_sync(&info->mutex_unlock_work);
 		strategy_wireless_mutex_unlock_work(&info->mutex_unlock_work.work);
@@ -2651,10 +2655,10 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 #line 2561
 				mca_log_info("tx_q = %d, rcv_value[5] = %d\n", info->proc_data.tx_q, rcv_value[5]);
 				if (num != -1) {
-					if (info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx)
-						tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_50W];
-					else if (info->uuid_adapter_info[num].compatible_info.low_inductance_80w_tx)
-						tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_80W];
+					/* G31a: stock +0x834..+0x8a0: the kind flag AND the support_q switch of that kind, three kinds (50 W, 80 W, 30 W magnet), else 0 */
+					if (info->uuid_adapter_info[num].compatible_info.low_inductance_50w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_50W]) tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_50W];
+					else if (info->uuid_adapter_info[num].compatible_info.low_inductance_80w_tx && info->support_q[ADAPTER_LOW_INDUCTANCE_TX_80W]) tx_q2 = info->tx_q2[ADAPTER_LOW_INDUCTANCE_TX_80W];
+					else if (info->uuid_adapter_info[num].compatible_info.magnet_30w_tx && info->support_q[ADAPTER_MAGNET_TX_30W]) tx_q2 = info->tx_q2[ADAPTER_MAGNET_TX_30W];
 
 					if (rcv_value[5] <= tx_q2) {
 						strategy_wireless_qvalue_fcc_setting(info, true, MCA_WLS_CHG_TX_QLIMIT_FCC_5W);
@@ -2668,10 +2672,10 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 				}
 			}
 		}
-#line 2534
-		mca_log_info("RX_INT_TRANSPARENT_SUCCESS\n");
 		break;
 	case RX_INT_TRANSPARENT_FAIL:
+#line 2583
+		mca_log_info("RX_INT_TRANSPARENT_FAIL\n");
 		platform_class_wireless_receive_transparent_data(WIRELESS_ROLE_MASTER, rcv_value, ARRAY_SIZE(rcv_value), &val_length);
 		cancel_delayed_work_sync(&info->mutex_unlock_work);
 		strategy_wireless_mutex_unlock_work(&info->mutex_unlock_work.work);
@@ -2681,8 +2685,6 @@ static void strategy_wireless_chg_handler(struct strategy_wireless_dev *info)
 		mca_log_info("h_len = %d, l_len = %d\n", h_len, l_len);
 		if (rcv_value[0] == 0x28 && info->proc_data.current_for_tx_cmd != TX_CMD_TYPE_NONE)
 			(void)strategy_wireless_transparent_fail(info);
-#line 2583
-		mca_log_info("RX_INT_TRANSPARENT_FAIL\n");
 		break;
 	case RX_INT_RPP:
 #line 2594
@@ -2796,10 +2798,10 @@ static void strategy_wireless_add_irq_queue(struct strategy_wireless_dev *info, 
 		mca_log_err("create node error, return\n");
 		return;
 	}
-	node->data_flag = flag;
 #line 2783
 	mca_log_info("add: data flag: 0x%x\n", flag);
 	spin_lock(&info->list_lock_irq);
+	node->data_flag = flag;	/* G52a: stock stores the flag after the spin_lock (kept in a callee-saved register across log + lock) */
 	list_add_tail(&node->node, &info->header_irq);
 	info->head_cnt_irq++;
 	spin_unlock(&info->list_lock_irq);
@@ -2820,7 +2822,7 @@ static void strategy_wireless_change_cp_mode_workfunc(struct work_struct *work)
 {
 	struct strategy_wireless_dev *info = container_of(work, struct strategy_wireless_dev, change_cp_mode_work.work);
 
-#line 3315
+#line 3318
 	mca_log_info("wireless changing CP work mode\n");
 	info->proc_data.is_2_1_mode = true;
 	info->proc_data.is_4_1_mode = false;
@@ -2871,7 +2873,7 @@ static void strategy_wireless_buckchg_base_flip_sw_cv_workfunc(struct work_struc
 	vbat = info->proc_data.vbat_cell_mv;
 	ibat = -info->proc_data.ibat_ma / 1000;
 	fv_step = fastcharge ? -10 : -5;
-#line 3369
+#line 3372
 	mca_log_info("vbat: %d, ibat: %d, vterm: %d, iterm: %d, fcc: %d, actual_vterm %d, pmic_fv_compensa %d, compensa_fv %d\n",
 		vbat, ibat, vterm_jeita, iterm, fcc, actual_vterm, info->pmic_fv_compensation, compensa_fv);
 
@@ -2898,7 +2900,7 @@ static void strategy_wireless_buckchg_base_flip_sw_cv_workfunc(struct work_struc
 	}
 
 	if (vbat >= vterm_jeita + vadj) {
-#line 3395
+#line 3398
 		mca_log_err("WARNING: batt ov, reduce fv, count: %d\n", info->vbat_ov_count);
 		info->vbat_ov_count++;
 		platform_class_buckchg_ops_set_term_volt(MAIN_BUCK_CHARGER, actual_vterm + min(info->vbat_ov_count, 5) * fv_step);
@@ -3052,6 +3054,9 @@ static int strategy_wireless_process_event(int event, int value, void *data)
 		mca_vote(info->charge_limit_voter, "batt_auth", false, 0);
 		if (info->online)
 			mod_delayed_work(system_wq, &info->monitor_work, 0);
+		break;
+	case MCA_EVENT_BATT_EMERG:	/* GLOBAL OS4.0.0.7 event 85: FCC voter (+0x78 = charge_limit_voter), constant 500 (0x1f4, units as the other FCC votes: mA, inferred) */
+		mca_vote(info->charge_limit_voter, "batt_emerg", true, 500);
 		break;
 	case MCA_EVENT_PMIC_INIT_DONE:
 		strategy_wireless_process_pmic_init_done(info);
@@ -3213,7 +3218,7 @@ static int strategy_wireless_find_voter(struct strategy_wireless_dev *info)
 	return 0;
 
 find_voter_error:
-#line 3020
+#line 3023
 	mca_log_err("find voter fail, wait for it\n");
 	return -1;
 }
@@ -3253,7 +3258,7 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 
 		(void)strategy_class_fg_ops_get_voltage(&info->proc_data.vbat_cell_mv);
 		strategy_wireless_get_chgr_stage(info, &info->proc_data.chgr_stage);
-#line 3058
+#line 3061
 		mca_log_info("batt_temp:%d, fastcharge_mode:%d, ffc_iterm:%d, effective_icl:%d, effective_fcc:%d, vbat_cell_mv:%d, rx_vout_mv:%d\n",
 					batt_temp, info->fastcharge_mode, ffc_iterm, effective_icl, effective_fcc, info->proc_data.vbat_cell_mv, rx_vout_mv);
 
@@ -3263,11 +3268,11 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 		if (info->proc_data.chgr_stage == WLS_RECHG_MODE) {
 			if (info->fastcharge_mode) {
 				strategy_class_fg_set_fastcharge(false);
-#line 3067
+#line 3070
 				mca_log_info("chgr_state is %d, exit ffc mode\n", info->proc_data.chgr_stage);
 				return ret;
 			}
-#line 3070
+#line 3073
 			mca_log_info("chgr_state is %d, keep normal mode\n", info->proc_data.chgr_stage);
 			return ret;
 		}
@@ -3279,15 +3284,15 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 				if (charge_done_cnt >= 4) {
 					charge_done_cnt = 0;
 					strategy_class_fg_set_fastcharge(false);
-#line 3080
+#line 3083
 					mca_log_info("quick_charge_status is %d, exit ffc mode\n", quick_charge_status);
 					return ret;
 				}
-#line 3083
+#line 3086
 				mca_log_info("charge_done_cnt < thre, continue\n");
 			} else {
 				charge_done_cnt = 0;
-#line 3086
+#line 3089
 				mca_log_info("quick_charge_status is %d, keep normal mode\n", quick_charge_status);
 				return ret;
 			}
@@ -3302,20 +3307,20 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 				if (fastchg_cnt > MCA_WLS_CHG_ENABLE_FASTCHG_CNT) {
 					fastchg_cnt = 0;
 					strategy_class_fg_set_fastcharge(false);
-#line 3100
+#line 3103
 					mca_log_info("vcell is high and max fcc is low, exit ffc mode to avoid vcell over voltage\n");
 					return ret;
 				}
-#line 3103
+#line 3106
 				mca_log_info("fastchg_cnt < thre, continue\n");
 			} else {
 				fastchg_cnt = 0;
-#line 3106
+#line 3109
 				mca_log_info("vcell is high and max fcc is low, keep normal mode to avoid vcell over voltage\n");
 				return ret;
 			}
 		} else {
-#line 3110
+#line 3113
 			mca_log_info("vcell is low or max_fcc is high, clean fastchg_cnt\n");
 			fastchg_cnt = 0;
 		}
@@ -3323,11 +3328,11 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 		if (batt_temp < info->ffc_temp_low || batt_temp >= info->ffc_temp_high) {
 			if (info->fastcharge_mode) {
 				strategy_class_fg_set_fastcharge(false);
-#line 3117
+#line 3120
 				mca_log_info("temp is over, wireless buck charger disable fast charge mode\n");
 				return ret;
 			}
-#line 3120
+#line 3123
 			mca_log_info("temp is over, wireless buck charger keep normal charge mode\n");
 			return ret;
 		}
@@ -3336,7 +3341,7 @@ static int strategy_wireless_enable_fast_charge_mode(struct strategy_wireless_de
 		if (normal_vterm && (info->proc_data.vbat_cell_mv < normal_vterm - info->smartchg_data.delta_fv - 2 * CHARGE_SW_CV_VBAT_ALARM_DELTA) &&
 			!info->fastcharge_mode && chgr_stat != CHARGER_STATUS_TAPER) {
 			strategy_class_fg_set_fastcharge(true);
-#line 3126
+#line 3129
 			mca_log_info("wireless buck charger enable fast charge mode\n");
 		}
 	}
@@ -3354,7 +3359,7 @@ static void strategy_wireless_sw_cv_start(struct strategy_wireless_dev *info)
 
 static void strategy_wireless_sw_cv_stop(struct strategy_wireless_dev *info)
 {
-#line 3144
+#line 3147
 	mca_log_info("chgr_stage: %d, stop sw_cv_work\n", info->proc_data.chgr_stage);
 	cancel_delayed_work(&info->sw_cv_work);
 	cancel_delayed_work(&info->base_flip_sw_cv_work);
@@ -3413,7 +3418,7 @@ static void strategy_wireless_switch_to_half_bridge(struct strategy_wireless_dev
 	msleep(20);
 	(void)platform_class_wireless_get_rx_brg_status(WIRELESS_ROLE_MASTER, &brg_status);
 	strategy_wireless_bridge_icl_setting(info, false, 0);
-#line 670
+#line 670	/* G14k: manual pin: pb_pin3 cannot match this UTF-8 string against the latin-1 rodata dump (stock 670, was 671 by drift) */
 	mca_log_err("bridge_sw switch bridge over, bridge_state %d 【0】is FULL Bridge\n", brg_status);
 }
 
@@ -3430,7 +3435,7 @@ static void strategy_wireless_monitor_work(struct work_struct *work)
 	int input_suspend = 0, chg_en = 0;
 	int chgr_stat = 0;
 
-#line 3165
+#line 3168
 	mca_log_info("wireless monitor work\n");
 	if (!info->thermal_phone_flag)
 		(void)mca_vote(info->input_limit_voter, "thermal_phone", false, 0);
@@ -3479,7 +3484,7 @@ static void strategy_wireless_monitor_work(struct work_struct *work)
 		chg_en && chgr_stat == CHARGER_STATUS_CHARGING_DISABLED) {
 		platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, false);
 		platform_class_buckchg_ops_set_chg(MAIN_BUCK_CHARGER, true);
-#line 3215
+#line 3218
 		mca_log_err("recover wireless buck charging\n");
 	}
 
@@ -3494,14 +3499,14 @@ static void strategy_wireless_monitor_work(struct work_struct *work)
 		vterm = mca_get_effective_result(info->vterm_voter);
 	if (info->sw_cv_running) {
 		if (!chg_en || info->proc_data.vbat_cell_mv <= vterm - 20) {
-#line 3234
+#line 3237
 			mca_log_err("vbat: %d, vterm: %d, chg_en: %d, stop sw_cv_work\n", info->proc_data.vbat_cell_mv, vterm, chg_en);
 			strategy_wireless_sw_cv_stop(info);
 		}
 	} else if (info->proc_data.chgr_stage != WLS_FULL_MODE &&
 		vterm >= MCA_WLS_CHG_VTERM_LOW_TH && info->proc_data.vbat_cell_mv >= vterm - CHARGE_SW_CV_VBAT_ALARM_DELTA &&
 		pre_quick_status != MCA_QUICK_CHG_STS_CHARGING) {
-#line 3231
+#line 3234
 		mca_log_err("vbat: %d, vterm: %d, start sw_cv_work\n", info->proc_data.vbat_cell_mv, vterm);
 		strategy_wireless_sw_cv_start(info);
 	}
@@ -3533,7 +3538,7 @@ static void strategy_wireless_buckchg_sw_cv_workfunc(struct work_struct *work)
 	strategy_class_fg_ops_get_current(&info->proc_data.ibat_ma);
 	vbat = info->proc_data.vbat_cell_mv;
 	ibat = -info->proc_data.ibat_ma / 1000;
-#line 3273
+#line 3276
 	mca_log_info("vbat: %d, ibat: %d, vterm: %d, iterm: %d, fcc: %d\n",
 		vbat, ibat, vterm, iterm, fcc);
 
@@ -3562,10 +3567,10 @@ static void strategy_wireless_buckchg_sw_cv_workfunc(struct work_struct *work)
 	if (vbat >= vterm) {
 		if (hwid && hwid->platform_version == 3 && quick_sts != 1 &&
 		    (quick_sts == 2 || hwid->country_version == 1)) {
-#line 3301
+#line 3304
 			mca_log_err("WARNING: batt ov, fc switch normal\n");
 		} else {
-#line 3303
+#line 3306
 			mca_log_err("WARNING: batt ov, reduce fv\n");
 			platform_class_buckchg_ops_set_term_volt(MAIN_BUCK_CHARGER, vterm + info->pmic_fv_compensation - FV_STEP);
 		}
@@ -3582,7 +3587,7 @@ static void strategy_wireless_find_voter_work(struct work_struct *work)
 
 	ret = strategy_wireless_find_voter(info);
 	if (ret) {
-#line 3412
+#line 3415
 		mca_log_err("find voter fail\n");
 		schedule_delayed_work(&info->find_voter_work, msecs_to_jiffies(500));
 	}
@@ -3597,7 +3602,7 @@ static void strategy_wireless_update_soc_decimal_work(struct work_struct *work)
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data;
 
-#line 3428
+#line 3431
 	mca_log_info("wireless update soc decimal work\n");
 
 	(void)strategy_class_fg_ops_get_soc_decimal(&soc_decimal, &rate);
@@ -3626,7 +3631,7 @@ static void strategy_wireless_renegociation_work(struct work_struct *work)
 		schedule_delayed_work(&info->renegociation_work, msecs_to_jiffies(1500));
 		++info->proc_data.renegociation_cnt;
 	}
-#line 3456
+#line 3459
 	mca_log_info("wireless renegociation work\n");
 }
 
@@ -3635,7 +3640,7 @@ static void strategy_wireless_loop_work(struct work_struct *work)
 	struct strategy_wireless_dev *info = container_of(work,
 		struct strategy_wireless_dev, wireless_loop_work.work);
 
-#line 3464
+#line 3467
 	mca_log_info("wireless loop work\n");
 
 	(void)strategy_wireless_get_charging_info(info);
@@ -3661,12 +3666,12 @@ static void strategy_wireless_rx_fastcharge_work(struct work_struct *work)
 		schedule_delayed_work(&info->rx_fastcharge_work, msecs_to_jiffies(3500));
 		++info->proc_data.set_fastcharge_vout_cnt;
 	} else if (info->proc_data.set_fastcharge_vout_cnt >= FAST_CHARGE_RETRY_MAX_CNT) {
-#line 3489
+#line 3492
 		mca_log_err("fastcharge retry failed\n");
 		mca_charge_mievent_report(CHARGE_DFX_WLS_FASTCHG_FAIL, NULL, 0);
 	}
 
-#line 3493
+#line 3496
 	mca_log_info("wireless rx fastcharge work\n");
 }
 
@@ -3686,7 +3691,7 @@ static void strategy_wireless_drawload_work(struct work_struct *work)
 		(void)platform_class_wireless_get_vout(WIRELESS_ROLE_MASTER, &rx_vout);
 		(void)platform_class_wireless_get_iout(WIRELESS_ROLE_MASTER, &rx_iout);
 		(void)platform_class_buckchg_ops_get_chg_status(MAIN_BUCK_CHARGER, &chgr_stat);
-#line 3512
+#line 3515
 		mca_log_info("BPP drawload, iwls:%d, chgr_sts:%d, iout:%d, vout:%d\n", iwls, chgr_stat, rx_iout, rx_vout);
 		if (chgr_stat == CHARGER_STATUS_FULLON || chgr_stat == CHARGER_STATUS_TAPER)
 			break;
@@ -3703,7 +3708,7 @@ static void strategy_wireless_drawload_work(struct work_struct *work)
 	} else
 		strategy_wireless_stepper_pmic_icl(info, 250, 750, 100, 20);
 
-#line 3528
+#line 3531
 	mca_log_info("wireless drawload work\n");
 }
 
@@ -3717,7 +3722,7 @@ static void strategy_wireless_rx_alarm_work(struct work_struct *work)
 	int quick_charge_status = MCA_QUICK_CHG_STS_CHARGE_FAILED;
 
 	strategy_wireless_check_rx_alarm(info, &ocp_flag, &otp_flag, &otp_recovery);
-#line 3541
+#line 3544
 	mca_log_info("ocp_otp alarm ocp_flag:%d otp_flag:%d\n", ocp_flag, otp_flag);
 	if ((ocp_flag == false) && (otp_flag == false) && (otp_recovery == true))
 	{
@@ -3760,13 +3765,13 @@ static void strategy_wireless_max_power_control_work(struct work_struct *work)
 		if (num == -1)
 			return;
 		else if (info->uuid_adapter_info[num].compatible_info.standard_tx) {
-#line 3587
+#line 3585	/* G14k: stock: two log sites merged (phi{3585|3590}); the FUDA1661 80 W branch logs line 3585, the 50 W branch 3590 */
 			mca_log_info("max_power_control\n");
 			strategy_wireless_fcc_setting(info, true, MCA_WLS_CHG_REDUCE_FCC_VALUE_80W_MA);
 		}
 	} else if (info->project_vendor == WLS_CHIP_VENDOR_FUDA1651 ||
 			info->project_vendor == WLS_CHIP_VENDOR_SC96281) {
-#line 3587
+#line 3590
 		mca_log_info("max_power_control\n");
 		strategy_wireless_fcc_setting(info, true, MCA_WLS_CHG_REDUCE_FCC_VALUE_50W_MA);
 	}
@@ -3778,7 +3783,7 @@ static void strategy_wireless_fw_state_work(struct work_struct *work)
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data = { 0 };
 
-#line 3598
+#line 3601
 	mca_log_info("wireless fw_state work\n");
 
 	mca_wireless_rev_set_firmware_state(FIRMWARE_NEED_UPDATE);
@@ -3797,7 +3802,7 @@ static void strategy_wireless_set_vdd_flag_work(struct work_struct *work)
 
 	ret = platform_class_buckchg_ops_set_wls_vdd_flag(MAIN_BUCK_CHARGER, info->proc_data.boost_wireless_vdd);
 	if (ret) {
-#line 3616
+#line 3619
 		mca_log_err("set wireless vdd boost fail, retry\n");
 		schedule_delayed_work(&info->set_vdd_flag_work, msecs_to_jiffies(500));
 	}
@@ -3846,17 +3851,17 @@ static void strategy_wireless_process_trans_func(struct strategy_wireless_dev *i
 		strategy_wireless_quiet_sts_func(info);
 		break;
 	case TRANS_DATA_FLAG_VOUT_RANGE:
-#line 3664
+#line 3667
 		mca_log_info("trans data value: %d\n", node->value);
 		strategy_wireless_send_vout_range_request(info, node->value);
 		break;
 	case TRANS_DATA_FLAG_FREQUENCE:
-#line 3668
+#line 3671
 		mca_log_info("trans data value: %d\n", node->value);
 		strategy_wireless_send_frequency_request(info, node->value);
 		break;
 	default:
-#line 3672
+#line 3675
 		mca_log_err("not support this type\n");
 		break;
 	}
@@ -3874,7 +3879,7 @@ static int strategy_wireless_process_trans(struct strategy_wireless_dev *info)
 			list_del(&cur_node->lnode);
 			spin_unlock(&info->list_lock);
 
-#line 3689
+#line 3692
 			mca_log_info("cur_node: data_flag: %d, value: %d\n", cur_node->data_flag, cur_node->value);
 			strategy_wireless_process_trans_func(info, cur_node);
 
@@ -3910,13 +3915,13 @@ static int strategy_wireless_parse_cmd_type_para(struct device_node *node,
 	array_len = mca_parse_dts_u32_count(node, name, ADAPTER_MAX,
 		ADAPTER_CMD_TYPE_SETTING_MAX);
 	if (array_len < 0) {
-#line 3724
+#line 3727
 		mca_log_err("parse %s failed", name);
 		return -1;
 	}
 
 	if (mca_parse_dts_u32_array(node, name, idata, array_len)) {
-#line 3729
+#line 3732
 		mca_log_err("parse %s data failed", name);
 		return -1;
 	}
@@ -3928,7 +3933,7 @@ static int strategy_wireless_parse_cmd_type_para(struct device_node *node,
 		j = ADAPTER_CMD_TYPE_SETTING_MAX * i;
 		cmd_type_info->cmd_fx[i].icl_setting = idata[j + ADAPTER_CMD_TYPE_SETTING_ICL];
 		cmd_type_info->cmd_fx[i].fcc_setting = idata[j + ADAPTER_CMD_TYPE_SETTING_FCC];
-#line 3740
+#line 3743
 		mca_log_debug("[%d] icl_setting: %d; fcc_setting: %d\n",
 			i, cmd_type_info->cmd_fx[i].icl_setting, cmd_type_info->cmd_fx[i].fcc_setting);
 	}
@@ -3946,7 +3951,7 @@ static int strategy_wireless_parse_adapter_cmd_type_info(struct strategy_wireles
 		ADAPTER_CMD_TYPE_MAX,
 		ADAPTER_CMD_TYPE_FX_MAX);
 	if (array_len < 0) {
-#line 3757
+#line 3760
 		mca_log_err("parse adapter_cmd_type_para failed\n");
 		return -1;
 	}
@@ -3957,7 +3962,7 @@ static int strategy_wireless_parse_adapter_cmd_type_info(struct strategy_wireles
 
 		row = i / ADAPTER_CMD_TYPE_FX_MAX;
 		col = i % ADAPTER_CMD_TYPE_FX_MAX;
-#line 3767
+#line 3770
 		mca_log_debug("[%d]adapter_cmd_type_para %s\n", i, tmp_string);
 		switch (col) {
 		case ADAPTER_CMD_TYPE_FX:
@@ -3985,7 +3990,7 @@ static int strategy_wireless_parse_adapter_para(struct device_node *node,
 		ADAPTER_PARA_MAX_GROUP,
 		MCA_BASIC_WLS_COMPATIBLE_PARA_MAX);
 	if (array_len < 0) {
-#line 3794
+#line 3797
 		mca_log_err("parse %s failed\n", name);
 		return -1;
 	}
@@ -3995,7 +4000,7 @@ static int strategy_wireless_parse_adapter_para(struct device_node *node,
 			return -1;
 
 		col = i % MCA_BASIC_WLS_COMPATIBLE_PARA_MAX;
-#line 3803
+#line 3806
 		mca_log_debug("[%d]uuid_adapter para %s\n", i, tmp_string);
 		switch (col) {
 		case MCA_BASIC_WLS_STANDARD:
@@ -4059,7 +4064,7 @@ static int strategy_wireless_parse_adapter_info(struct strategy_wireless_dev *in
 		UUID_PARA_MAX_GROUP,
 		MCA_BASIC_WLS_UUID_PARA_MAX);
 	if (array_len < 0) {
-#line 3866
+#line 3869
 		mca_log_err("parse adapter_para failed\n");
 		return -1;
 	}
@@ -4072,7 +4077,7 @@ static int strategy_wireless_parse_adapter_info(struct strategy_wireless_dev *in
 
 		row = i / MCA_BASIC_WLS_UUID_PARA_MAX;
 		col = i % MCA_BASIC_WLS_UUID_PARA_MAX;
-#line 3878
+#line 3881
 		mca_log_debug("[%d]wls_adapter para %s\n", i, tmp_string);
 		switch (col) {
 		case MCA_BASIC_WLS_UUID_NAME:
@@ -4130,9 +4135,9 @@ static int strategy_wireless_get_status(int status, void *value, void *data)
 }
 
 /* OS4 stock: a separate static function (inlined by the compiler); tx_q1/tx_q2 are only taken for adapter types with support_q != 0 */
-static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, struct device_node *node)
+static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info)
 {
-	int ret;
+	struct device_node *node = info->dev->of_node; int ret;	/* G52a: stock re-reads info->dev->of_node (not the caller's cached node) */
 	u32 support_q_tx[ADAPTER_TYPE_MAX] = { 0 };
 	u8 *tx_q1_buf = NULL;
 	u32 *tx_q2_buf = NULL;
@@ -4145,7 +4150,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 		info->support_q[2] = 0;
 	} else
 		memcpy(info->support_q, support_q_tx, sizeof(support_q_tx));
-#line 3951
+#line 3954
 	mca_log_err("support_q %d %d %d\n", info->support_q[0], info->support_q[1], info->support_q[2]);
 
 	for (i = 0; i < ADAPTER_TYPE_MAX; i++)
@@ -4154,7 +4159,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 	if (count >= 1) {
 		tx_q1_buf = kzalloc(count, GFP_KERNEL);	/* G13o: stock __kmalloc flags 0xdc0 = zeroed */
 		if (!tx_q1_buf) {
-#line 3959
+#line 3962
 			mca_log_err("alloc memory for tx_q1 failed\n");
 			goto q_out;
 		}
@@ -4164,7 +4169,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 					info->tx_q1[i] = tx_q1_buf[i];
 		}
 	}
-#line 3972
+#line 3975
 	mca_log_err("tx_q1 0x%02x 0x%02x 0x%02x, len %d\n", info->tx_q1[0], info->tx_q1[1], info->tx_q1[2], count);
 
 	for (i = 0; i < ADAPTER_TYPE_MAX; i++)
@@ -4173,7 +4178,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 	if (count >= 1) {
 		tx_q2_buf = kzalloc(count * sizeof(u32), GFP_KERNEL);	/* G13o: stock zeroed */
 		if (!tx_q2_buf) {
-#line 3980
+#line 3983
 			mca_log_err("alloc memory for tx_q2 failed\n");
 			goto q_out;
 		}
@@ -4183,7 +4188,7 @@ static void strategy_wireless_parse_q_vaule(struct strategy_wireless_dev *info, 
 					info->tx_q2[i] = tx_q2_buf[i];
 		}
 	}
-#line 3993
+#line 3996
 	mca_log_err("tx_q2 %d %d %d, len %d\n", info->tx_q2[0], info->tx_q2[1], info->tx_q2[2], count);
 q_out:
 	kfree(tx_q2_buf);
@@ -4198,7 +4203,7 @@ static int strategy_wireless_parse_dt(struct strategy_wireless_dev *info)
 	u32 idata[CHG_MODE_MAX] = { 0 };
 
 	if (!node) {
-#line 4009
+#line 4012
 		mca_log_err("device tree node missing\n");
 		return -EINVAL;
 	}
@@ -4207,7 +4212,7 @@ static int strategy_wireless_parse_dt(struct strategy_wireless_dev *info)
 
 	(void)mca_parse_dts_u32(node, "support_q_value", &info->support_q_value, 0);
 	if (info->support_q_value)
-		strategy_wireless_parse_q_vaule(info, node);
+		strategy_wireless_parse_q_vaule(info);
 	(void)mca_parse_dts_u32(node, "batt_type", &info->batt_type, 0);
 	(void)mca_parse_dts_u32(node, "max_power", &info->max_power, 50);
 	(void)mca_parse_dts_u32(node, "support_mode", &info->support_mode, 4);
@@ -4218,7 +4223,7 @@ static int strategy_wireless_parse_dt(struct strategy_wireless_dev *info)
 	if (hwid->platform_version == 1 &&
 	    (hwid->build_version == 0 || (hwid->build_version == 1 && hwid->minor_version == 0))) {
 		info->wls_vdd_src = EXTERNAL_BOOST;
-#line 4030
+#line 4033
 		mca_log_err("O2 p1.1 change wls vdd boost from external to haptic\n");
 	}
 	(void)mca_parse_dts_u32(node, "phone_icl", &info->phone_icl, 200);
@@ -4238,18 +4243,18 @@ static int strategy_wireless_parse_dt(struct strategy_wireless_dev *info)
 	} else
 		memcpy(info->rx_max_iout, idata, sizeof(idata));
 
-#line 4049
+#line 4052
 	mca_log_debug("rx_max_iout %d %d\n", info->rx_max_iout[CHG_MODE_DIV2],
 		info->rx_max_iout[CHG_MODE_DIV2]);
 
 	ret = strategy_wireless_parse_adapter_info(info);
 	if (ret)
-#line 4054
+#line 4057
 		mca_log_err("parst dts adapter info failed\n");
 
 	ret = strategy_wireless_parse_adapter_cmd_type_info(info);
 	if (ret)
-#line 4058
+#line 4061
 		mca_log_err("parst dts adapter cmd type failed\n");
 
 	return ret;
@@ -4273,19 +4278,19 @@ static int strategy_wireless_debug_process_data(const char *buf, struct strategy
 	/* OS4 stock: heap copy of exactly strlen(buf) bytes, NOT NUL-terminated (stock bug, reproduced: strsep may read past the end) */
 	buf_tmp = kmalloc(strlen(buf), GFP_KERNEL);
 	if (!buf_tmp) {
-#line 4080
+#line 4083
 		mca_log_err("malloc failed\n");
 		return -ENOMEM;
 	}
 	str = buf_tmp;
-#line 4084
+#line 4087
 	mca_log_info("buf length is %d\n", strlen(buf));
 	memcpy(buf_tmp, buf, strlen(buf));
 	pchar = strsep(&str, " ");
 	while (pchar != NULL) {
 		if (kstrtoint(pchar, 10, &args[count]))
 			return -1;
-#line 4091
+#line 4094
 		mca_log_info("args[%d]: %d\n", count, args[count]);
 		pchar = strsep(&str, " ");
 		++count;
@@ -4293,7 +4298,7 @@ static int strategy_wireless_debug_process_data(const char *buf, struct strategy
 
 	switch (args[0]) {
 	case DEBUG_SET_FCC:
-#line 4098
+#line 4101
 		mca_log_info("wls debug set fcc\n");
 		info->debug_qc_ichg = args[1];
 		if (args[1] == 100000)
@@ -4304,7 +4309,7 @@ static int strategy_wireless_debug_process_data(const char *buf, struct strategy
 		MCA_EVENT_WIRELESS_WLS_DEBUG, info->debug_qc_ichg);
 		break;
 	case DEBUG_SET_ICL:
-#line 4108
+#line 4111
 		mca_log_info("wls debug set icl\n");
 		if (args[1] == 100000)
 			mca_vote_override(info->input_limit_voter, "wls_debug", false, 0);
@@ -4312,33 +4317,33 @@ static int strategy_wireless_debug_process_data(const char *buf, struct strategy
 			mca_vote_override(info->input_limit_voter, "wls_debug", true, args[1]);
 		break;
 	case DEBUG_SET_ONE_EPP_FOD:
-#line 4115
+#line 4118
 		mca_log_info("wls debug set one epp fod\n");
 		if (count == 4)
 			platform_class_wireless_set_debug_fod(WIRELESS_ROLE_MASTER, args, count);
 		break;
 	case DEBUG_SET_ALL_EPP_FOD:
-#line 4120
+#line 4123
 		mca_log_info("wls debug set all epp fod\n");
 		if (count == 25)
 			platform_class_wireless_set_debug_fod(WIRELESS_ROLE_MASTER, args, count);
 		break;
 	case DEBUG_SET_ALL_FOD:
-#line 4125
+#line 4128
 		mca_log_info("wls debug set all fod\n");
 		if (count % 2 == 0 && count >= 12)
 			platform_class_wireless_set_debug_fod(WIRELESS_ROLE_MASTER, args, count);
 		break;
 	case DEBUG_SET_VOUT:
-#line 4130
+#line 4133
 		mca_log_info("wls debug set vout\n");
 		if (args[1] > 0 && args[1] <= 18000) {
 			ret = platform_class_wireless_set_vout(WIRELESS_ROLE_MASTER, args[1]);
 			if (ret < 0)
-#line 4134
+#line 4137
 				mca_log_info("wls debug set adapter voltage failed!!!\n");
 		} else
-#line 4136
+#line 4139
 			mca_log_info("wls debug set error vout\n");
 		break;
 	default:
@@ -4430,13 +4435,13 @@ static ssize_t strategy_wireless_sysfs_store(struct device *dev,
 	case MCA_BASIC_CHG_WLS_SET_RX_SLEEP:
 		if (sscanf(buf, "%d\n", &info->wls_node.set_rx_sleep) != 1)
 			return -1;
-#line 4227
+#line 4230
 		mca_log_info("set rx sleep by user:%d", info->wls_node.set_rx_sleep);
 		platform_class_wireless_set_enable_mode(WIRELESS_ROLE_MASTER, (!info->wls_node.set_rx_sleep));
 		break;
 	case MCA_BASIC_CHG_WLS_AUDIO_PHONE_STS:
 		(void)sscanf(buf, "%d", &info->audio_phone_sts);
-#line 4232
+#line 4235
 		mca_log_info("set audio phone status:%d", info->audio_phone_sts);
 		mca_strategy_func_process(STRATEGY_FUNC_TYPE_QUICK_WIRELESS,
 			MCA_EVENT_WIRELESS_AUDIO_PHONE_STS, info->audio_phone_sts);
@@ -4572,7 +4577,7 @@ static int strategy_wireless_soc_limit_sts_callback(void *data, int effective_re
 
 	info->soc_limit = effective_result;
 
-#line 4367
+#line 4370
 	mca_log_info("effective_result: %d\n", effective_result);
 
 	if (effective_result && info->online)
@@ -4595,11 +4600,11 @@ static int strategy_wireless_quiet_sts_callback(void *data, int effective_result
 
 	info->quiet_sts = effective_result;
 
-#line 4389
+#line 4392
 	mca_log_info("effective_result: %d\n", effective_result);
 
 	if (!info->online)
-#line 4392
+#line 4395
 		mca_log_info("wireless is not online, keep sts wait for it\n");
 	else
 		strategy_wireless_add_trans_task_to_queue(info, TRANS_DATA_FLAG_FAN_SPEED, 0);
@@ -4615,13 +4620,13 @@ static int strategy_wireless_smartchg_delta_fv_callback(void *data, int effectiv
 	if (!data)
 		return -1;
 
-#line 4407
+#line 4410
 	mca_log_err("effective_result: %d\n", effective_result);
 	/* OS4: platform_version 3 / country_version 1 limit delta_fv to 20 */
 	if (hwid && hwid->platform_version == 3 && hwid->country_version == 1)
 		effective_result = min(effective_result, 20);
 	info->smartchg_data.delta_fv = effective_result;
-#line 4413
+#line 4416
 	mca_log_err("effective_result: %d\n", effective_result);
 	return 0;
 }
@@ -4641,11 +4646,11 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 	struct strategy_wireless_dev *info;
 	int wls_online = 0;
 
-#line 4432
+#line 4435
 	mca_log_info("probe start probe_cnt: %d\n", ++probe_cnt);
 
 	if (strategy_class_fg_ops_is_init_ok() <= 0) {
-#line 4435
+#line 4438
 		mca_log_info("fg is not ready, wait for it\n");
 		return -EPROBE_DEFER;
 	}
@@ -4656,7 +4661,7 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 
 	info->batt_psy = power_supply_get_by_name("battery");
 	if (!info->batt_psy)
-#line 4445
+#line 4448
 		mca_log_err("batt_psy is not ready, wait for it\n");
 
 	info->dev = &pdev->dev;
@@ -4664,7 +4669,7 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 	device_init_wakeup(info->dev, true);
 	ret = strategy_wireless_parse_dt(info);
 	if (ret) {
-#line 4452
+#line 4455
 		mca_log_err("parst dts failed\n");
 		return ret;
 	}
@@ -4673,8 +4678,8 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 	spin_lock_init(&info->list_lock);
 	init_waitqueue_head(&info->wait_que);
 	INIT_LIST_HEAD(&info->header_irq);
+	spin_lock_init(&info->list_lock_irq);	/* G52a: stock initialises the irq-list lock before the waitqueue */
 	init_waitqueue_head(&info->wait_que_irq);
-	spin_lock_init(&info->list_lock_irq);
 	strategy_wireless_init_work(info);
 
 	(void)mca_strategy_ops_register(STRATEGY_FUNC_TYPE_BASIC_WIRELESS,
@@ -4682,7 +4687,7 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 
 	ret = strategy_wireless_init_voter(info);
 	if (ret) {
-#line 4469
+#line 4472
 		mca_log_err("init voter err\n");
 		return -1;
 	}
@@ -4698,7 +4703,7 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 
 	platform_class_wireless_is_present(WIRELESS_ROLE_MASTER, &wls_online);
 	if (wls_online) {
-#line 4484
+#line 4487
 		mca_log_err("avoid missing wls_online event in probe\n");
 		mca_event_block_notify(MCA_EVENT_TYPE_CHARGER_CONNECT, MCA_EVENT_WIRELESS_CONNECT, NULL);
 	}
@@ -4706,7 +4711,7 @@ static int basic_wireless_class_probe(struct platform_device *pdev)
 	/* stock probe +0x137c/+0x1380 (G13h: init_ok was never set, INIT_OK get_status would always report 0) */
 	info->vbat_ov_count = 0;
 	info->init_ok = 1;
-#line 4489
+#line 4492
 	mca_log_err("probe End\n");
 
 	return ret;

@@ -38,7 +38,7 @@ void matt_outq_init(struct sock *sk)
 
 	INIT_LIST_HEAD(&oq->tsorted_tx_queue);
 	oq->rb_rtx_queue = RB_ROOT;
-	__skb_queue_head_init(&sk->sk_write_queue);
+	skb_queue_head_init(&sk->sk_write_queue);	/* G56a: the stock also initialises the queue lock (qlen and lock zeroed by one 8-byte store at +0x178) */
 	oq->rto = 50000;
 	oq->rack.reo_wnd_steps = 1;
 	oq->announce_srtt = 0;

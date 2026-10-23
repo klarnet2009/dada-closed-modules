@@ -1,0 +1,44 @@
+# Small modules vs GLOBAL OS4.0.0.7 stock: status (goal-G17a, 19.10.2026)
+
+Method: (1) global stock vs CN stock code identity from `<work-dir>` (compare_ko_v2 stock-vs-stock: every module below is STRICT-EQUIVALENT or differs only in buildmeta = scmversion g32a50a34de2b -> gbc807ab2c5a8; vendor_ramdisk and vendor_dlkm copies of a module are md5-identical). (2) Real Kleaf build of the current sources (scratch `<work-dir>`, pkg dirs `re/<m>_g17a`, bazel-out removed) compared with `compare_ko_v2` + `preamble_cmp` against the GLOBAL stock. (3) Every differing function: symcmp4 (symbolic facts, under `ulimit -v`) -> CLASS-A-auto = proven CODEGEN; the rest read in the disassembly diff / source. (4) Extra scans: printk format strings stock vs ours (all 16 modules), data objects (compare_ko_v2 objects check). Nothing was loaded or flashed; no module in this list is hardware-tested.
+
+Classes: CODEGEN = same behaviour, other instructions (register/stack allocation, block order, tail merge, inlining, loop shape); BEHAVIOUR = observable difference (fixed in our source where proven).
+
+| module | funcs | byte-identical before -> after | differing now (class) | BEHAVIOUR found / fixed | first line of STATUS.md |
+|---|---|---|---|---|---|
+| mi_reclaim | 30 | 27 -> 27 | event_store (CLASS-A), is_important_process (CODEGEN, read), init_module (CODEGEN: sdiv-100 form, lock key) | 0 | PARTIAL, DO NOT LOAD (scheduler/memory, review first) |
+| mi_damon | 190 | 189 -> 189 | kdamond_fn (CLASS-A, 315/315 facts) | 0 | PARTIAL |
+| process_monitor | 42 | 38 -> 38 | init_D_task, init_signal_record, signal_record_hook_handle (CLASS-A), detect_list_write (CODEGEN, cmp #0x64 hi vs #0x65 hs) | 0 | PARTIAL |
+| rss_monitor | 32 | 31 -> 31 | init_module (CLASS-A) | 0 | PARTIAL |
+| lb | 57 | 38 -> 39 | 18: 9 CLASS-A, 9 CODEGEN by reading (ioctl tail merge, is_real_timing_package shrink-wrap, compiler_thread struct zero/copy, FORTIFY memcpy in lookup_file_index, 32/64-bit shift in dex_files_for_bitmap_record, ...) | 3 fixed: file_type_list order (so,apk,dex,vdex,odex,art,jar; objects check now PASS), g_lb_data memset in chrdev register, 64-bit sum in preread_size_cmd | PARTIAL |
+| miscore | 27 | 22 -> 22 | v4/v6 uplink stat (CLASS-A), handle_link_change (unrolled search, extra bounds brk), input_hook4/6 (udp_get_sock inlined) - CODEGEN | 0 | PARTIAL |
+| mibbr | 28 | 26 -> 26 | mibbr_main, update_bbr_uid_list: BOTH CLASS-A-auto (103/103, 156/156 facts) | 0 | PARTIAL |
+| minet | 44 | 44 -> 44 | none in bodies; kcfi-preamble of the 2 ThinLTO-promoted hidden functions + bug-lines (linking artefacts) | 0 | PARTIAL (strict compare: preamble) |
+| rsmc_driver | 95 | 91 -> 91 | rsmc_any_msg_proc (CLASS-A), convertlonglongtobytes, convertchartobytes, rsmc_dtx_msg_proc (CODEGEN: hex nibble phi chain) | 0 | PARTIAL |
+| mist | 70 | 67 -> 67 | update_rel_freq, dflt_init (CLASS-A), parse_cluster_node_map (CODEGEN) | 0 | PARTIAL |
+| cameralog | 11 | 10 -> 10 | cameralog_ioctl (CODEGEN, ret phi / layout) | 0 | PARTIAL |
+| cameramsger | 22 | 14 -> 14 | read, write (CLASS-A), release, ioctl, snd_message, cam_sched_w_pids, xmi_rvh_select_task_rq_fair, init_module (CODEGEN); open: bounds brk on flags[i], kCFI preamble of debug() | 2 fixed (log text): snd_message 'at position' newline, 'filter_cpu' name in the allowed_cpus printk | PARTIAL |
+| dump_binder | 11 | 10 -> 10 | extend_android_vh_binder_proc_transaction_finish (CLASS-A) | 0 | PARTIAL |
+| fault_report | 8 | 7 -> 7 | get_stack_info (CODEGEN; array-bounds trap i<17 in stock vs i<16 ours, unreachable) | 0 reachable | PARTIAL |
+| mca_connector_antiburn | 17 | 12 -> 12 | show, probe (CLASS-A), sysfs_store, get_temperature, monitor_workfunc (CODEGEN, bool tests) | 0 | PARTIAL, community-only |
+| mca_pwm_fan | 20 | 16 -> 16 | speed_detect (CLASS-A), fan_sysfs_store, set_pwn_fan_target_level, set_pwm (CODEGEN) | 0 | PARTIAL, community-only |
+
+Totals: 16 modules, 0 unclassified function differences; 5 BEHAVIOUR/data defects found and fixed (3 lb, 2 cameramsger, none changes control flow of a reachable hot path; lb file_type_list and the cameramsger texts are what stock does). The fixed lb/cameramsger sources were rebuilt (lb 19 -> 18 differing bodies, objects PASS; cameramsger 8 -> 8, string scan clean).
+
+Not proven / open: cam_sched_w_pids stock array-bounds brk (is our `flags[]` bound the stock one?); cameramsger `debug()` kCFI preamble; fault_report get_stack_info bound constant 17 vs 16; mi_reclaim is_important_process and lb compiler_thread were classified by reading, not by symcmp4 CLASS-A (the tool follows only part of their CFG). Hacks: none added; earlier forged-CRC/stub providers (fault_report miev, mi_reclaim xr_qi, antiburn/pwm_fan mca stubs) stay as documented in each STATUS.md.
+
+## G20a (20.10.2026): rebuild of lb/cameramsger/mi_reclaim after the G19a fixes, kCFI + imports/CRC audit of all 16, antiburn/pwm_fan against the global stubs
+
+Scratch <work-dir> (tools copied to work/re/src/g20a_tools: kb20.sh, brkscan.py, brkctx.py, strref.py, impprov.py, sym20.sh, fd20.sh); stock = os4g/mods (md5 identical to the G17a stock set); real Kleaf, bazel-out removed. No hardware, no git.
+
+1. Rebuilds (before = after G17a fixes, after = G20a):
+| module | byte-identical before -> after | what the G19a fixes did in the .ko | status line now |
+|---|---|---|---|
+| lb | 39/57 -> 39/57 (same 18 CODEGEN functions) | L2: `no_sanitize("array-bounds")` accepted; mi_lb_ioctl has exactly 3 branches to `brk #1`, 0 to `brk #0x5512` (stock the same 3/0). L1: RenderThread path of mi_lb_dealwith_collect_cmd = E565 printk -> put_task_struct -> fail tail, same as stock (symcmp4 CLASS-A-auto; string multiset equal) | PARTIAL, review gate met, test-load only, not for ROM |
+| cameramsger | 14/22 -> 14/22 (same 8) | C2: `add_message` literal (string multisets of all 8 functions now equal to stock); C3: snd_message 8 -> 7 trap branches (the reachable `cmp w8,#0x800` trap is gone, = stock count 7); C1: read 2 -> 3 trap branches (= stock), symcmp4 31/31 CLASS-A-auto; C4 in place (strings equal); flags[] trap exists in both | PARTIAL, review gate met, test-load only, not for ROM |
+| mi_reclaim | 27/30 -> 27/30 (event_store, is_important_process, init_module) | D1: `__param` refill_cpus perm 0444 -> 0644 = stock (`__param` left the failing tables) | PARTIAL, DO NOT LOAD (review checklist items 2-6 open) |
+2. New finding while measuring: the `.llvm.<hash>` suffixes of ThinLTO-promoted symbols differ between CN and GLOBAL stock in 4 modules (kallsyms names only): cameramsger c_msger_dev, mibbr bbr_dir, minet clear_tc_app/m_idletimer_info, rsmc_driver (g_nl_ctx, g_rsmc_spi_ctx, g_smc_core, ...). Changed to the global values in the sources, rebuilt: llvm-nm `.llvm.` names equal to stock in all 16 now; function-byte counts did not change.
+3. kCFI audit (preamble_cmp + compare_ko_v2 kcfi-preamble) over all 16: 0 hash mismatches in 13 modules (mibbr 24, miscore 25, mist 68, process_monitor 41, rss_monitor 28, mi_damon 181, cameralog 9, dump_binder 10, fault_report 8, mca_connector_antiburn 15, mca_pwm_fan 14, lb 41, mi_reclaim 19 preamble words identical). Three modules have preamble differences, all in functions that are never called through a pointer: minet reset_timer, clear_tc_app (stock none, ours has one); rsmc_driver smc_free_gpio, rsmc_tcxo_power_free (stock none, ours 0x3aaa7605; NEW, was not listed in G17a); cameramsger debug() (stock 0xef5250c9 u8 type, ours without a matching preamble). Cause: ThinLTO-promoted statics of the stock vs non-static asm-label globals here (`no_sanitize("kcfi")` does not drop the preamble). Harmless at run time (kCFI checks only indirect calls), not fixed.
+4. Imports + CRC vs the GLOBAL package (impprov.py: every import that a package module exports is compared with the exported CRC; compare_ko_v2 imports for the rest): 16 of 16 PASS, 0 CRC mismatches; imports/ones from package modules: antiburn 51/23, pwm_fan 47/11, mist 51/5, fault_report 39/5, mi_reclaim 55/2, rsmc_driver 80/1, other 10 modules 0. Exports PASS in all (mist 44, rsmc_driver 1, cameralog 1).
+5. antiburn and pwm_fan rebuilt against the GLOBAL stubs (//re/stubs_a17B/osg instead of /os4): result identical to the os4-stub build (antiburn function-bytes 5/17, pwm_fan 4/20, kCFI PASS, imports 51/47 + CRC PASS). Reason: neither module imports platform_fg_ic_ops_register (0x870b9e22) or strategy_class_fg_ops_register (0x944e1834) nor any symbol of fg_ic_ops, strategy_fg_class, smart_charge, charger_partition; modinfo depends lists only the stubs they really use. The fuel-gauge CRC difference CN/global therefore does not touch them (it matters for the real charger modules that import those symbols). Still community-only, never for a ROM.
+6. Open: the 18+8+3 CODEGEN bodies unchanged; kCFI preamble of the 5 functions above; debug() hash; anon-data (jump tables) in lb/cameramsger/antiburn; no hardware test.

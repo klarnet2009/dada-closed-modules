@@ -86,7 +86,7 @@ bool plat_is_relaxed_rt(struct task_struct *p GKPAD(fcrc16J7PgIzCi))
 		return false;
 
 	rcu_read_lock();
-	css = task_css(p, cpu_cgrp_id);
+	css = rcu_dereference(p->cgroups) ? task_css(p, cpu_cgrp_id) : NULL;
 	id = css ? css->id : -1;
 	rcu_read_unlock();
 
@@ -104,6 +104,8 @@ static void plat_fix_timer_slack_fork(void *unused, struct task_struct *p)
 
 static int __init plat_common_init(void)
 {
+	/* global OS4.0.0.7: 120 = sizeof(plat_task_struct), 1024 = its budget; both are constants in the stock code (guess for the names) */
+	pr_info("plat_task_struct size: %zu/%d bytes\n", (size_t)120, 1024);
 	register_trace_android_rvh_finish_prio_fork(plat_fix_timer_slack_fork, NULL);
 	return 0;
 }

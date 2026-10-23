@@ -1,4 +1,36 @@
-# mca_connector_antiburn - PARTIAL (G2n 18.10.2026): 12 of 17 functions byte-identical; monitor_workfunc and probe REWRITTEN from the OS4 stock listing (same 132 / 73 calls with the same arguments, same immediates, fields and conditions except the codegen forms listed below); real Kleaf build + compare_ko_v2: NOT STRICT-EQUIVALENT (5 function bodies, anon-data table extent, buildmeta, forged depends=). COMMUNITY-ONLY: never flash, never put into a ROM build
+# mca_connector_antiburn - PARTIAL, DO NOT LOAD, community-only (G52a 22.10.2026: 5 of 17 functions differ from the GLOBAL OS4.0.0.7 stock after a real Kleaf rebuild, was 5 of 17; NOT STRICT-EQUIVALENT; never flashed, never in a ROM build or the kernel package, NOT hardware-tested, NO safety claim)
+
+Previous first line (before G52a): mca_connector_antiburn - PARTIAL (G2n 18.10.2026): 12 of 17 functions byte-identical; monitor_workfunc and probe REWRITTEN from the OS4 stock listing (same 132 / 73 calls with the same arguments, same immediates, fields and conditions except the codegen forms listed below); real Kleaf build + compare_ko_v2: NOT STRICT-EQUIVALENT (5 function bodies, anon-data table extent, buildmeta, forged depends=). COMMUNITY-ONLY: never flash, never put into a ROM build
+
+## G52a 22.10.2026 (goal-G52a, MODULE_FINISH_BRIEF method) - community-only, DO NOT LOAD, NO safety claim, never flashed
+
+- Build: real Kleaf rebuild after the G52a source changes, compared with the GLOBAL OS4.0.0.7 stock module (`compare_ko_v2`): function-bytes differ **5 of 17** (before G52a: 5 of 17). rebuilt .ko md5 `6d44a56abcae6f939ac4a41fe12b88c2` (round-1 build `6d44a56abcae6f939ac4a41fe12b88c2`). Still NOT STRICT-EQUIVALENT (buildmeta / depends forged, see the lines above).
+- Source changes in G52a: none.
+- Tools: `work/re/src/g52a_tools` (blkcmp CFG isomorphism, vn value numbering, bisim effect bisimulation, trace, wl, inv, cases, ndiff2, pinchk, g51a emu differential emulator used read-only). They are candidate finders; every verdict below rests on a written argument over the raw `llvm-objdump -dr` listing (normalised diffs in `work/a17/review/g52a/evid/mca_connector_antiburn_ndiff.txt`).
+- Evidence files: `work/a17/review/g52a/evid/mca_connector_antiburn_{blkcmp,vn,trace,wl,bisim,ndiff,emu2all,tbl,pins}.txt`; report `work/a17/review/g52a_charging2_final.md`.
+
+| function | verdict | one-line argument | listing evidence |
+|---|---|---|---|
+| antiburn_sysfs_show | EQUIVALENT-PROVEN | class B: stock loads conn->support_elaboration_anti_strategy before get_temperature(), ours after; the callee only writes statics (adc_err_flag, flag_restore). | evid/mca_connector_antiburn_ndiff.txt, mca_connector_antiburn_bisim.txt, mca_connector_antiburn_emu2all.txt |
+| antiburn_sysfs_store | EQUIVALENT-PROVEN | class G: ours reloads val from the escaped stack slot after gpio_to_desc; no callee writes that slot. (emulator reports only a dead x3 argument register of the 1-argument gpio_to_desc.) | evid/mca_connector_antiburn_ndiff.txt, mca_connector_antiburn_bisim.txt, mca_connector_antiburn_emu2all.txt |
+| connector_antiburn_get_temperature | EQUIVALENT-PROVEN | class A/C: flag_restore is w9 (== 1 by the preceding cmp #1/b.ne) in stock and the literal 1 in ours. | evid/mca_connector_antiburn_ndiff.txt, mca_connector_antiburn_bisim.txt, mca_connector_antiburn_emu2all.txt |
+| connector_antiburn_probe | EQUIVALENT-PROVEN | class G: value numbering equal on all units; emulator trace differs only in the numeric address of static notifier blocks. | evid/mca_connector_antiburn_ndiff.txt, mca_connector_antiburn_bisim.txt, mca_connector_antiburn_emu2all.txt |
+| connector_antiburn_monitor_workfunc | EQUIVALENT-PROVEN | CFG-isomorphic except class C: (a) cmp 0xd6d8 b.ge vs cmp 0xd6d7 b.gt (x >= 55000 == x > 54999), (b) static bool flag_restore tested as tbz #0 (hoisted load) vs cmp #1/b.ne. | evid/mca_connector_antiburn_ndiff.txt, mca_connector_antiburn_bisim.txt, mca_connector_antiburn_emu2all.txt |
+
+Verdict legend: EQUIVALENT-PROVEN = written block-level argument over the raw listing (not a tool verdict); OPEN = honest reason given (hunks reviewed but not path-proven); BY-DESIGN = intentional documented deviation from the stock. Not hardware-tested; this module must never be flashed or placed in a ROM or kernel package.
+
+
+
+## G27b (20.10.2026) - residual polarity items classified (first line unchanged: still PARTIAL, community-only; no source change)
+- There is no `cmp #0x64/#0x65` pair in this module (that item of G25a is process_monitor's). The monitor_workfunc ATOMS diff is the flag test of `flag_restore` (a `static bool`): stock `tbz w9,#0` vs ours `cmp w9,#1; b.ne` on the same bool byte, in the two inlined temp_increase_rate loops (index constants 0 and 1, same log arguments); the A11/A18 compare atoms are the same `temp_increase_rate[i] > max_temp_increase_rate` with another register. connector_antiburn_get_temperature FACT-DIFF: stock stores the literal 1 into flag_restore, ours stores the value of `adc_err_flag` right after `if (adc_err_flag == 1)` (a bool that is 1 there): equal. antiburn_sysfs_store: stock `out(kstrtoint)` vs ours `out(gpio_to_desc)` is the symbolic naming of the same argument value. All CODEGEN.
+
+## G20a (20.10.2026) - rebuilt against the GLOBAL stub set (first line unchanged: still PARTIAL, community-only)
+- Built (server copy of BUILD.bazel with deps os4 -> osg; the local BUILD.bazel is unchanged) with //re/stubs_a17B/osg (global fuel-gauge/smart_charge/charger_partition stubs) instead of /os4: result identical to the os4-stub build: function-bytes 5 of 17, kCFI 15/15 PASS, imports 51 + CRC PASS (23 of them from package modules, all CRCs equal to the global exporters). The module does not import platform_fg_ic_ops_register / strategy_class_fg_ops_register (the CRCs that differ between CN and global) nor anything from fg_ic_ops, strategy_fg_class, smart_charge or charger_partition (modinfo depends lists only the 10 stubs it uses), so the global/CN CRC difference does not touch this module. Still FAIL: depends names (os4_ stubs), buildmeta, anon-data.
+
+## G17a (19.10.2026) - global OS4.0.0.7 re-measurement and function classification (first line unchanged unless noted: still PARTIAL, no hardware test)
+Global OS4.0.0.7 stock (<work-dir>) vs CN OS4.0.0.6 stock: code-identical (cn_vs_gl.csv, compare_ko_v2 stock-vs-stock: only buildmeta/scmversion differs). Real Kleaf build (scratch <work-dir> tag g17a, bazel-out removed) vs the GLOBAL stock: function set 17 OK; 12 of 17 byte-identical; antiburn_sysfs_show, connector_antiburn_probe = CLASS-A-auto; antiburn_sysfs_store (register allocation only), connector_antiburn_get_temperature (flag_restore = bool loaded vs constant 1, same value), connector_antiburn_monitor_workfunc (test of a bool flag as ==0 vs ==1) = CODEGEN. Imports+CRC still pass against the global stock (the changed global fg exports are not imported by this module). 0 BEHAVIOUR differences, no source change. COMMUNITY-ONLY: never flash, never in a ROM build.
+Tools: <work-dir> (kb17.sh = Kleaf build + compare_ko_v2 + preamble_cmp, sym17.sh = symcmp4 on every differing function, str17.py = printk format scan, fd17.sh = disassembly diff), results in res/<module>.cmp / .sym. Hacks: none added; earlier hacks (forged CRC / stubs / codegen hints) unchanged and still listed above.
+
 
 ## G2n (18.10.2026): audit-2 items A-1 / A-2. SAFETY: connector over-temperature protection, community-only source, NEVER flash it, never put it into a ROM build.
 - A-1 FIXED (`antiburn_sysfs_store`, mos_ctrl): the "set mos_ctrl:%d" log is now written for val > 1 as well (GPIO untouched), as the stock (+0x12c `b.hi @144` lands on the log call). Listing diff stock vs built (lst3/ldiff3 -S): 0 branch mismatches, 108 vs 107 insns, only a register move / stack reload differs.
@@ -57,3 +89,7 @@ Imports new in OS4 vs OS3: `of_get_child_by_name`, `memset`, `strcmp`. Depends: 
 This is a rewrite from the disassembly (about 3100 instructions in `<work-dir>`), not a port; not started. `stubs_a17A/include/mca/hardware/hw_connector_antiburn.h` and the needed pd/qc protocol prototypes are available.
 
 G2: not started (no change). The template includes `soc/xring/xr_pmic.h` (absent, XRING-only); the module has to be rewritten from the disassembly (see the function list above). `jt.py` (work/re/g2_tools) decodes its switch tables.
+
+## G40e (20.10.2026) - raw-listing read of the functions that still differ from stock
+COMMUNITY-ONLY, DO NOT LOAD, PARTIAL, no safety claim, not hardware-tested. Full table: work/a17/review/charging_all_functions_audit.md. No source change and no rebuild in G40e.
+5 differing functions read in raw listings: CODEGEN (monitor_workfunc 0xd6d8 ge vs 0xd6d7 gt same predicate; bool tests). probe: all 9 defaults paired exactly as stock, names/offsets equal, spill-slot -> property mapping not traced one by one.

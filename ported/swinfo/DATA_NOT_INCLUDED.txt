@@ -1,0 +1,2 @@
+config_platform_data.h (a ~210 KB platform-configuration table extracted from the stock swinfo.ko) is NOT published here.
+The driver code (swinfo_func.c) is equivalent to the stock module; to build it, generate that header yourself from the .data/.rodata of your own stock swinfo.ko.

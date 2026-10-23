@@ -67,13 +67,21 @@ void matt_remove_empty_skb(struct sock *sk)
 	}
 }
 
+/* G56a: the stock inlines a boolean form of matt_wmem_schedule() here (no zero test of the size) */
+static __always_inline bool matt_wmem_ok_inl(struct sock *sk, int copy)
+{
+	if (sk->sk_prot->memory_allocated && copy - sk->sk_forward_alloc >= 1)
+		return xm_sk_mem_schedule(sk, copy - sk->sk_forward_alloc, 0) != 0;
+	return true;
+}
+
 struct sk_buff *matt_stream_alloc_skb(struct sock *sk, gfp_t gfp, bool force)
 {
 	struct sk_buff *skb = alloc_skb_fclone(MAX_TCP_HEADER, gfp);
 
 	if (skb) {
 		skb->truesize = SKB_TRUESIZE(skb_end_offset(skb));
-		if (matt_wmem_schedule(sk, skb->truesize)) {
+		if (matt_wmem_ok_inl(sk, skb->truesize)) {
 			skb_reserve(skb, MAX_TCP_HEADER);
 			skb->ip_summed = CHECKSUM_UNNECESSARY;	/* G1ad: stock and w,#0xffffffbf; orr #0x20 = 1 */
 			INIT_LIST_HEAD(&skb->tcp_tsorted_anchor);
@@ -253,7 +261,7 @@ new_segment:
 			skb_frag_size_add(&skb_shinfo(skb)->frags[i - 1], copy_i);
 		} else {
 			skb_fill_page_desc(skb, i, pfrag->page, pfrag->offset, copy_i);
-			get_page(pfrag->page);
+			page_ref_inc(pfrag->page);	/* g61a: as the stock (tcp_sendmsg_locked): no compound_head */
 		}
 		pfrag->offset += copy_i;
 		out->write_seq += copy_i;
@@ -267,7 +275,7 @@ new_segment:
 			MATT_SKB_CB(skb)->flags |= 0x20;
 			goto out;
 		}
-		if ((s32)(out->pushed_seq - out->write_seq) < -0x20000) {
+		if ((s32)(out->pushed_seq - out->write_seq + 0x20000U) < 0) {
 			out->pushed_seq = out->write_seq;
 			MATT_SKB_CB(skb)->flags |= 0x20;
 			[[clang::__noinline__]] __matt_push(sk);

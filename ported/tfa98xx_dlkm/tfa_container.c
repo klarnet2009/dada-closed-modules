@@ -697,7 +697,7 @@ enum Tfa98xx_Error tfaContWriteFile(struct tfa_device *tfa,
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	struct TfaHeader *hdr = (struct TfaHeader *)file->data;
 	enum TfaHeaderType type;
-	int size, i;
+	int size;
 	char subVerString[8] = { 0 };
 	int subversion = 0;
 
@@ -718,39 +718,23 @@ enum Tfa98xx_Error tfaContWriteFile(struct tfa_device *tfa,
             (((hdr->customer[0]) == 'A') && ((hdr->customer[1]) == 'P') &&
              ((hdr->customer[2]) == 'I') && ((hdr->customer[3]) == 'V')))
 		{
-			if (tfa->is_probus_device)
-			{
-                /* Temporary workaround (example: For climax --calibrate scenario for probus devices) */
-                err = tfaGetFwApiVersion(tfa, (unsigned char *)&tfa->fw_itf_ver[0]);
-                if (err) {
-                    pr_debug("[%s] cannot get FWAPI error = %d \n", __FUNCTION__, err);
-                    return err;
-                }
-				for (i = 0; i<3; i++)
-				{
-					if (tfa->fw_itf_ver[i] != hdr->customer[i + 4]) //+4 to skip "?PIV" string part in the .msg file.
-					{
-						ERRORMSG("Error: tfaContWriteFile: Expected FW API version = %d.%d.%d, Msg File version: %d.%d.%d \n",
-							tfa->fw_itf_ver[0],
-							tfa->fw_itf_ver[1],
-							tfa->fw_itf_ver[2],
-							hdr->customer[4],
-							hdr->customer[5],
-							hdr->customer[6]);
-						return Tfa98xx_Error_Bad_Parameter;
-					}
-				}
+			/* g4v: stock (v6.13): no probus special case; always reads the FW API version of the device
+			 * and compares all four bytes with the .msg file (byte 2 only while byte 1 <= 0x21) */
+			err = tfaGetFwApiVersion(tfa, (unsigned char *)&tfa->fw_itf_ver[0]);
+			if (err) {
+				pr_debug("[%s] cannot get FWAPI error = %d \n", __FUNCTION__, err);
+				return err;
 			}
-			else if ((tfa->fw_itf_ver[2] != hdr->customer[4]) || (tfa->fw_itf_ver[1] != hdr->customer[5]) || ((tfa->fw_itf_ver[0] >> 6) & 0x03) != hdr->customer[6])
-			{
-
-				ERRORMSG("Error: tfaContWriteFile: Expected FW API version = %d.%d.%d, Msg File version: %d.%d.%d \n",
-					(tfa->fw_itf_ver[2]) & 0xff,
-					(tfa->fw_itf_ver[1]) & 0xff,
-					(tfa->fw_itf_ver[0] >> 6) & 0x03,
-					hdr->customer[4],
-					hdr->customer[5],
-					hdr->customer[6]);
+			if ((uint8_t)tfa->fw_itf_ver[0] != hdr->customer[4] ||
+			    (uint8_t)tfa->fw_itf_ver[1] != hdr->customer[5] ||
+			    ((uint8_t)tfa->fw_itf_ver[1] <= 0x21 && (uint8_t)tfa->fw_itf_ver[2] != hdr->customer[6]) ||
+			    (uint8_t)tfa->fw_itf_ver[3] != hdr->customer[7]) {
+#line 704
+				ERRORMSG("Error: tfaContWriteFile: Expected FW API version = %d.%d.%d.%d, Msg File version: %d.%d.%d.%d \n",
+					(uint8_t)tfa->fw_itf_ver[0], (uint8_t)tfa->fw_itf_ver[1],
+					(uint8_t)tfa->fw_itf_ver[2], (uint8_t)tfa->fw_itf_ver[3],
+					hdr->customer[4], hdr->customer[5], hdr->customer[6], hdr->customer[7]);
+#line 738
 				return Tfa98xx_Error_Bad_Parameter;
 			}
 		}
@@ -1247,7 +1231,7 @@ enum Tfa98xx_Error tfaContWriteRegsProf(struct tfa_device *tfa, int prof_idx)
 		return Tfa98xx_Error_Bad_Parameter;
 
 	if (tfa->verbose)
-		pr_info("----- profile: %s (%d) -----\n",
+		pr_debug("----- profile: %s (%d) -----\n",
 			tfaContGetString(tfa->cnt,
 			&prof->name),
 			prof_idx);
@@ -1340,7 +1324,7 @@ enum Tfa98xx_Error tfaContWriteFiles(struct tfa_device *tfa)
 	struct TfaDeviceList *dev = tfaContDevice(tfa->cnt, tfa->dev_idx);
 	struct TfaFileDsc *file;
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
-	char buffer[(MEMTRACK_MAX_WORDS * 3) + 3] = { 0 };// every word
+	char buffer[(250 * 3) + 3] = { 0 };  /* G53a: stock zeroes 0x2f1 bytes (250 words), was MEMTRACK_MAX_WORDS (150) */// every word
 							   // requires 3 and 3
 							   // is the msg
 	int i, size = 0;
@@ -1391,7 +1375,7 @@ enum Tfa98xx_Error tfaContWriteFiles(struct tfa_device *tfa)
 			if (tfa->verbose) {
 				const char *cmd_id = dev->list[i].offset+2 +
 					(char *)tfa->cnt;
-				pr_debug("Writing cmd=0x%02x%02x%02x\n",
+				pr_debug("Writing cmd=0x%02x%02x%02x \n",
 					(uint8_t)cmd_id[0],
 					(uint8_t)cmd_id[1], (uint8_t)cmd_id[2]);
 			}
@@ -1423,7 +1407,7 @@ enum Tfa98xx_Error tfaContWriteFilesProf(struct tfa_device *tfa,
 	enum Tfa98xx_Error err = Tfa98xx_Error_Ok;
 	struct TfaProfileList *prof = tfaContGetDevProfList(tfa->cnt,
 		tfa->dev_idx, prof_idx);
-	char buffer[(MEMTRACK_MAX_WORDS * 3) + 3] = { 0 };// every word
+	char buffer[(250 * 3) + 3] = { 0 };  /* G53a: stock zeroes 0x2f1 bytes (250 words), was MEMTRACK_MAX_WORDS (150) */// every word
 							   // requires 3 and 3
 							   // is the msg
 	unsigned int i;
@@ -2154,7 +2138,7 @@ enum Tfa98xx_Error tfaContWriteProfile(struct tfa_device *tfa, int prof_idx,
 					prof->list[i].offset +
 					2 + (char *)tfa->cnt;
 
-				pr_debug("Writing cmd=0x%02x%02x%02x\n",
+				pr_debug("Writing cmd=0x%02x%02x%02x \n",
 					(uint8_t)cmd_id[0],
 					(uint8_t)cmd_id[1],
 					(uint8_t)cmd_id[2]);
@@ -2666,7 +2650,7 @@ int tfa_tib_dsp_msgmulti(struct tfa_device *tfa, int length, const char *buffer)
 			pr_debug("%s, Creating the multi-message \n\n",
 				 __func__);
 
-		blob = kzalloc(tfadsp_max_msg_size, GFP_KERNEL);
+		blob = kmalloc(tfadsp_max_msg_size, GFP_KERNEL);
 		/* add command ID for multi-msg = 0x008015 */
 		if (tfa->convert_dsp32) {
 			blob[0] = 0x15;

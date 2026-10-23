@@ -51,7 +51,7 @@
 #define SIA91XX_REG_FLASH 					(0x6f)
 
 
-#define SIA91XX_RATES 						(SNDRV_PCM_RATE_8000_48000)
+#define SIA91XX_RATES 						(SNDRV_PCM_RATE_8000_96000)	/* g15c: stock DAI rates mask 0x7fe (8k..96k), was 8k..48k */
 #define SIA91XX_FORMATS						((SNDRV_PCM_FMTBIT_S16_LE) | \
 											(SNDRV_PCM_FMTBIT_S24_LE) | \
 											(SNDRV_PCM_FMTBIT_S32_LE))

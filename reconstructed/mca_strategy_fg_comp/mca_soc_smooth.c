@@ -167,12 +167,12 @@ static void fg_update_mapped_soc_new(struct strategy_fg *fg, int last_ui_soc)
 	int mapped_soc_decimal = 0;
 
 	if (raw_soc >= fg->cfg.report_full_raw_soc) {
-#line 189
-		mca_log_info("smooth_new:: raw_soc >= HW_REPORT_FULL_SOC, recover default logic");
-		fg->new_soc_smooth_active = false;
+		fg->new_soc_smooth_active = false;	/* G52a: stock stores the four flags before the log call */
 		in_smooth_charging_flag = false;
 		first_update_soc_flag = false;
 		init_soc_smooth_flag = false;
+#line 189
+		mca_log_info("smooth_new:: raw_soc >= HW_REPORT_FULL_SOC, recover default logic");
 		mapped_soc = 100;
 		mapped_soc_decimal = 0;
 	} else {

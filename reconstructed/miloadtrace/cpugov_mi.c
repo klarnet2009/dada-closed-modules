@@ -641,9 +641,11 @@ static void mi_gov_update_freq(struct migov_callback *hook, u64 time, int flags)
 			}
 		}
 
+		/* stock reads hispeed_util through its low 32 bits here (cbz w9; cmp w9,w24) */
 		if (migov_policy->avg_cap >= migov_policy->hispeed_cond_util && hispeed &&
-		    !(cflags & 4) && migov_policy->hispeed_util && util <= migov_policy->hispeed_util) {
-			util = migov_policy->hispeed_util;
+		    !(cflags & 4) && (unsigned int)migov_policy->hispeed_util &&
+		    util <= (unsigned int)migov_policy->hispeed_util) {
+			util = (unsigned int)migov_policy->hispeed_util;
 			mi_cpu->reason = 0x10;
 		}
 
@@ -659,30 +661,29 @@ static void mi_gov_update_freq(struct migov_callback *hook, u64 time, int flags)
 			       migov_policy->max);
 
 		cid = get_cluster_type(migov_policy->policy->cpu);
+		struct rq *crq = cpu_rq(migov_policy->policy->cpu);	/* stock traps on cpu >= 32 here, before the freq computation */
 		if (cal_cpufreq_policy)
-			freq = (migov_policy->policy->cpuinfo.max_freq +
+			freq = ((u64)migov_policy->policy->cpuinfo.max_freq +
 				(migov_policy->tunables->freq_shift ?
-				 migov_policy->policy->cpuinfo.max_freq >> migov_policy->tunables->freq_shift : 0)) *
+				 (u64)migov_policy->policy->cpuinfo.max_freq >> migov_policy->tunables->freq_shift : 0)) *
 			       (u64)util / (unsigned int)max;
 		else {
-			unsigned int f = DIV_ROUND_UP((u64)(migov_policy->policy->cpuinfo.max_freq * util) +
-						      (unsigned int)max - 1, (unsigned int)max);
+			/* the inner quotient stays 64-bit (no unsigned int temporary): stock `add x9,x22,x9,lsl #10` */
+			unsigned int f = DIV_ROUND_UP(DIV_ROUND_UP((u64)(migov_policy->policy->cpuinfo.max_freq * util),
+								    (unsigned int)max) << 10, target_delta);
 
-			f = DIV_ROUND_UP((u64)f << 10, target_delta);
 			freq = f + (migov_policy->tunables->freq_shift ? f >> migov_policy->tunables->freq_shift : 0);
 		}
 
-		if (big_maxfreq_limit) {
-			unsigned long cap = cpu_rq(migov_policy->policy->cpu)->cpu_capacity;
-
-			if (util > cap * (out_capacity_thresh + 100) / 100) {
-				if (migov_debug)
-					printk(KERN_INFO "MI-GOV: out_capacity-freq%d soft-max%d cur_capacity%lu util%u\n",
-					       freq, migov_policy->policy->max, cap, util);
-			}
-		}
-
-		max_limit = mi_maxfreq[cid] ? mi_maxfreq[cid] : migov_policy->policy->max;
+		/* stock: when util exceeds the out-of-capacity limit, max_limit is policy->max and mi_maxfreq[cid] is not read */
+		if (big_maxfreq_limit &&
+		    util > crq->cpu_capacity * (out_capacity_thresh + 100) / 100) {
+			if (migov_debug)
+				printk(KERN_INFO "MI-GOV: out_capacity-freq%d soft-max%d cur_capacity%lu util%u\n",
+				       freq, migov_policy->policy->max, crq->cpu_capacity, util);
+			max_limit = migov_policy->policy->max;
+		} else
+			max_limit = mi_maxfreq[cid] ? mi_maxfreq[cid] : migov_policy->policy->max;
 		min_limit = mi_minfreq[cid] ? mi_minfreq[cid] : migov_policy->policy->min;
 		if (in_perf_mod)
 			min_limit = max(min_limit, perf_min_freq[cid]);

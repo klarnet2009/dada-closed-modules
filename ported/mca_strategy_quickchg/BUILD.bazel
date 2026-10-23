@@ -11,7 +11,8 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_g13b:mca_headers",
+        "//re/stubs_g14f:mca_headers",
+        "//re/stubs_a17B/osg:os4_charger_partition",
         "//re/stubs_a17B/os4:os4_mca_hwid",
         "//re/stubs_a17B/os4:os4_mca_log",
         "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",

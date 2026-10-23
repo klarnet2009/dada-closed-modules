@@ -72,11 +72,11 @@ static __always_inline void matt_rx_dump_stats(struct sock *sk)
 
 #line 378
 		MATT_TRACE(0, 4, "[Rx:%p] data pkt: %u cnt (%llu bytes), dropped: %u cnt [%u.%02u %%|%llu bytes], total ofo: %u cnt [%u skbcnt|%llu bytes], cur ofo: %u skbcnt", sk, in->trecv.data_num, in->trecv.data_bytes, all, dr_pct / 100, dr_pct % 100, in->dropped[STATS_DROP_ALL].data_bytes, in->dropped[STATS_OFO].data_num, (u32)in->rcv_total_num_ofo, in->dropped[STATS_OFO].data_bytes, in->rcv_cur_num_ofo);
-#line 396
+#line 389
 		MATT_TRACE(0, 4, "[Rx:%p] over flow: %u cnt (%u.%02u %%), over window: %u cnt (%u.%02u %%), partial over window: %u cnt (%u.%02u %%), old data: %u cnt (%u.%02u %%), invalid data: %u cnt (%u.%02u %%), old ack: %u cnt (%u.%02u %%)", sk, in->dropped[STATS_DROP_OVERFLOW].data_num, ovf / 100, ovf % 100, in->dropped[STATS_DROP_OVERWINDOW].data_num, ovw / 100, ovw % 100, in->dropped[STATS_DROP_OVERWINDOW_PARTIAL].data_num, part / 100, part % 100, in->dropped[STATS_DROP_OLD_DATA].data_num, old / 100, old % 100, in->dropped[STATS_DROP_INVAL_DATA].data_num, inv / 100, inv % 100, in->dropped[STATS_DROP_OLD_ACK].data_num, oack / 100, oack % 100);
 	}
 	if (in->trecv.pack_num) {
-#line 408
+#line 399
 		MATT_TRACE(0, 4, "[Rx:%p] pack pkt: %u cnt, nack pkt: %u cnt, creq pkt: %u cnt, resp pkt: %u cnt, ping pkt: %u cnt, pong pkt: %u cnt", sk, in->trecv.pack_num, in->trecv.nack_num, in->trecv.req_num, in->trecv.rsp_num, in->trecv.ping_num, in->trecv.pong_num);
 	}
 }

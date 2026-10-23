@@ -34,7 +34,7 @@ typedef struct __sipa_param_cal_spk {
 	int32_t r0;
 	int32_t t0;
 	int32_t wire_r0;
-	int32_t a;
+	/* G40g: the stock SIPA_PARAM_WRITEABLE is 0x88 bytes (fw.ch_en at +0x90): 16 bytes per cal_spk entry, `a` dropped (no user) */
 } __packed SIPA_PARAM_CAL_SPK;
 
 typedef struct __sipa_param_spk_model_param {
@@ -70,8 +70,8 @@ typedef struct __sipa_reg_proc {
 	uint32_t addr;
 	uint32_t mask;
 	uint32_t action;
+	uint32_t g3m_unkc;	/* G40g: stock item = 0x2c bytes, val[] at +0x14; the delay is at +0x10 (stock ldr w0,[x19,#0x10]) */
 	uint32_t delay;		// us
-	uint32_t g3m_unk10;	/* stock item = 0x2c bytes, val[] at +0x14 */
 	uint32_t val[AUDIO_SCENE_NUM];
 } __packed SIPA_REG_PROC;
 

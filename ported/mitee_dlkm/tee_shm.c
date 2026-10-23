@@ -198,10 +198,7 @@ struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
 	void *ret;
 	int rc;
 
-	if (ctx == NULL) {
-		return ERR_PTR(-EINVAL);
-	}
-
+	/* stock: no NULL check of ctx (dereferenced at once) */
 	teedev = ctx->teedev;
 
 

@@ -12,7 +12,7 @@
  */
 
 #define DEBUG
-#define LOG_FLAG	"sipa_parameter"
+#define LOG_FLAG	"sipa_param "
 
 #include <linux/version.h>
 #include <linux/module.h>
@@ -23,7 +23,7 @@
 #include "sipa_tuning_if.h"
 #include "sipa_parameter.h"
 
-#define LOAD_TIME_OUT 	(5000)
+#define LOAD_TIME_OUT 	(2000)	/* G41a: stock queues 500 jiffies = 2000 ms (was 5000) */
 
 const char *g_fw_name;	/* stock: global, .bss, set by sipa_param_load_fw */
 static const char *sipa_fw_name __maybe_unused = "sipa.bin";
@@ -59,8 +59,11 @@ static void sipa_fw_load_work_delay(struct work_struct *work)
 		/* G11 (from the stock): retry counter = byte si_pa+0x235, at most 14 retries, delay = the same constant as the first queueing (stock literal 500 = msecs_to_jiffies(5000) at the stock HZ) */
 		if (++si_pa->fw_load_retry <= 14)
 			queue_delayed_work(si_pa->sia91xx_wq, &si_pa->fw_load_work, msecs_to_jiffies(LOAD_TIME_OUT));
-		else
+		else {
 			pr_err("[  err][%s] %s: load retries failed !\n", LOG_FLAG, "sipa_fw_load_retry");
+			/* G53a: stock (raw 0x6004 strb wzr,[x20,#0xe5]) clears the retry counter after the retries are exhausted */
+			si_pa->fw_load_retry = 0;
+		}
 		return;
 	}
 
@@ -137,8 +140,7 @@ void sipa_param_load_fw(struct device *dev, char *name)
 		load_lock_init_flag = true;
 	}
 
-	if (name)
-		g_fw_name = name;
+	g_fw_name = name;	/* G53a: the stock stores the name unconditionally (no NULL guard) */
 	INIT_DELAYED_WORK(&si_pa->fw_load_work, sipa_fw_load_work_delay);
 	queue_delayed_work(si_pa->sia91xx_wq, &si_pa->fw_load_work, msecs_to_jiffies(LOAD_TIME_OUT));
 }

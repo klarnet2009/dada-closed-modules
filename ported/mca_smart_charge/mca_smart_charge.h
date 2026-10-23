@@ -195,6 +195,8 @@ struct smart_charge_info {
 	struct mca_votable *smartchg_delta_fv_voter;
 	struct mca_votable *smartchg_delta_ichg_voter;
 	struct mca_votable *smartchg_fcc_voter;	/* OS4 */
+	struct mca_votable *soc_limit_voter;	/* GLOBAL OS4.0.0.7 (+600, BTF) */
+	struct mca_votable *curr_max_voter;	/* GLOBAL OS4.0.0.7 (+608, BTF; found with mca_find_votable("curr_max")) */
 	struct notifier_block panel_nb;
 	struct notifier_block thermal_board_nb;	/* OS4 */
 
@@ -229,20 +231,31 @@ struct smart_charge_info {
 	char *mmap_addr;
 	int map_flag;
 	int pulse_mode;
-	int support_csd;
+	int support_csd_2p0;			/* GLOBAL 0.7 name (CN 0.6: support_csd); DT key "support_csd_2p0" */
 	int plugin_rsoc;
 	int night_enable_rsoc;
 	union SMART_CHG_MIEVENT ignore_upload;
 	s64 bypass_debounce_time;	/* BTF T262 (8 bytes); signed: the stock compares ktime with b.le */
 	bool in_debounce;
 	int mishow;
+	/* GLOBAL OS4.0.0.7 (stock BTF, G14e): names are the BTF's, the meaning of batt_safe_* is inferred from the stock code */
+	bool support_soft_cid;			/* +1640 */
+	int audio_notify_status;		/* +1644 */
+	int batt_safe_lvl;			/* +1648: 0/1, written through the sysfs attribute batt_safe_lvl */
+	int batt_safe_vlim;			/* +1652: voltage limit read from the charger partition (units unknown) */
+	bool batt_safe_active;			/* +1656 */
+	bool batt_emerg_soc_limit;		/* +1657: never written in the GLOBAL 0.7 stock (nor here): the branch reading it in handle_algorithm_conflict is dead (G17b, review D4) */
+	bool support_batt_safe_lvl;		/* +1658: DT, may be overridden (log "override support_batt_safe_lvl") */
+	int real_type;				/* +1660: stored from an event value */
 };
 
-_Static_assert(sizeof(struct smart_charge_info) == 1624, "smart_charge_info size");
-_Static_assert(offsetof(struct smart_charge_info, smart_bypass_cfg) == 736, "bypass cfg");
-_Static_assert(offsetof(struct smart_charge_info, smart_chg_control) == 1376, "control");
-_Static_assert(offsetof(struct smart_charge_info, mmap_addr) == 1568, "mmap_addr");
-_Static_assert(offsetof(struct smart_charge_info, mishow) == 1620, "mishow");
+_Static_assert(sizeof(struct smart_charge_info) == 1664, "smart_charge_info size");  /* GLOBAL 0.7 (CN 0.6: 1624) */
+_Static_assert(offsetof(struct smart_charge_info, smart_bypass_cfg) == 752, "bypass cfg");
+_Static_assert(offsetof(struct smart_charge_info, smart_chg_control) == 1392, "control");
+_Static_assert(offsetof(struct smart_charge_info, mmap_addr) == 1584, "mmap_addr");
+_Static_assert(offsetof(struct smart_charge_info, mishow) == 1636, "mishow");
+_Static_assert(offsetof(struct smart_charge_info, real_type) == 1660, "real_type");
+_Static_assert(offsetof(struct smart_charge_info, batt_safe_lvl) == 1648, "batt_safe_lvl");
 
 enum smartchg_attr_list {
 	MCA_PROP_SMARTCHG,
@@ -254,6 +267,9 @@ enum smartchg_attr_list {
 	MCA_PROP_SCENE,
 	MCA_PROP_BOARD_TEMP,
 	MCA_PROP_SMART_SIC_MODE,
+	MCA_PROP_AUDIO_NOTIFY,	/* GLOBAL 0.7 enum value 9: no sysfs table entry in the stock */
+	MCA_PROP_BATT_SAFE_LVL,
+	MCA_PROP_BATT_SAFE_VLIM,
 };
 
 enum smartchg_cell_type {

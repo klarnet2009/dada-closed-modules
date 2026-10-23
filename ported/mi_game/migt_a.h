@@ -163,6 +163,90 @@ noinline int game_ip_task(struct task_struct *p)
 	return !!(type & 0x1d4);
 }
 
+/* ---- G14c: GC booster (new in the global OS4.0.0.7 stock; recovered from its disassembly, NOT hardware-tested) ---- */
+/* type bit 0x1000 = gc thread, 0x2000 = gc main thread (set by migt_hardwork from the comm of the thread) */
+noinline int game_gc_task(struct task_struct *p)
+{
+	struct plat_task_struct *t;
+	int en = migt_enable();
+
+	if (!p || !en || !uid_is_traced(p))
+		return 0;
+	t = get_xr_task_struct(p);
+	if (!XR_GAME_VALID(t) || !t->game)
+		return 0;
+	return t->game->type & 0x3000;
+}
+
+noinline int game_main_gc_task(struct task_struct *p)
+{
+	struct plat_task_struct *t;
+	int en = migt_enable();
+
+	if (!p || !en || !uid_is_traced(p))
+		return 0;
+	t = get_xr_task_struct(p);
+	if (!XR_GAME_VALID(t) || !t->game)
+		return 0;
+	return t->game->type & 0x2000;
+}
+
+static __always_inline void gc_booster_reset_inl(void)
+{
+	if (gc_booster_enable)
+		gc_booster_enable = 0;
+	atomic_set(&is_doing_gc, 0);
+	memset(gc_main_thread_name, 0, sizeof(gc_main_thread_name));
+	memset(gc_thread_name, 0, sizeof(gc_thread_name));
+}
+
+noinline void gc_booster_reset(void)
+{
+	gc_booster_reset_inl();
+}
+
+/* plat hook 0x28 (plat_mi_game_schedule): the gc main thread goes to sleep (not preempted): the gc is over */
+static void migt_game_schedule(struct task_struct *prev, struct task_struct *next, struct rq *rq)
+{
+	if (!GC_NAMES_SET())
+		return;
+	if (game_main_gc_task(prev) && prev != next && !prev->on_rq && READ_ONCE(prev->__state))
+		atomic_set(&is_doing_gc, 0);
+}
+
+static int set_gc_booster_enable(const char *val, const struct kernel_param *kp)
+{
+	int enable = 0, ret;
+
+	if (sscanf(val, "%d", &enable) != 1)
+		return -EINVAL;
+	ret = param_set_int(val, kp);
+	if (ret)
+		return ret;
+	if (!enable)
+		gc_booster_reset_inl();
+	return 0;
+}
+
+/* thread name params: strip the trailing newline of "echo name > ..." and copy (param_set_copystring) */
+static int param_set_task_name(const char *val, const struct kernel_param *kp)
+{
+	char *s = (char *)val;
+	size_t len = strlen(s);
+
+	if (len && s[len - 1] == '\n')
+		s[len - 1] = '\0';
+	return param_set_copystring(val, kp);
+}
+
+static const struct kernel_param_ops param_ops_gc_booster_enable = { .set = set_gc_booster_enable, .get = param_get_int };
+static const struct kernel_param_ops param_ops_task_name = { .set = param_set_task_name, .get = param_get_string };
+static struct kparam_string gc_thread_name_string = { .maxlen = sizeof(gc_thread_name), .string = gc_thread_name };
+static struct kparam_string gc_main_thread_name_string = { .maxlen = sizeof(gc_main_thread_name), .string = gc_main_thread_name };
+module_param_cb(gc_booster_enable, &param_ops_gc_booster_enable, &gc_booster_enable, 0644);
+module_param_cb(gc_thread_name, &param_ops_task_name, &gc_thread_name_string, 0644);
+module_param_cb(gc_main_thread_name, &param_ops_task_name, &gc_main_thread_name_string, 0644);
+
 void mi_cpu_coregroup_mask(int cpu, struct cpumask *mask)
 {
 	struct cpu_topology *t = &cpu_topology[cpu];
@@ -272,6 +356,8 @@ noinline void set_vip_flag(struct task_struct *p)
 static void android_rvh_try_to_wake_up_success(void *unused, struct task_struct *p)
 {
 	set_vip_flag(p);
+	if (GC_NAMES_SET() && game_main_gc_task(p) && !atomic_read(&is_doing_gc))
+		atomic_set(&is_doing_gc, 1);
 }
 
 noinline int migt_enable(void)
@@ -370,15 +456,18 @@ static int migt_reset(struct inode *inode, struct file *file)
 {
 	migt_boost_policy = 0;
 	migt_choose_exclusive_cpu_reset();
+	gc_booster_reset();
 	return 0;
 }
 
 static __always_inline bool migt_reserve_usable(void)
 {
-	u32 reserve = migt_reserve_cpus;
+	u32 reserve;
 
-	return migt_enable() && choose_cpu_exclusive_enable && choose_cpu_exclusive_enable_vote && reserve &&
-	       !(reserve & ~cpumask_bits(cpu_online_mask)[0]);
+	if (!migt_enable() || !choose_cpu_exclusive_enable || !choose_cpu_exclusive_enable_vote)
+		return false;
+	reserve = migt_reserve_cpus;	/* G14c: read after the votes (stock order, the gc check below is a volatile read) */
+	return reserve && !(reserve & ~cpumask_bits(cpu_online_mask)[0]) && !atomic_read(&is_doing_gc);	/* G14c: no exclusive cpus during a gc */
 }
 
 noinline bool migt_choose_exclusive_cpu_enable(void)
@@ -465,7 +554,7 @@ bool migt_should_skip_this_cpu_rt(struct task_struct *p, int cpu)
 {
 	if (!migt_reserve_usable())
 		return false;
-	return test_bit(cpu, &migt_reserve_cpus);
+	return test_bit((unsigned int)cpu, &migt_reserve_cpus);	/* G14i: stock zero-extends the index */
 }
 
 /* skip mask for a relaxed rt task: the reserved cpus that are not idle */
@@ -483,7 +572,7 @@ bool migt_skip_cpus_rt(struct task_struct *p, struct cpumask *mask)
 				cpumask_clear_cpu(cpu, mask);
 		}
 	}
-	return cpumask_bits(mask)[0] != 0;
+	return !cpumask_empty(mask);	/* G14i: stock ldr w8 (32 cpu bits) */
 }
 
 static __always_inline struct mi_game_task *xr_game_of(struct task_struct *p)
@@ -554,10 +643,12 @@ noinline void user_set_game_ip(struct task_struct *p, bool set)
 int migt_choose_exclusive_cpu(struct task_struct *p)
 {
 	struct plat_task_struct *xr;
+	int en;
 
 	if (!migt_reserve_usable())
 		return -1;
-	if (!p || !migt_enable())
+	en = migt_enable();	/* G14i: stock calls it (debugfs_walt_features refresh) before the p test */
+	if (!p || !en)
 		return -1;
 	if (!uid_is_traced(p))
 		return -1;
@@ -623,13 +714,15 @@ void xr_game_walt_get_indicies(struct task_struct *p, int *order_index, int *end
  * load-balance veto (G1ab): may thread p move from cpu "src" to cpu "dst"? Returns 1 to forbid. A game thread class
  * (stask / render / vip / ip) is kept inside its *_prefer_cluster. NOT registered anywhere in the stock either.
  */
-extern unsigned int force_forbidden_walt_lb, task_enqueue_time_toolong;
+extern int force_forbidden_walt_lb;
+extern unsigned int task_enqueue_time_toolong;
 
 bool game_lb_control(struct task_struct *p, int src, int dst, int unused)
 {
 	struct plat_task_struct *xr = get_xr_task_struct(p);
 	struct mi_game_task *gt = XR_GAME_VALID(xr) ? xr->game : NULL;
 	bool vip, ip, render, super_t;
+	int ffwl;
 	u64 now;
 
 	if (!migt_enable() || !p || !gt || !force_forbidden_walt_lb)
@@ -651,11 +744,12 @@ bool game_lb_control(struct task_struct *p, int src, int dst, int unused)
 	if (XR_GAME_VALID(xr) && xr->game && (xr->game->type & 0xc0) && (int)render_prefer_cluster >= 1 &&
 	    get_cluster_type(dst) != render_prefer_cluster && get_cluster_type(src) == render_prefer_cluster)
 		return 1;
-	vip = force_forbidden_walt_lb > 1 ? game_vip_task(p) : is_uuser_set_vip(p);
+	ffwl = force_forbidden_walt_lb;	/* g62a: the stock reads it once for both choices (S+200) */
+	vip = ffwl > 1 ? game_vip_task(p) : is_uuser_set_vip(p);
 	if (vip && (int)vip_prefer_cluster >= 1 && get_cluster_type(dst) != vip_prefer_cluster &&
 	    get_cluster_type(src) == vip_prefer_cluster)
 		return 1;
-	ip = force_forbidden_walt_lb > 1 ? game_ip_task(p) : is_uuser_set_ip(p);
+	ip = ffwl > 1 ? game_ip_task(p) : is_uuser_set_ip(p);
 	if (ip && (int)ip_prefer_cluster >= 1 && get_cluster_type(dst) != ip_prefer_cluster &&
 	    get_cluster_type(src) == ip_prefer_cluster)
 		return 1;

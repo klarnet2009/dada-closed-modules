@@ -32,9 +32,10 @@ void mark_rollover_window_task(int rule_type)
 			get_task_struct(t);
 			rcu_read_unlock();
 			xr = get_xr_task_struct(t);
+			/* g62a: the stock clears the slot only when the pid is gone (S+60); marked and non-game tasks stay
+			 * in the window, so clean_task_window() can restore them at the rollover */
 			if (!XR_GAME_VALID(xr) || !(gt = xr->game)) {
 				put_task_struct(t);
-				frame_migt_window[j][i] = 0;
 				continue;
 			}
 			if (!strncmp(t->comm, "UnityMain", 9))
@@ -46,7 +47,6 @@ void mark_rollover_window_task(int rule_type)
 				gt->type |= 0x10;
 				set_vip_prio(t, 30, 1);
 			}
-			frame_migt_window[j][i] = 0;
 			put_task_struct(t);
 		}
 	}
@@ -56,14 +56,14 @@ void mark_rollover_window_task(int rule_type)
 void clean_task_window(int rule_type)
 {
 	unsigned int row = smp_load_acquire(&migt_item_index);
-	u32 *win = frame_migt_window[row];
 	int i;
 
+	/* g62a: plain [row][i] indexing: the UBSAN bounds check gives the stock brk #0x5512 for row > 9 (S+2c) */
 	for (i = 0; i < 50; i++) {
 		struct task_struct *t;
 		struct plat_task_struct *xr;
 		struct mi_game_task *gt;
-		int pid = smp_load_acquire(&win[i]);
+		int pid = smp_load_acquire(&frame_migt_window[row][i]);
 
 		if (!pid)
 			continue;
@@ -71,15 +71,15 @@ void clean_task_window(int rule_type)
 		t = find_task_by_vpid(pid);
 		if (!t) {
 			rcu_read_unlock();
-			win[i] = 0;
+			frame_migt_window[row][i] = 0;
 			continue;
 		}
 		get_task_struct(t);
 		rcu_read_unlock();
 		xr = get_xr_task_struct(t);
+		/* g62a: no slot clear on this path in the stock (S+13c -> put -> S+6c) */
 		if (!XR_GAME_VALID(xr) || !(gt = xr->game)) {
 			put_task_struct(t);
-			win[i] = 0;
 			continue;
 		}
 		if (mark_debug)
@@ -87,7 +87,7 @@ void clean_task_window(int rule_type)
 				     t->comm, gt->type, row, i, pid);
 		gt->type &= ~0x810;
 		restore_vip_prio(t);
-		win[i] = 0;
+		frame_migt_window[row][i] = 0;
 		put_task_struct(t);
 	}
 }

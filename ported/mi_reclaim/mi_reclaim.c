@@ -2,8 +2,10 @@
 /*
  * mi_reclaim: Xiaomi "Memory reclaim optimization module" (staging).
  * Reconstructed from the HyperOS 4.0 stock module (no public source), PARTIAL: all 30
- * functions are written from the disassembly, 23 are byte-identical to the stock (see
- * STATUS.md). NOT hardware-tested. DO NOT LOAD before review.
+ * functions are written from the disassembly; 27 are byte-identical to the stock and the
+ * other 3 (event_store, is_important_process, init_module) differ only in code generation
+ * (independent review 20.10.2026, see STATUS.md). NOT hardware-tested. DO NOT LOAD before
+ * the checklist in STATUS.md.
  */
 #include <linux/module.h>
 #include <linux/init.h>
@@ -353,7 +355,7 @@ static void mi_free_task(void *data, struct task_struct *p)
 	}
 }
 
-/* ---- TODO: empty placeholders (not reconstructed) ---- */
+/* ---- module logic (written from the OS4 stock disassembly; no longer placeholders) ---- */
 
 static bool has_sufficient_free_memory(void);
 
@@ -1432,7 +1434,7 @@ static void __exit mi_reclaim_exit(void)
 	pr_info("mi_reclaim: unloaded\n");
 }
 
-module_param(refill_cpus, charp, 0444);
+module_param(refill_cpus, charp, 0644);
 MODULE_PARM_DESC(refill_cpus, "CPU list for refill worker (e.g., '0,1,2,3' or '0-3'). Auto-detect if empty.");
 module_init(mi_reclaim_init);
 module_exit(mi_reclaim_exit);

@@ -285,12 +285,14 @@ static int __set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty)
 #line 202
 			mca_log_err("set gpio_shifter_en = 0\n");
 		}
+		/* stock: this branch ends with 0, the other two with the pwm_reg_config() result */
 		ret = pwm_fan_power_on(ctx, false);
 		if (ret < 0) {
 #line 207
 			mca_log_err("pwm_fan_power_on failed\n");
 			return ret;
 		}
+		ret = 0;
 	} else {
 		ret = pwm_reg_config(ctx, duty);
 		if (ret < 0) {
@@ -305,10 +307,10 @@ static int __set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty)
 		}
 	}
 
+	ctx->pwm_duty = duty;	/* stock stores pwm_duty before the exit log (G52a) */
 #line 222
-	mca_log_err("__set_pwm exit: new duty=%lu\n", duty);
-	ctx->pwm_duty = duty;
-	return 0;
+	mca_log_err("__set_pwm exit: new duty=%lu\n", (unsigned long)ctx->pwm_duty);	/* G52a: stock logs the 32-bit stored value (mov w3,w22) */
+	return ret;
 }
 
 static int set_pwm(struct pwm_fan_ctx *ctx, unsigned long duty)

@@ -56,11 +56,9 @@ int mi_idletimer_tg_checkentry_v1(mi_idletimer_tg_info *info);
 unsigned int mi_idletimer_tg_target_v1(int *puid, struct mi_idletimer_tg *timer);
 void mi_idletimer_tg_destroy_v1(struct mi_idletimer_tg *timer);
 int print_idletimer_info_safe(mi_idletimer_tg_info *info, char *buf, int size);
-void reset_timer(struct mi_idletimer_tg *const info_timer, const __u32 info_timeout, int *puid) __asm__("reset_timer.llvm.8540474682487888066") __attribute__((visibility("hidden"), no_sanitize("kcfi")));
 
 /* tc limiter (minet_tc.c) */
 extern int m_tc_enable;
-extern mi_idletimer_tg_info m_idletimer_info;
 int minet_tc_limiter_init(void);
 void minet_tc_limiter_finit(void);
 void tl_after_filter_in(struct sk_buff *skb, u32 uid);

@@ -29,6 +29,8 @@ int charger_partition_alloc(u8, u8, uint32_t, char crc_pad[fcrchKVaIscQWH]);
 int charger_partition_dealloc(u8, u8, uint32_t, char crc_pad[fcrczL2cEpaY0V]);
 void *charger_partition_read(u8, u8, uint32_t, char crc_pad[fcrcaZa2EuuRvn]);
 int charger_partition_write(u8, u8, void *, uint32_t, char crc_pad[fcrcG79BG1_J_Z]);
+int charger_partition_read_batt_emerg_sn(char crc_pad[fcrceQCbkGSUnf]);
+int charger_partition_write_batt_emerg_sn(const char crc_pad[fcrcluY2L5zU51]);
 #endif
 
 #include <linux/platform_device.h>
@@ -385,8 +387,8 @@ int charger_partition_write(u8 charger_partition_host_type, u8 charger_partition
 }
 EXPORT_SYMBOL(charger_partition_write);
 
-static noinline void charger_partition_get_info_1(void);
-static noinline void charger_partition_set_info_1(void);
+static noinline int charger_partition_get_info_1(void);
+static noinline int charger_partition_set_info_1(void);
 static noinline void charger_partition_get_info_2(void);
 static noinline void charger_partition_set_info_2(void);
 
@@ -535,6 +537,71 @@ int charger_partition_write_hcsd_count(int hscd_count)
 	return 0;
 }
 EXPORT_SYMBOL(charger_partition_write_hcsd_count);
+
+/* GLOBAL OS4.0.0.7 only: battery safe limits and emergency serial number kept in partition block 1 (decoded from the stock accessors;
+ * the unit/meaning of vlim/ilim is not known, nothing here is validated or range-checked, like the stock) */
+int charger_partition_read_batt_safe_vlim(int *value)
+{
+	int ret = charger_partition_get_info_1();
+
+	if (!value || ret)
+		return -1;
+	*value = charger_partition->info_1.batt_safe_vlim;
+	return 0;
+}
+EXPORT_SYMBOL(charger_partition_read_batt_safe_vlim);
+
+int charger_partition_write_batt_safe_vlim(int value)
+{
+	if (charger_partition_get_info_1())
+		return -1;
+	charger_partition->info_1.batt_safe_vlim = value;
+	return charger_partition_set_info_1();
+}
+EXPORT_SYMBOL(charger_partition_write_batt_safe_vlim);
+
+int charger_partition_read_batt_safe_ilim(int *value)
+{
+	int ret = charger_partition_get_info_1();
+
+	if (!value || ret)
+		return -1;
+	*value = charger_partition->info_1.batt_safe_ilim;
+	return 0;
+}
+EXPORT_SYMBOL(charger_partition_read_batt_safe_ilim);
+
+int charger_partition_write_batt_safe_ilim(int value)
+{
+	if (charger_partition_get_info_1())
+		return -1;
+	charger_partition->info_1.batt_safe_ilim = value;
+	return charger_partition_set_info_1();
+}
+EXPORT_SYMBOL(charger_partition_write_batt_safe_ilim);
+
+int charger_partition_read_batt_emerg_sn(char *batt_emerg_sn)
+{
+	if (!batt_emerg_sn)
+		return -1;
+	if (charger_partition_get_info_1())
+		return -1;
+	memcpy(batt_emerg_sn, charger_partition->info_1.batt_emerg_sn, sizeof(charger_partition->info_1.batt_emerg_sn));
+	return 0;
+}
+EXPORT_SYMBOL(charger_partition_read_batt_emerg_sn);
+
+int charger_partition_write_batt_emerg_sn(const char *batt_emerg_sn)
+{
+	int ret = charger_partition_get_info_1();
+
+	if (!batt_emerg_sn || ret)
+		return -1;
+	memcpy(charger_partition->info_1.batt_emerg_sn, batt_emerg_sn, sizeof(charger_partition->info_1.batt_emerg_sn));
+	charger_partition_set_info_1();
+	return 0;
+}
+EXPORT_SYMBOL(charger_partition_write_batt_emerg_sn);
 
 static ssize_t charger_partition_sysfs_show(struct device *dev,
 		struct device_attribute *attr, char *buf);
@@ -791,7 +858,7 @@ static noinline void charger_partition_get_info_2(void)
 		mca_log_err("[ChgPartition] failed to dealloc\n");
 }
 
-static noinline void charger_partition_get_info_1(void)
+static noinline int charger_partition_get_info_1(void)
 {
 	int ret = 0;
 	charger_partition_info_1 *info_1 = NULL;
@@ -800,10 +867,10 @@ static noinline void charger_partition_get_info_1(void)
 	if (ret < 0) {
 #line 647
 		mca_log_err("failed to alloc\n");
-		return;
+		return -1;
 	}
 
-	info_1 = (charger_partition_info_1 *)charger_partition_read(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_1, sizeof(charger_partition_info_1));
+	info_1 =(charger_partition_info_1 *)charger_partition_read(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_1, sizeof(charger_partition_info_1));
 	if (!info_1) {
 #line 653
 		mca_log_err("failed to read\n");
@@ -811,7 +878,7 @@ static noinline void charger_partition_get_info_1(void)
 		if (ret < 0)
 #line 656
 			mca_log_err("failed to dealloc\n");
-		return;
+		return -1;
 	}
 	charger_partition->info_1 = *info_1;
 #line 664
@@ -821,12 +888,15 @@ static noinline void charger_partition_get_info_1(void)
 		charger_partition->info_1.soc_limit);
 
 	ret = charger_partition_dealloc(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_1, sizeof(charger_partition_info_1));
-	if (ret < 0)
+	if (ret < 0) {
 #line 671
 		mca_log_err("failed to dealloc\n");
+		return -1;
+	}
+	return 0;
 }
 
-static noinline void charger_partition_set_info_1(void)
+static noinline int charger_partition_set_info_1(void)
 {
 	int ret = 0;
 
@@ -834,7 +904,7 @@ static noinline void charger_partition_set_info_1(void)
 	if (ret < 0) {
 #line 683
 		mca_log_err("failed to alloc\n");
-		return;
+		return -1;
 	}
 
 	ret = charger_partition_write(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_1, (void *)&charger_partition->info_1, sizeof(charger_partition_info_1));
@@ -845,13 +915,16 @@ static noinline void charger_partition_set_info_1(void)
 		if (ret < 0)
 #line 693
 			mca_log_err("failed to dealloc\n");
-		return;
+		return -1;
 	}
 
 	ret = charger_partition_dealloc(CHARGER_PARTITION_HOST_KERNEL, CHARGER_PARTITION_INFO_1, sizeof(charger_partition_info_1));
-	if (ret < 0)
+	if (ret < 0) {
 #line 701
 		mca_log_err("failed to dealloc\n");
+		return -1;
+	}
+	return 0;
 }
 
 static noinline void charger_partition_set_info_2(void)
@@ -900,6 +973,9 @@ static void charger_partition_prepare(void)
 	if (charger_partition->info_1.soc_limit)
 		mca_event_block_notify(MCA_EVENT_TYPE_DEBUG, MCA_EVENT_DEBUG_SOC_LIMIT, &charger_partition->info_1.soc_limit);
 
+	/* GLOBAL OS4.0.0.7 (G17b, D5): event 85/0 goes ONLY to fg_comp and ARMS its battery-SN check (re-reads the stored emergency SN, sets batt_emerg_update); the value is ignored; lost if fg_comp is not registered yet */
+	mca_strategy_func_process(STRATEGY_FUNC_TYPE_FG, MCA_EVENT_BATT_EMERG, 0);
+
 	/*get info_2: is_eu_model*/
 	charger_partition_get_info_2();
 	if (charger_partition->info_2.eu_mode == 1) {
@@ -915,7 +991,7 @@ static void charger_partition_work(struct work_struct *work)
 	static int retry;
 	const struct mca_hwid *hwid = mca_get_hwid_info();
 
-#line 870
+#line 937
 	mca_log_err("get hw_country_ver: %u\n", get_hw_country_version());
 	charger_partition->part_info_part_number = hwid->platform_version == 9 ? 25 : 22;
 
@@ -923,20 +999,20 @@ static void charger_partition_work(struct work_struct *work)
 	for (lun = 0; lun < 6; lun++) {
 		/*find charger partition scsi device*/
 		if (!look_up_scsi_device(lun)) {
-#line 889
+#line 956
 			mca_log_err("not find, continue...\n");
 			continue;
 		}
 
 		/*check device is correct*/
 		if (!check_device_is_correct()) {
-#line 895
+#line 962
 			mca_log_err("not find finally, won't read charger partition!!!\n");
 			return;
 		}
 
 		if (get_charger_partition_info()) {
-#line 900
+#line 967
 			mca_log_err("get partition info ok\n");
 			check_charger_partition_header();
 			charger_partition->is_charger_partition_rdy = true;
@@ -952,7 +1028,7 @@ static void charger_partition_work(struct work_struct *work)
 	}
 
 	if (!charger_partition->is_charger_partition_rdy && retry++ < CHARGER_PARTITION_RETRY_TIMES) {
-#line 916
+#line 983
 		mca_log_err("charger partition not ready, retry: %d/%d\n", retry, CHARGER_PARTITION_RETRY_TIMES);
 		schedule_delayed_work(&charger_partition->charger_partition_work, msecs_to_jiffies(CHARGER_WORK_DELAY_MS));
 	}
@@ -960,7 +1036,7 @@ static void charger_partition_work(struct work_struct *work)
 		if (look_up_scsi_device(0)) {
 			if (check_device_is_correct()) {
 				if (get_charger_partition_info()) {
-#line 923
+#line 990
 					mca_log_err("get partition info ok\n");
 					check_charger_partition_header();
 					charger_partition->is_charger_partition_rdy = true;
@@ -981,7 +1057,7 @@ static int charger_partition_probe(struct platform_device *pdev)
 {
 	charger_partition = devm_kzalloc(&pdev->dev, sizeof(struct ChargerPartition), GFP_KERNEL);
 	if (!charger_partition) {
-#line 944
+#line 1011
 		mca_log_err("out of memory\n");
 		return -ENOMEM;
 	}
@@ -993,7 +1069,7 @@ static int charger_partition_probe(struct platform_device *pdev)
 	charger_partition->not_notify_module = true;
 	INIT_DELAYED_WORK(&charger_partition->charger_partition_work, charger_partition_work);
 	schedule_delayed_work(&charger_partition->charger_partition_work, 0);
-#line 955
+#line 1022
 	mca_log_err("probe ok\n");
 	return 0;
 }

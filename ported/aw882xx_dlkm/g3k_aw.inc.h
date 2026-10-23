@@ -33,9 +33,9 @@ static int __used aw882xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct s
 
 	dev_info(aw882xx->dev, "spksw level cached = %d, actual = %d\n", aw882xx->spksw_level, level);
 	if (level < 0) {
-		ucontrol->value.integer.value[0] = aw882xx->spksw_level;
+		ucontrol->value.enumerated.item[0] = aw882xx->spksw_level;
 	} else {
-		ucontrol->value.integer.value[0] = level;
+		ucontrol->value.enumerated.item[0] = level;
 		aw882xx->spksw_level = level;
 	}
 	return 0;

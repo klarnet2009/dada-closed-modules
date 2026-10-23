@@ -208,7 +208,7 @@ EXPORT_SYMBOL_GPL(plat_game_choose_cpu_fastpath);
 
 void plat_update_frame_load(struct task_struct *p, struct rq *rq, unsigned int fstat, u64 wallclock, u64 b, int c GKPAD(fcrcKcwefUT5m1))
 {
-	void (*fn)(struct task_struct *, struct rq *, unsigned int, u64, u64, int) = g_plat_hook_table[31].func;
+	void (*fn)(struct task_struct *, struct rq *, unsigned int, u64, u64, int) = g_plat_hook_table[35].func;
 
 	if (fn)
 		fn(p, rq, fstat, wallclock, b, c);
@@ -217,7 +217,7 @@ EXPORT_SYMBOL_GPL(plat_update_frame_load);
 
 int plat_flt_enable(void GKPAD(fcrcBzk6uClnDS))
 {
-	int (*fn)(void) = g_plat_hook_table[32].func;
+	int (*fn)(void) = g_plat_hook_table[36].func;
 
 	if (fn)
 		return fn();
@@ -227,12 +227,21 @@ EXPORT_SYMBOL_GPL(plat_flt_enable);
 
 void plat_get_wakeup_info(struct task_struct *p GKPAD(fcrc4gDbXB_yRL))
 {
-	void (*fn)(struct task_struct *) = g_plat_hook_table[33].func;
+	void (*fn)(struct task_struct *) = g_plat_hook_table[37].func;
 
 	if (fn)
 		fn(p);
 }
 EXPORT_SYMBOL_GPL(plat_get_wakeup_info);
+
+void plat_mi_game_schedule(struct task_struct *prev, struct task_struct *next, struct rq *rq GKPAD(fcrcxyHugAbEj8))
+{
+	void (*fn)(struct task_struct *, struct task_struct *, struct rq *) = g_plat_hook_table[40].func;
+
+	if (fn)
+		fn(prev, next, rq);
+}
+EXPORT_SYMBOL_GPL(plat_mi_game_schedule);
 
 int plat_game_choose_exclusive_cpus(struct task_struct *p GKPAD(fcrcEXcPTSdafX))
 {
@@ -296,7 +305,7 @@ EXPORT_SYMBOL_GPL(plat_game_should_skip_migrate);
 
 void plat_mi_force_update_freq(unsigned int freq GKPAD(fcrcGxguciepHI))
 {
-	void (*fn)(unsigned int) = g_plat_hook_table[34].func;
+	void (*fn)(unsigned int) = g_plat_hook_table[38].func;
 
 	if (fn)
 		fn(freq);
@@ -305,7 +314,7 @@ EXPORT_SYMBOL_GPL(plat_mi_force_update_freq);
 
 bool plat_enable_gpsync(void GKPAD(fcrcZFwFiCd4Um))
 {
-	bool (*fn)(void) = g_plat_hook_table[35].func;
+	bool (*fn)(void) = g_plat_hook_table[39].func;
 
 	if (fn)
 		return fn();

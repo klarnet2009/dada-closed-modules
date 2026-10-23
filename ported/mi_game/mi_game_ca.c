@@ -157,15 +157,16 @@ void free_mi_task_struct(struct task_struct *p)
 	gt->magic_num = 0;
 	if (gt->in_user_list && xr->mi_user) {
 		rwlock_t *lock = (rwlock_t *)((u8 *)xr->mi_user + 0x10);
+		unsigned long flags;
 
-		write_lock_irq(lock);
+		write_lock_irqsave(lock, flags);	/* G14c: was write_lock_irq in the CN stock */
 		xr->mi_user = NULL;
 		if (gt->in_user_list) {
 			list_del_init(&gt->list);
 			list_del_init(&gt->delay_list);
 			gt->in_user_list = false;
 		}
-		write_unlock_irq(lock);
+		write_unlock_irqrestore(lock, flags);
 	}
 	kmem_cache_free(mi_task_struct_cachep, xr->game);
 	xr->game = NULL;
@@ -191,6 +192,18 @@ static struct work_struct xr_user_monitor_wk;
 static __always_inline struct plat_task_struct *xr_inl(struct task_struct *p)
 {
 	if (unlikely(!p || p->exit_state))
+		return NULL;
+	if (p->__state == TASK_DEAD)
+		return NULL;
+	if (p == &init_task)
+		return (struct plat_task_struct *)vendor_data_pad;
+	return (struct plat_task_struct *)(p + 1);
+}
+
+/* G56a: task_add_to_userlist() of the stock dereferences p without a NULL test (p is nonnull there) */
+static __always_inline struct plat_task_struct *xr_nn_inl(struct task_struct *p)
+{
+	if (p->exit_state)
 		return NULL;
 	if (p->__state == TASK_DEAD)
 		return NULL;
@@ -244,7 +257,7 @@ task_add_to_userlist(struct mi_game_task *gt, struct mi_plat_user_struct *mi_use
 	n = kmalloc(sizeof(*n), GFP_ATOMIC);
 	if (!n)
 		return;
-	xr = xr_inl(p);
+	xr = xr_nn_inl(p);
 	if (!xr) {
 		kfree(n);
 		return;
@@ -451,6 +464,8 @@ static __used void xr_user_roll_wk(struct work_struct *work)
 				pr_err("Mi user struct has been destoryed\n");
 			mu->magic_num = 0;
 			write_lock_irq(&mu->lock);
+			/* g62a: the stock tests list_empty() (READ_ONCE = ldar, S+1f4) before the walk */
+			if (!list_empty(&mu->list))
 			list_for_each_entry_safe(gt, tmp, &mu->list, list) {
 				struct plat_task_struct *xr;
 

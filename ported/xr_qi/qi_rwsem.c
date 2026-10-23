@@ -149,7 +149,7 @@ static void android_vh_alter_rwsem_list_add(void *unused, struct rwsem_waiter *w
 				[[clang::always_inline]] trace_qi_rwsem_jump(waiter->task, (unsigned long)sem);
 				return;
 			}
-			trace_qi_rwsem_skip(w->task, w->type == RWSEM_WAITING_FOR_READ, is_qos_rt_task(w->task));
+			trace_qi_rwsem_skip(w->task, w->type != RWSEM_WAITING_FOR_WRITE, is_qos_rt_task(w->task));
 			put_task_struct(w->task);
 		}
 		return;
@@ -525,86 +525,6 @@ static void android_vh_rwsem_read_wait_finish(void *unused, struct rw_semaphore 
 		}
 	}
 }
-/*
- * a high-qos reader of its own mmap_lock failed the read trylock because of waiters: it may barge in
- * (retry the trylock) unless one of the first waiting writers has a higher priority / qos, or the first waiter timed out
- */
-#define RWSEM_READFAIL_MASK	(RWSEM_WRITER_LOCKED | (1UL << (BITS_PER_LONG - 1)))
-static void android_vh_rwsem_read_trylock_failed(void *unused, struct rw_semaphore *sem, long *cntp, int *ret)
-{
-	struct task_struct *cur, *task;
-	struct rwsem_waiter *first, *w;
-	long count;
-	u32 qos, tq;
-	unsigned int cnt;
-	int tprio, cprio;
-
-	if (!is_qi_feat_enabled(13))
-		return;
-	cur = current;
-	if (!cur->mm || &cur->mm->mmap_lock != sem)
-		return;
-	if (get_qos_lvl(cur) < 7)
-		return;
-	if (atomic_long_read(&sem->count) & RWSEM_READFAIL_MASK)
-		return;
-	qos = get_qos_lvl(cur);
-	raw_spin_lock_irq(&sem->wait_lock);
-	if (list_empty(&sem->wait_list)) {
-		[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, cur, qos, "wait list empty");
-		goto retry;
-	}
-	first = (struct rwsem_waiter *)sem->wait_list.next;
-	if (time_after(jiffies, first->timeout + 4)) {
-		task = first->task;
-		[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, task, get_qos_lvl(task), "waiting timeout");
-		raw_spin_unlock_irq(&sem->wait_lock);
-		return;
-	}
-	cnt = 0;
-	for (w = first; &w->list != &sem->wait_list; w = (struct rwsem_waiter *)w->list.next) {
-		task = w->task;
-		if (!task)
-			continue;
-		if (++cnt > 3)
-			break;
-		if (w->type != RWSEM_WAITING_FOR_WRITE)
-			continue;
-		tprio = task->prio;
-		cprio = cur->prio;
-		tq = get_qos_lvl(task);
-		if (tprio <= cprio) {
-			[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, task, tq, "higher prio");
-			raw_spin_unlock_irq(&sem->wait_lock);
-			return;
-		}
-		if (tq < qos)
-			continue;
-		[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, task, get_qos_lvl(task), "higher qos");
-		raw_spin_unlock_irq(&sem->wait_lock);
-		return;
-	}
-	[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, cur, qos, "retry lock");
-retry:
-	raw_spin_unlock_irq(&sem->wait_lock);
-	if (!cntp) {
-		int ntry;
-
-		/* the stock retries the cmpxchg at most 3 times (fully unrolled, the 3rd failure just leaves) */
-		count = atomic_long_read(&sem->count);
-		for (ntry = 0; ntry < 3; ntry++) {
-			if (count & RWSEM_READFAIL_MASK)
-				break;
-			if (atomic_long_try_cmpxchg_acquire(&sem->count, &count, count + RWSEM_READER_BIAS)) {
-				*ret = 1;
-				break;
-			}
-		}
-	} else if (!(*cntp & RWSEM_READFAIL_MASK)) {
-		*ret = 1;
-	}
-	[[clang::always_inline]] trace_qi_rwsem_reader_retry_lock(sem, cur, get_qos_lvl(cur), *ret ? "retry success" : "retry failed");
-}
 static void android_vh_record_rwsem_lock_starttime(void *unused, struct rw_semaphore *sem,
 						   unsigned long settime_jiffies)
 {
@@ -705,9 +625,6 @@ int qi_vh_rwsem_register(void)
 	err = register_trace_android_vh_rwsem_read_wait_finish(android_vh_rwsem_read_wait_finish, NULL);
 	if ((err < 0) & !ret)
 		ret = err;
-	err = register_trace_android_vh_rwsem_read_trylock_failed(android_vh_rwsem_read_trylock_failed, NULL);
-	if ((err < 0) & !ret)
-		ret = err;
 	err = register_trace_android_vh_record_rwsem_lock_starttime(android_vh_record_rwsem_lock_starttime, NULL);
 	if ((err < 0) & !ret)
 		ret = err;
@@ -735,7 +652,6 @@ void qi_vh_rwsem_unregister(void)
 	unregister_trace_android_vh_rwsem_read_wait_finish(android_vh_rwsem_read_wait_finish, NULL);
 	unregister_trace_android_vh_rwsem_write_wait_finish(android_vh_rwsem_write_wait_finish, NULL);
 	unregister_trace_android_vh_record_rwsem_lock_starttime(android_vh_record_rwsem_lock_starttime, NULL);
-	unregister_trace_android_vh_rwsem_read_trylock_failed(android_vh_rwsem_read_trylock_failed, NULL);
 	unregister_trace_android_vh_mmap_lock_init(android_vh_mmap_lock_init, NULL);
 	unregister_trace_android_vh_mmap_lock_free(android_vh_mmap_lock_free, NULL);
 	unregister_trace_android_vh_rwsem_init(android_vh_rwsem_init, NULL);

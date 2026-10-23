@@ -141,12 +141,16 @@ struct sk_buff *matt_make_pack(struct sock *sk)
 	iq->min_owd_rx_ts = 0;
 	iq->last_rcv_high_seq = iq->rcv_high_seq;
 	pack->sacks_size = htonl(sacks_len);
-	for (i = 0; i < iq->num_sacks; i++) {
-		struct matt_sack_block *sb = &iq->selective_acks[(iq->sack_first_index + i) & 0x7f];
+	{
+	u32 cnt = iq->num_sacks, first = iq->sack_first_index;	/* G56a: the stock loads both once, before the loop (x57/dv: ours reloaded them every iteration) */
+
+	for (i = 0; i < cnt; i++) {
+		struct matt_sack_block *sb = &iq->selective_acks[(first + i) & 0x7f];
 
 		/* G1ad: via a pointer, NOT pack->sacks[i]: sacks[0] + -fstrict-flex-arrays=3 + array-bounds trap = brk #0x5512 on the first SACK block */
 		((struct matt_sack_block *)(pack + 1))[i].offset_start = htonl(sb->offset_start);
 		((struct matt_sack_block *)(pack + 1))[i].offset_end = htonl(sb->offset_end);
+	}
 	}
 	matt_dump_skb(__func__, skb);
 	return skb;
@@ -185,11 +189,15 @@ struct sk_buff *matt_make_nack(struct sock *sk)
 	iq->rcv_wnd = matt_rcv_space(sk);
 	nack->recv_buffer = htonl(iq->rcv_wnd);
 	nack->sacks_size = htonl(sacks_len);
-	for (i = 0; i < iq->num_sacks; i++) {
-		struct matt_sack_block *sb = &iq->selective_acks[(iq->sack_first_index + i) & 0x7f];
+	{
+	u32 cnt = iq->num_sacks, first = iq->sack_first_index;	/* G56a: the stock loads both once, before the loop (x57/dv: ours reloaded them every iteration) */
+
+	for (i = 0; i < cnt; i++) {
+		struct matt_sack_block *sb = &iq->selective_acks[(first + i) & 0x7f];
 
 		((struct matt_sack_block *)(nack + 1))[i].offset_start = htonl(sb->offset_start);	/* G1ad: see matt_make_pack */
 		((struct matt_sack_block *)(nack + 1))[i].offset_end = htonl(sb->offset_end);
+	}
 	}
 	return skb;
 }

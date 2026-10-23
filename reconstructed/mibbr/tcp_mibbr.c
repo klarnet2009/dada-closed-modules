@@ -1030,7 +1030,9 @@ static void bbr_update_gains(struct sock *sk)
 		bbr->cwnd_gain	 = BBR_UNIT;
 		break;
 	default:
+#line 1118
 		WARN_ONCE(1, "BBR bad mode: %u\n", bbr->mode);
+#line 1034
 		break;
 	}
 }

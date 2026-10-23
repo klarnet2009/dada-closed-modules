@@ -79,21 +79,37 @@ __used bool check_report_limit(void)
 	return true;
 }
 __used int get_time_bucket(u64 ns)
+
 {
+
 	int bucket = 0;
 
+
+
 	if (ns > 8000000ULL) {
+
 		if (ns <= 64000000ULL)
+
 			bucket = 1;
+
 		else if (ns <= 256000000ULL)
+
 			bucket = 2;
+
 		else if (ns > 1024000000ULL)
+
 			bucket = 4;
+
 		else
+
 			bucket = 3;
+
 	}
+
 	return bucket;
+
 }
+
 /* ---- dfx sysfs: timeouts (ms, 1..10000) ---- */
 #define TIMEOUT_ATTR(name, off, parse)								\
 static ssize_t name##_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf)	\
@@ -276,7 +292,7 @@ static noinline __used ssize_t scene_alloc_info_show_common(char *buf, unsigned 
 
 			/* the stock reads the counters with acquire loads (ldar) */
 			for (b = 0; b < 5; b++)
-				cnt += smp_load_acquire(&dfx.cnt[scene][proc][t][b]);
+				cnt += LLM_LOAD(&dfx.cnt[scene][proc][t][b]);
 			total[proc][t] = cnt;
 			if (cnt >= 1)
 				avg[proc][t] = dfx.tot[scene][proc][t] / cnt / 1000000;
@@ -290,11 +306,11 @@ static noinline __used ssize_t scene_alloc_info_show_common(char *buf, unsigned 
 			u32 *c = dfx.cnt[scene][proc][t];
 
 			len += sysfs_emit_at(buf, len, "%s total:%d\n", name, total[proc][t]);
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 0ULL, 8ULL, smp_load_acquire(&c[0]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 8ULL, 64ULL, smp_load_acquire(&c[1]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 64ULL, 256ULL, smp_load_acquire(&c[2]));
-			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 256ULL, 1024ULL, smp_load_acquire(&c[3]));
-			len += sysfs_emit_at(buf, len, "%s_1024_INF  %d\n", name, smp_load_acquire(&c[4]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 0ULL, 8ULL, LLM_LOAD(&c[0]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 8ULL, 64ULL, LLM_LOAD(&c[1]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 64ULL, 256ULL, LLM_LOAD(&c[2]));
+			len += sysfs_emit_at(buf, len, "%s_%llu_%llu  %d\n", name, 256ULL, 1024ULL, LLM_LOAD(&c[3]));
+			len += sysfs_emit_at(buf, len, "%s_1024_INF  %d\n", name, LLM_LOAD(&c[4]));
 			len += sysfs_emit_at(buf, len, "avg_ms: %llu\n", avg[proc][t]);
 			len += sysfs_emit_at(buf, len, "max_ms: %ld\n\n", (long)(dfx.max[scene][proc][t] / 1000000));
 		}
@@ -521,10 +537,10 @@ noinline __used void fill_mem_alloc_fault_data(struct mem_alloc_fault_data *f, u
 
 		f->target_count_4 = rec->t4;
 		f->compact_count_4 = rec->n4;
-		f->curr_count_4 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
+		f->curr_count_4 = LLM_LOAD((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
 		f->target_count_ext = rec->t9;
 		f->compact_count_ext = rec->n9;
-		f->curr_count_ext = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
+		f->curr_count_ext = LLM_LOAD((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
 	}
 	if (type <= 1) {
 		struct list_head *pos;
@@ -541,11 +557,13 @@ noinline __used void fill_mem_alloc_fault_data(struct mem_alloc_fault_data *f, u
 	}
 	fill_sys_mem_info(&f->sys_info);
 }
-static const char * const mem_type_str[7] = { "cma", "dma", "order4", "order9", "free_time", "async_compact_time", "order0" };
-static const char * const proc_type_str[3] = { "qos", "main", "bg" };
+/* G14h: function-local (not static) so that they are anonymous private constants like the two anonymous .rodata tables of the stock */
+#define LLM_MEM_TYPE_TBL	const char *const mem_type_str[7] = { "cma", "dma", "order4", "order9", "free_time", "async_compact_time", "order0" }
+#define LLM_PROC_TYPE_TBL	const char *const proc_type_str[3] = { "qos", "main", "bg" }
 noinline __used void pre_compact_misight_event_cb(void *data, int error_code)
 {
 	struct pre_compact_fault_data *f = data;
+	LLM_MEM_TYPE_TBL;
 	struct cdev_tevent *ev;
 
 	if (!f) {
@@ -583,6 +601,8 @@ reset:
 noinline __used void mem_alloc_misight_event_cb(void *data, int error_code)
 {
 	struct mem_alloc_fault_data *f = data;
+	LLM_MEM_TYPE_TBL;
+	LLM_PROC_TYPE_TBL;
 	struct cdev_tevent *ev;
 
 	if (!f) {
@@ -620,5 +640,4 @@ noinline __used void mem_alloc_misight_event_cb(void *data, int error_code)
 reset:
 	mem_fault_reporting = 0;
 }
-static const void *const llm_dfx_callbacks[] __used = { enable_show, reset_store, cma_alloc_start_handler, dma_heap_buffer_alloc_start_handler, mm_direct_reclaim_start_handler, alloc_pages_slowpath_start_handler, get_time_bucket, dfx_enable_control, scene_fling_show, scene_unlock_show, scene_cold_start_show, scene_camera_show, scene_game_show, pool_hit_rate_show, check_report_limit, enable_store };
 #include "llm_end_handlers.h"

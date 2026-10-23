@@ -888,6 +888,28 @@ int platform_fg_ops_get_cc_coulomb_integral(unsigned int ic_role, int *cc)
 }
 EXPORT_SYMBOL(platform_fg_ops_get_cc_coulomb_integral);
 
+int platform_fg_ops_get_batt_sn(unsigned int ic_role, char *batt_sn)
+{
+	struct fuelguage_info *temp_info = platform_get_fg_ic_ops(ic_role);
+
+	if (platform_fg_ops_invalid(temp_info, fg_ic_get_batt_sn))
+		return -EOPNOTSUPP;
+
+	return temp_info->ops->fg_ic_get_batt_sn(temp_info->data, batt_sn);
+}
+EXPORT_SYMBOL(platform_fg_ops_get_batt_sn);
+
+int platform_fg_ops_set_dynamic_fv(unsigned int ic_role, int fv)
+{
+	struct fuelguage_info *temp_info = platform_get_fg_ic_ops(ic_role);
+
+	if (platform_fg_ops_invalid(temp_info, fg_ic_set_dynamic_fv))
+		return -EOPNOTSUPP;
+
+	return temp_info->ops->fg_ic_set_dynamic_fv(temp_info->data, fv);
+}
+EXPORT_SYMBOL(platform_fg_ops_set_dynamic_fv);
+
 static struct platform_driver platform_fg_ops_driver = {
 	.driver	= {
 		.name = "platform_fg_ops",

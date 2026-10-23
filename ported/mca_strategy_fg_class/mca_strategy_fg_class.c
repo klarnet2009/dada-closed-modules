@@ -309,6 +309,15 @@ int strategy_class_fg_set_allow_new_soc_smooth(int allow)
 }
 EXPORT_SYMBOL(strategy_class_fg_set_allow_new_soc_smooth);
 
+int strategy_class_fg_set_dynamic_fv(int fv)
+{
+	if (is_invalid_ops(strategy_fg_set_dynamic_fv))
+		return -1;
+
+	return strategy_fg_class_ops_with_one_para(strategy_fg_set_dynamic_fv, fv);
+}
+EXPORT_SYMBOL(strategy_class_fg_set_dynamic_fv);
+
 static struct platform_driver strategy_fg_class_driver = {
 	.driver	= {
 		.name = "strategy_fg_class",

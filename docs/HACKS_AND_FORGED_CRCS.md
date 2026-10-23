@@ -8,7 +8,7 @@ Some modules compare equal to the stock only because of a documented hack. None 
   - *GENKSYMS-only padding* (`tools/padcrc.py`, `tools/crcpad.py`): an enum value, attribute or struct member under `#ifdef __GENKSYMS__` with an identifier fitted until the CRC hits. Code and ABI are untouched. The padding must also be in the header prototype (genksyms takes the first declaration).
   - *`crcforge`*: a forged declaration used only for the CRC (for example `mi_power`: one import, `millet_binder`: two exports).
   - *`crc_patch.py` / `crc_patch2.py`*: the CRC words in the built `.ko` are overwritten with the stock values after the build (`tas25xx_dlkm`: 2 export CRCs; `minidump`: 1 import CRC; `tas25xx` in the first round). `crc_patch2.py` also handles import CRCs.
-- **Stub providers** (`stubs/`, `tools/gen_stubs.py`): a module imports symbols of another module that is not part of the build. A stub module with the same exported names and exactly the stock CRCs (genksyms hashes `void sym ( struct tag { UNKNOWN } * )` with crc32 and a short struct tag is searched until the CRC matches) stands in so that the module under test links. **A matching import CRC through a stub does not confirm the prototype**; that is how one real prototype error in a charging module slipped through the old tool. The strict tool reports such imports as INFO. The stubs and their `os4_*`/`mca_st_*`/`*_stub` names appear in the built module's `depends=`; the package fixes that with `tools/modinfo_fix.py`. Stub trees in this repository: `stubs`, `stubs_a17A`, `stubs_a17B`, `stubs_a17C`, `stubs_a17D`, `stubs_g1`, `stubs_g13a`, `stubs_g13b`, `stubs_g13d_g2k`, `stubs_g13d_g5`, `stubs_g13g`, `stubs_g13l`, `stubs_g1e`, `stubs_g2g`, `stubs_g2h`, `stubs_g2i`, `stubs_g2j`, `stubs_g2k`, `stubs_g3`, `stubs_g3g`, `stubs_g3i`, `stubs_g4`, `stubs_g5`, `stubs_g6`, `stubs_mcaA`, `stubs_mcaB`, `stubs_misc`, `stubs_perfA`, `stubs_perfB`, `stubs_perfC`, `stubs_portA`, `stubs_portB`, `stubs_portC`, `stubs_portD`. They are build helpers, never modules to load.
+- **Stub providers** (`stubs/`, `tools/gen_stubs.py`): a module imports symbols of another module that is not part of the build. A stub module with the same exported names and exactly the stock CRCs (genksyms hashes `void sym ( struct tag { UNKNOWN } * )` with crc32 and a short struct tag is searched until the CRC matches) stands in so that the module under test links. **A matching import CRC through a stub does not confirm the prototype**; that is how one real prototype error in a charging module slipped through the old tool. The strict tool reports such imports as INFO. The stubs and their `os4_*`/`mca_st_*`/`*_stub` names appear in the built module's `depends=`; the package fixes that with `tools/modinfo_fix.py`. Stub trees in this repository: `stubs`, `stubs_a17A`, `stubs_a17B`, `stubs_a17C`, `stubs_a17D`, `stubs_g1`, `stubs_g13a`, `stubs_g13b`, `stubs_g13d_g2k`, `stubs_g13d_g5`, `stubs_g13g`, `stubs_g13l`, `stubs_g14e`, `stubs_g14e_a`, `stubs_g14e_b`, `stubs_g14f`, `stubs_g14g`, `stubs_g15c`, `stubs_g1e`, `stubs_g2g`, `stubs_g2h`, `stubs_g2i`, `stubs_g2j`, `stubs_g2k`, `stubs_g3`, `stubs_g3g`, `stubs_g3i`, `stubs_g3w`, `stubs_g4`, `stubs_g40g`, `stubs_g41a`, `stubs_g5`, `stubs_g53a`, `stubs_g6`, `stubs_mcaA`, `stubs_mcaB`, `stubs_misc`, `stubs_perfA`, `stubs_perfB`, `stubs_perfC`, `stubs_portA`, `stubs_portB`, `stubs_portB_g`, `stubs_portC`, `stubs_portD`. They are build helpers, never modules to load.
 - **`#line` pins.** `__LINE__` is baked into log macros and bug-table entries; a `#line N` before a statement makes our object carry the stock line number. In the Wi-Fi drivers a generated pin file was used for all chips: this is **not** restored code, it only equalises numbers.
 - **Codegen hints**: `likely`/`unlikely`, `__builtin_expect_with_probability`, `[[clang::__noinline__]]`/`[[clang::always_inline]]` on single calls, local copies of inline helpers from 6.6.57, dead literals, thin static helpers where LLVM folds a phi: only to make the compiler emit the stock instruction sequence.
 - **Environment defines** in the Wi-Fi drivers (`__ANDROID_COMMON_KERNEL__`, `CONFIG_SCHED_WALT`, ...) derived from the stock function and import sets, not from the vendor Kconfig.
@@ -42,20 +42,29 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 
 | module | notes mention |
 |---|---|
+| cameralog | forged CRC |
+| cameramsger | forged CRC |
 | debug_ext | forged CRC |
+| lb | forged CRC |
 | mca_business_battery_comp | forged CRC |
 | mca_business_charger_comp | forged CRC, genksyms-only padding |
 | mca_qcom_subpmic_proxy | forged CRC |
 | mca_strategy_fg_comp | forged CRC, genksyms-only padding |
+| mi_damon | forged CRC |
+| mibbr | forged CRC |
 | miloadtrace | forged CRC, genksyms-only padding |
 | mist | forged CRC, genksyms-only padding |
+| process_monitor | forged CRC |
 | tas25xx | crc_patch after build |
+| aw882xx_dlkm | forged CRC, genksyms-only padding |
 | binder_gki | forged CRC, genksyms-only padding |
 | bq27z561 | forged CRC |
 | charger_partition | genksyms-only padding |
 | cs35l43_dlkm | forged CRC |
 | dcvs_main | forged CRC, genksyms-only padding |
+| dump_binder | forged CRC |
 | dynamic_readahead | forged CRC, genksyms-only padding |
+| fault_report | forged CRC |
 | fs19xx_dlkm | forged CRC |
 | matt | forged CRC, genksyms-only padding |
 | mca_basic_wireless | forged CRC |
@@ -86,6 +95,7 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 | mi_reclaim | forged CRC, genksyms-only padding |
 | miev | forged CRC |
 | millet_binder | forged CRC, genksyms-only padding |
+| minet | forged CRC |
 | miscore | forged CRC |
 | mitee_dlkm | forged CRC |
 | nuvolta_1652 | forged CRC |
@@ -100,8 +110,11 @@ The generated table below lists every exported module whose `STATUS.md` mentions
 | rss_monitor | forged CRC |
 | rtg | forged CRC, genksyms-only padding |
 | sc8581_sy6541 | forged CRC, genksyms-only padding |
+| sia91xx_dlkm | forged CRC, genksyms-only padding |
+| swinfo | forged CRC |
 | tango32 | forged CRC, genksyms-only padding |
 | tas25xx_dlkm | crc_patch after build |
+| tfa98xx_dlkm | forged CRC, genksyms-only padding |
 | vip_sched | forged CRC |
 | xiaomi_touch | forged CRC, genksyms-only padding |
 | xr_qi | forged CRC, genksyms-only padding |

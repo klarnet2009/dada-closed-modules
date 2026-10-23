@@ -167,11 +167,13 @@ struct mca_buckchg_jeita_dev {
 	int weak_chg_delta_vterm;
 	int weak_chg_iterm;
 	int last_temp;
+	int support_dynamic_fv;	/* GLOBAL OS4.0.0.7, +420 (was padding) */
 };
 
 _Static_assert(sizeof(struct mca_buckchg_jeita_dev) == 424, "OS4 mca_buckchg_jeita_dev size");
 _Static_assert(offsetof(struct mca_buckchg_jeita_dev, flip_fcc_voter) == 200, "flip_fcc_voter");
 _Static_assert(offsetof(struct mca_buckchg_jeita_dev, jeita_para) == 280, "jeita_para");
 _Static_assert(offsetof(struct mca_buckchg_jeita_dev, support_dynamic_iterm) == 360, "dyn");
+_Static_assert(offsetof(struct mca_buckchg_jeita_dev, support_dynamic_fv) == 420, "dynfv");
 
 #endif /* __MCA_BUCKCHG_JEITA_H__ */

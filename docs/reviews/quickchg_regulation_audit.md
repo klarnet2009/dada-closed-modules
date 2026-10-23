@@ -1,0 +1,51 @@
+# quickchg regulation audit (goal-G30e, 20.10.2026)
+
+COMMUNITY-ONLY, DO NOT LOAD, never flash, never in a ROM build or the kernel package. Battery-safety relevant: this is NOT a safety claim; nothing was tested on hardware. Base = GLOBAL OS4.0.0.7 stock (`<work-dir>`). Reading by an agent, not a proof.
+
+## Method (what was actually done)
+
+* The old `fdc.sh` condition diff (the "~157 lines in ~30 hunks") is polluted: `llvm-objdump -r --disassemble-symbols` on the stock `.ko` prints every `.text` relocation before the function, so the diff was dominated by foreign relocs. It was NOT used; instead the whole stock function was read.
+* New tool `work/re/g30e_tools/sx.py` (+ `btfflat.py`, `atoms.py`): lifts the stock and our listing to block-wise pseudo-C with symbolic expressions: field names from the stock split BTF (`info.proc_data.cur_stage`), exact branch condition text on every edge, phi merges, stores, calls with arguments, jump tables resolved from `.rodata`. Then the whole stock function (1313 insns) was read against the C source (and the inlined helper sources: select_max_ibat, get_base_curr, set_flip_cur, get_base_limit_curr, select_min_vbatt_th, calculate_vstep_ex, open_buck_charging, pmic_single_cp_charging, is_en_buck_hwid).
+* `atoms.py` = polarity-free multiset of the IF-atoms of stock vs ours (a screening aid: equal does not prove, a one-sided atom is a place to read).
+* Limits of the lifter: no operand width/wrap, field loads at different times look identical (race-only differences invisible), callee writes through stack pointers are not modelled (stack out-values show as 0/`stk[n]`), `umulh` (the /1000000 of the ms clock) is not lifted (checked by the constant 0x431bde82d7b634db = /1e6), static variables are named by section offset.
+
+## Section table: mca_quick_charge_regulation (stock .text+0x8190, 1313 insns) <-> source `mca_quick_charge_regulation` (3023..)
+
+| # | stock blocks (fn-relative) | source section | verdict |
+|---|---|---|---|
+| 1 | B0..Bcc | ktime, hwid, update_ibus (+ log 3211 on error) | EQUAL (order: ktime, hwid, update_ibus) |
+| 2 | Bcc..B134 | eu_pps_anti_disconnection, `if anti_overvoltage` update_jeita_fcc, update_jeita_fcc, log 2543 | EQUAL |
+| 3 | B134..B210 | batt_safe ilim (u8 active && support_lvl, read once, ratio 1..99 unsigned, !cur_stage, vote curr_max_voter/NULL) | EQUAL |
+| 4 | B210..B2cc | dtpt: ichg_dec / reduce_max_cur / plain, x8/10 - delta, logs 2558/2562 | EQUAL |
+| 5 | B2cc..B424 | channel/thermal/max_adap_ibat/pps100w+PPS non_mi/temp_max/ratio*max_adp_curr/sw_ocp/bypass/cutoff_priority, third-party PPS -200, 11000 clamp, third_pps_ibat_limit | EQUAL (every min/max, polarity, signedness) |
+| 6 | B424..B65c | base/flip: get_base_curr ((stage+1)/2, `stage > 2*(size-1)`), set_flip_cur (last_flip_curr_max, -30 mV, loadsw_set_ibat_limit, log 1081 stack args), get_base_limit_curr (counter, 1000/500/300/100 tiers -> 900/600/300/150 table, runSwOcp, `ibat < base-150`) | EQUAL |
+| 7 | B6b4..B6ec | current_fcc / curr_max stores, `cur_max < cp_switch_pmic_th` log 3221, stop_charging | EQUAL |
+| 8 | B6ec..B80c | select_min_vbatt_th (stage/2, `== size-1`, delta_fv + pps_taper_vol_hys), get_cyclecount, anti_overvoltage fv_cmp, 2x get_vstep guards (`cyclecount > 799 || vbat > fv_cmp-100`) | EQUAL |
+| 9 | B80c..B838 + Ba08..Ba40, B12d8..B12ec | ibus_compensation (adp 12: last stage -> 0; cancel_compensation + vbat > max_vbat_threshold -> 0 + log 3253; else mode 4/2/1 -> ibus_compensation[2/1/0] + log 3269; non-12 -> 0) | EQUAL |
+| 10 | B838..B9b8 (+ B904..B1470) | comp_extra -200, CC / CV final_vstep (all `>`, `<`, `>=` terms, delta_ibat, ratio, `<< anti_overvoltage`, max(.., -100), `< 20` -> -20), vstep_ex (8 groups, stage store before the abs() test, `dv > 0`, `stage >= 0`, boost_time_thr), `min(final, vstep_ex)` | EQUAL |
+| 11 | B9b8..Bb08 | cyclecount>799 clamp (-20..20), boost_done: 20 with boost<2000 or buck<1000 -> 0, -20 with buck<1000 -> 0, hwid (+0 == 7, +4 == 1, final >= 80, boost < 2000) -> log + 0 | EQUAL |
+| 12 | Bb08..Bb40 | stage == 2*size-1 && vbat_th < vbat && final >= 1 -> log + 0 | EQUAL |
+| 13 | Bb40..Bbb8 (+ Bf20..Bf78, Bfac) | en_buck_parallel_chg: cur_max > threshold, `!(once && once_flag)`, inlined is_en_buck_hwid (special set {1, 0x10000, 0x10002, 0x10003, 0x100000, 0x100001, 0x110000} with platform 3; hwid NULL = special + log 2979), full values if not special or early platform-11 <= 1, else -500/-2000; `final > 200 && once_flag && !clear` -> clear, final 0; else disable (0,0,false) | EQUAL |
+| 14 | Bbb8..Bcd4 (+ Bfc8..B1344, Bc84) | open_buck_charging: 6 reads, `pvbat >= vterm-30` -> stop_pmic, log 2874, PD_VERIFY && DUAL && !stop_pmic tiers (11000/5200 -> 3000, 8000/4200 -> 2000, 5000/2700 -> 1000, else 400), `cur_max > ibat && fcc != pmih_fcc`, icl = fcc/2+300, votes; else-branch zeroing | EQUAL |
+| 15 | Bcd4..B10bc | pmic_single_cp_charging: ffc / (>= 9000 && PPS) reads + log 2928 + 4650 vterm override; else cancel + log 2918; thresholds [0..2] else [3], icl = fcc/2 (+500 unless value[3]); `curr_vbat >= vbat_threshold || use_buck_flag` | EQUAL except ONE ORDER difference, FIXED (see below) |
+| 16 | B10bc..B1178 | last_boost/last_buck (.bss+0x88/+0x90), boost_done, cur_adp_cur/volt, cp_get_bus_voltage, log 3387 (14 args incl. 9 stack args), req_adp_volt_and_cur, returns -1/0 | EQUAL |
+
+### The one BEHAVIOUR (order) difference, fixed
+Section 15, `use_buck_flag`/`curr_vbat >= vbat_threshold` branch: stock (Be14) stores `use_buck_flag = 1` and `pmih_fcc = 0` BEFORE `mca_vote(input_suspend_voter, "wire_qc", 1, 1)` and the two overrides; our source voted first and stored afterwards. Effect: a vote callback running synchronously could see the old flag values (small, but proven; not a limit/constant change). Source fixed in `mca_strategy_quickchg.c` (CRLF kept 6184/6184); real Kleaf build: the stores now sit before the vote (checked in the lifted listing). Everything else in the section orders (pmih_fcc store before votes in the tier branch, `pmih_fcc = 0` before the votes in the else branch) already matched.
+
+## (stage+1)/2 versus stage/2 (the pattern places)
+Stock `asr #1` idiom per function (and the identical multiset in ours): quickchg: `cinc lt` (= stage/2) in monitor_work, vfc_work, update_jeita_fcc, get_cpmode_unrelated_fcc and 3x in regulation (cur_min [line 3029], vbatt_th and its `== size-1` test [2831/2834]); `csinc add #2` (= (stage+1)/2) 2x in regulation (base and flip section). So quickchg sites 275, 527, 2642, 2831, 3028/3029 are stage/2 in the stock; only the base/flip sections use (stage+1)/2, as in our source. quick_wireless: stock 3x `cinc` in monitor_work + 2x `cinc` and 1x `csinc` in select_max_ibat; ours identical (the G22c fix at 594 is the csinc one). Nothing to change.
+
+## Other functions
+* quickchg monitor_work: `atoms.py` 100 stock / 95 ours atoms; all one-sided atoms explained: `(1<<platform)&0x496` polarity, statics named by offset, `0<350` / `349<0` = the same count compare with the static value not lifted, `adp_type == 8` (stock branch, ours csel), `is_eu_model` duplicated in stock by the `info==0` path. The 600-line body was NOT read line by line (judge_thermal_vote, qc taper, is_charge_abnormal, ffc, charge_done inlined): CODEGEN-LIKELY, not proven. symcmp5b: still 14 polarity diffs (10 same-atom, 4 one-sided), as before.
+* quickchg process_event: jump table decoded for stock and ours (86 entries, 28 distinct targets, tables differ only by layout); atoms 56 = 56. The 12 one-sided atoms read: pre_charge_check inline (stock tests `type-7 <u 2` first, then `type == 11`/`== 12`; ours tests 11..12 first and `== 12` inside) = same partition, the `Update adp_type` block (11: cur_protocol=1; 12: to_pd_verify=parallel_to_pd_verify=1 then cur_protocol=1) equal; the `change type` event: stock `value == 12` first then `(value-11) <u 2` (= 11), ours `value == 11` first then `== 12`: same effects and order: CODEGEN. Event bodies not read line by line.
+* basic_wireless process_event: both jump tables decoded (84 + 8 entries); atoms 48 stock / 46 ours; the 6 one-sided: `get_compatible_info == -1` naming, `[idx].(+0x1f0) == 0` (temp in ours), the list-drain loop (stock and ours both list_del with the same poison stores, the loop-head test written differently): CODEGEN-LIKELY, not proven; not read line by line.
+* FACT-DIFF functions screened with `atoms.py` (stock vs ours atoms): basic_wireless class_probe 74=74; buckchg class_probe (hwid `(v&~1)==4` is a cset in ours, IS_ERR forms), get_status 3=3, process_event 3=3 (jump table: not decoded here), set_vterm (stack-slot noise); fg_comp: shutdown_parse_dt, check_batt_emerg 13=13, check_li_plating 10=10, overvoltage_dfx (`x<1` vs `0<x`), first_usage_date / manufacturing_date (date-string loops), fg_update_status (static names); quickchg: get_vstep 14=14, parse_chg_mode_info 24=24, parse_third_pps 5=5, start_charging 45=45 and check_cp_work_mode (call names only). No missing OR/AND term found. This is a screen, NOT a line-by-line read of those 17 functions.
+
+## Counts
+quickchg real Kleaf build (before = after): function-set 83, function-bytes 27 of 83, function-relocs 22 of 83, kCFI/preamble_cmp 0 mismatches, objects 40, imports 119+CRC, exports PASS; anon-data/buildmeta/depends FAIL as before (forged/stubs). regulation 1299 -> 1298 instructions (stock 1313), still differs; symcmp5b regulation INCONCLUSIVE (same as before), monitor_work 14 polarity diffs, process_event 12 (unchanged).
+
+## Effects screen (work/re/g30e_tools/effects.py: multiset of CALL name+constant args and ST field+constant)
+* monitor_work: 82 stock / 78 ours entries, 8 differing keys, all the known tail merges: the two taper logs ("pps taper done" line 335, "qc taper done" line 275) are separate call sites in the stock and one merged call in ours, `taper_done_no_retry = 1` 3 vs 2 stores, `fc2_taper_timer = 0` 2 vs 1, static count stores named by offset; no call/vote/store target exists on one side only.
+* regulation: 103 / 102 entries; differences are only static-variable naming (`.data+0x354` = calculate_vstep_ex.stage, `.bss` statics) and `ibus_compensation = 0` stored on two stock paths vs one merged store in ours.
+

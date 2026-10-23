@@ -355,7 +355,7 @@ static struct miscdevice misc_algo_auth = {
 	.fops  = &aw_algo_auth_misc_fops,
 };
 
-static int aw882xx_algo_auth_misc_init(struct aw_device *aw_dev)
+static int aw_algo_auth_misc_init(struct aw_device *aw_dev)
 {
 	int ret;
 
@@ -561,7 +561,7 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 
 		if (aw_dev->efcheck_desc.reg != AW_REG_NONE && reg_addr == aw_dev->efcheck_desc.reg) {
 			aw_dev->efuse_check = (reg_val & (~aw_dev->efcheck_desc.mask)) == aw_dev->efcheck_desc.or_val;
-			aw_dev_info(aw_dev->dev, "efuse check: %d", aw_dev->efuse_check);
+			aw_dev_info_fn(aw_dev->dev, "aw_dev_reg_value_check", "efuse check: %d", aw_dev->efuse_check);
 		}
 
 		if (reg_addr == work_mode->reg)
@@ -584,7 +584,7 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 
 		if (reg_addr == aw_dev->txen_desc.reg) {
 			aw_dev->txen_desc.reserve_val = reg_val & (~aw_dev->txen_desc.mask);
-			aw_dev_info(aw_dev->dev, "cfg_val = 0x%04x", aw_dev->txen_desc.reserve_val);
+			aw_dev_info_fn(aw_dev->dev, "aw_dev_reg_value_check", "cfg_val = 0x%04x", aw_dev->txen_desc.reserve_val);
 			reg_val &= aw_dev->txen_desc.mask;
 			reg_val |= aw_dev->txen_desc.disable;
 		}
@@ -597,7 +597,7 @@ static int aw_dev_reg_fw_update(struct aw_device *aw_dev)
 
 		if (reg_addr == aw_dev->dither_desc.reg) {
 			aw_dev->dither_st = reg_val & (~aw_dev->dither_desc.mask);
-			aw_dev_info(aw_dev->dev, "dither_st=0x%04x", aw_dev->dither_st);
+			aw_dev_info_fn(aw_dev->dev, "aw_dev_reg_value_check", "dither_st=0x%04x", aw_dev->dither_st);
 		}
 
 		if (reg_addr == aw_dev->vcalb_desc.vcalb_reg)
@@ -1343,7 +1343,7 @@ int aw882xx_device_stop(struct aw_device *aw_dev)
 	return 0;
 }
 
-static int aw_device_parse_sound_channel_dt(struct aw_device *aw_dev)
+static int aw_dev_parse_sound_channel_dt(struct aw_device *aw_dev)
 {
 	int ret = 0;
 	uint32_t channel_value = 0;
@@ -1400,11 +1400,11 @@ void aw_dev_parse_fade_flag_dt(struct aw_device *aw_dev)
 
 }
 
-static int aw_device_parse_dt(struct aw_device *aw_dev)
+static int aw_dev_parse_dt(struct aw_device *aw_dev)
 {
 	int ret = 0;
 
-	ret = aw_device_parse_sound_channel_dt(aw_dev);
+	ret = aw_dev_parse_sound_channel_dt(aw_dev);
 	if (ret) {
 		aw_dev_err(aw_dev->dev, "parse sound-channel failed!");
 		return ret;
@@ -1437,12 +1437,12 @@ int aw882xx_dev_probe(struct aw_device *aw_dev)
 
 	INIT_LIST_HEAD(&aw_dev->list_node);
 
-	ret = aw_device_parse_dt(aw_dev);
+	ret = aw_dev_parse_dt(aw_dev);
 	if (ret)
 		return ret;
 
 	if (aw_dev->channel == 0)
-		aw882xx_algo_auth_misc_init(aw_dev);
+		aw_algo_auth_misc_init(aw_dev);
 
 	ret = aw882xx_cali_init(&aw_dev->cali_desc);
 	if (ret)

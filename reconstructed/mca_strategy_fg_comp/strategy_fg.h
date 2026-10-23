@@ -384,6 +384,10 @@ struct strategy_fg {
 	struct isc_detect_info isc_det_info;
 	struct isc_detect_info isc_det_2_info;
 	struct li_plating_info li_plating_det_info;
+	/* GLOBAL OS4.0.0.7 (stock BTF): battery-emergency state; names are the BTF's, meaning inferred from the stock code (G14e) */
+	int batt_emerg_status;	/* +5576: result of the SN check (G17b, D5): 1 = SN matched and vlim = ilim = 0 (event 85 sent; the 60 % SoC limit call is a no-op in the stock), 0 = SN matched with vlim|ilim != 0 (event 84); shown by sysfs batt_emerg */
+	bool batt_emerg_update;	/* +5580: check pending (set by event 85 / sysfs store, cleared by mca_strategy_check_batt_emerg) */
+	char batt_emerg_sn[33];	/* +5581: emergency battery serial number (32 chars + NUL) */
 };
 
 enum fg_auth_attr_list	{
@@ -413,6 +417,7 @@ enum fg_auth_attr_list	{
 	FG_PROP_FIRST_USAGE_DATE,
 	FG_PROP_I_AVER_GEAR,
 	FG_PROP_SILOSS_GEAR,
+	FG_PROP_BATT_EMERG,	/* GLOBAL OS4.0.0.7: = 26 (stock BTF) */
 };
 
 /* offsets/sizes proven by the OS4 stock BTF */
@@ -421,7 +426,10 @@ _Static_assert(sizeof(struct strategy_fg_smooth) == 208, "strategy_fg_smooth");
 _Static_assert(sizeof(struct fg_batt_info) == 36, "fg_batt_info");
 _Static_assert(sizeof(struct isc_detect_info) == 352, "isc_detect_info");
 _Static_assert(sizeof(struct li_plating_info) == 1304, "li_plating_info");
-_Static_assert(sizeof(struct strategy_fg) == 5576, "strategy_fg");
+_Static_assert(sizeof(struct strategy_fg) == 5616, "strategy_fg");  /* GLOBAL 0.7 (CN 0.6: 5576) */
+_Static_assert(offsetof(struct strategy_fg, batt_emerg_status) == 5576, "batt_emerg_status");
+_Static_assert(offsetof(struct strategy_fg, batt_emerg_update) == 5580, "batt_emerg_update");
+_Static_assert(offsetof(struct strategy_fg, batt_emerg_sn) == 5581, "batt_emerg_sn");
 _Static_assert(offsetof(struct strategy_fg, cfg) == 1960, "cfg");
 _Static_assert(offsetof(struct strategy_fg, smooth) == 2592, "smooth");
 _Static_assert(offsetof(struct strategy_fg, batt_info) == 3204, "batt_info");

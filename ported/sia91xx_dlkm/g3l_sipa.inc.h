@@ -47,7 +47,7 @@ static int sipa_pvdd_limit_set(struct snd_kcontrol *kcontrol, struct snd_ctl_ele
 		return -EINVAL;
 	}
 
-	pr_debug("[debug][%s] %s: ucontrol = %ld, channel_num = %d \n",
+	pr_debug("[debug][%s] %s: ucontrol = %ld, channle = %d \n",
 		LOG_FLAG, __func__, ucontrol->value.integer.value[0], si_pa->channel_num);
 	sipa_regmap_set_pvdd_limit(si_pa->regmap, si_pa->chip_type, si_pa->channel_num,
 		ucontrol->value.integer.value[0]);
@@ -148,7 +148,7 @@ static int sipa_reg_get(struct snd_kcontrol *kcontrol, unsigned int __user *byte
 	}
 
 	/* g3r: the stock calls _copy_from_user directly with the unclamped size (no check_object_size) */
-	if (_copy_from_user(buf, bytes, size)) {
+	if (_copy_from_user(buf, bytes, sizeof(buf))) {  /* G53a: stock copies the constant 12 bytes (specialised _copy_from_user) */
 		pr_err("[  err][%s] ,Fail copy to user Ptr:%p\n", __func__, bytes);
 		return -EFAULT;
 	}
@@ -183,7 +183,7 @@ static int sipa_reg_set(struct snd_kcontrol *kcontrol, const unsigned int __user
 		return -EFAULT;
 	}
 
-	if (_copy_from_user(buf, bytes, size)) {
+	if (_copy_from_user(buf, bytes, sizeof(buf))) {  /* G53a: stock copies the constant 12 bytes (specialised _copy_from_user) */
 		pr_err("[  err][%s] ,Fail copy to user Ptr:%p\n", __func__, bytes);
 		return -EFAULT;
 	}
@@ -258,7 +258,7 @@ int sipa_multi_channel_load_fw(char *fwname)
 }
 EXPORT_SYMBOL(sipa_multi_channel_load_fw);
 
-int sipa_multi_channel_power_on_and_set_scene(unsigned int scene, unsigned char pa_idx)
+int sipa_multi_channel_power_on_and_set_scene(uint32_t scene, uint8_t pa_idx)
 {
 	int i;
 
@@ -277,7 +277,7 @@ int sipa_multi_channel_power_on_and_set_scene(unsigned int scene, unsigned char 
 }
 EXPORT_SYMBOL(sipa_multi_channel_power_on_and_set_scene);
 
-int sipa_multi_channel_power_off(unsigned char pa_idx)
+int sipa_multi_channel_power_off(uint8_t pa_idx)
 {
 	int i;
 
@@ -350,9 +350,9 @@ static int sia91xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_
 
 	dev_info(&si_pa->client->dev, "spksw level cached = %d, actual = %d\n", si_pa->spksw_level, level);
 	if (level < 0) {
-		ucontrol->value.integer.value[0] = si_pa->spksw_level;
+		ucontrol->value.enumerated.item[0] = si_pa->spksw_level;
 	} else {
-		ucontrol->value.integer.value[0] = level;
+		ucontrol->value.enumerated.item[0] = level;
 		si_pa->spksw_level = level;
 	}
 	return 0;

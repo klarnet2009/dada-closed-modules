@@ -37,6 +37,7 @@ struct strategy_fg_class_ops {
 	int (*strategy_fg_get_first_termiation)(void *data, int *first_termination);
 	int (*strategy_fg_get_pack_vendor_id)(void *data, int *pack_vendor_id);
 	int (*strategy_fg_get_temp_offset_flag)(void *data, int *temp_offset_flag);
+	int (*strategy_fg_set_dynamic_fv)(void *data, int fv);	/* GLOBAL OS4.0.0.7: new at +224, allow_new_soc_smooth moved to +232 (size 240) */
 	int (*strategy_fg_set_allow_new_soc_smooth)(void *data, int allow);
 };
 
@@ -75,5 +76,6 @@ int strategy_class_fg_get_first_termination(int *first_termination);
 int strategy_class_fg_get_pack_vendor_id(int *pack_vendor_id);
 int strategy_class_fg_get_temp_offset_flag(int *temp_offset_flag);
 int strategy_class_fg_set_allow_new_soc_smooth(int allow);
+int strategy_class_fg_set_dynamic_fv(int fv);
 
 #endif /* __STRATEGY_FG_CLASS_H__ */

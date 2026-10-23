@@ -566,7 +566,7 @@ update_result:
 		     fg->batt_spec_para.i_aver_gear, iaver, iaver_time_flag, allow_up, lock);
 	mutex_unlock(&fg->temp_index_lock);
 	if (!fg->power_present)
-		queue_delayed_work(system_wq, &fg->update_vcoutoff_v2_work, msecs_to_jiffies(msecs));
+		schedule_delayed_work(&fg->update_vcoutoff_v2_work, msecs_to_jiffies(msecs));	/* G52a: stock loads system_wq after msecs_to_jiffies */
 	return;
 
 out:

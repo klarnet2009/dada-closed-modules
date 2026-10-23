@@ -1,4 +1,9 @@
-# mist - PARTIAL (67 of 70 functions byte-identical vs the OS4 stock, re-checked by g4 17.10.2026)
+# mist - PARTIAL (67 of 70 functions byte-identical; the other 3 have block-level EQUIVALENT-PROVEN verdicts in G55a), NOT hardware-tested
+
+## G17a (19.10.2026) - global OS4.0.0.7 re-measurement and function classification (first line unchanged unless noted: still PARTIAL, no hardware test)
+Global OS4.0.0.7 stock (<work-dir>) vs CN OS4.0.0.6 stock: code-identical (cn_vs_gl.csv, compare_ko_v2 stock-vs-stock: only buildmeta/scmversion differs). Real Kleaf build (scratch <work-dir> tag g17a, bazel-out removed) vs the GLOBAL stock: function set 70 OK; 67 of 70 byte-identical; mist_update_rel_freq, mist_dflt_init = CLASS-A-auto; parse_cluster_node_map = CODEGEN (index a1*3*8 as a1+(a1<<1) with uxtw vs lsl; same bound 72). 0 BEHAVIOUR differences, no source change.
+Tools: <work-dir> (kb17.sh = Kleaf build + compare_ko_v2 + preamble_cmp, sym17.sh = symcmp4 on every differing function, str17.py = printk format scan, fd17.sh = disassembly diff), results in res/<module>.cmp / .sym. Hacks: none added; earlier hacks (forged CRC / stubs / codegen hints) unchanged and still listed above.
+
 
 ## G1ak (18.10.2026) - ThinLTO emulation now builds (first line unchanged)
 - Emulation: `DEFS="-DCONFIG_QCOM_DCVS=1 -DCONFIG_QCOM_PMU_LIB=1 -DCONFIG_QTI_SCMI_VENDOR_PROTOCOL=1 -DPERFC_FORGE_CRC=1" INCS="-I<src>/mist/include -I<build-dir>" q.sh mist` (the earlier failure was the missing include path of soc/qcom/mist_ext.h). Result: 3 of 76 functions differ (parse_cluster_node_map 13, mist_dflt_init 7 = `cmp #0x1f; b.hi` vs `#0x20; b.hs`, mist_update_rel_freq); mist_frame_load_history_update is identical. No global-vs-constant difference (ldst.py: 0 functions).
@@ -68,3 +73,17 @@ compare_ko (real Bazel build, `work/scripts/perfC/pb.sh mist`):
 
 ## Tools
 `work/scripts/perfC/`: `ck.sh mist thin [func]`, `pb.sh mist`, `vsearch.py` (copies include/ subdirs now), `nd.sh`, `ckll.sh`, `crcforge.py`, `gks2.sh` (on the server, `<build-dir>`).
+
+
+## G55a (22.10.2026) - module-finish pass: block-level verdict for EVERY previously differing function (GLOBAL OS4.0.0.7 stock unless noted; no hardware, no git, no phone)
+Method: real Kleaf build of the sources below (scratch <work-dir> bazel-out removed), compare_ko_v2 + preamble_cmp + tbl_audit3 (data tables by CONTENT), then for every differing function the raw `llvm-objdump -dr` listing of stock vs ours was read block by block (compact views + alpha/hunk diffs in work\a17\review\g55a_ev\ev\<module>.<function>.{stock.c,ours.c,diff,pdiff}; symcmp5b/s5ms used only as a corroborating filter). Evidence is disassembly of stock code: local review material, never export.
+Build: real Kleaf build md5 b7c1e1e748288eb98946455ac140b25c (mist_dflt.c md5 e524eb200fe4a697cc1a7f4ec6b543f6). Function set 70, kCFI 68/68, objects 110, exports 44 + CRC, imports 51 + CRC, byte-identical 67 of 70 (unchanged). tbl_audit3: 110 objects equal, no unexplained chunk; the 8-int table of mist_update_rel_freq (stock .rodata+0x134c, ours .rodata.cst32) compared by content: {0,0,0,0,0,0,1,1} both.
+FIX (data table found by compare_ko_v2 other-tables): `module_param_cb(mist_soc_api_enable, &param_soc_api_enable, &mist_soc_api_enable, 0644)` - stock kernel_param.arg points to the variable (ours was NULL); the get/set functions are byte-identical and do not read kp->arg, so no behaviour change, `__param` now PASS. Remaining other-tables FAIL = one .altinstructions entry whose address is 4 bytes lower (parse_cluster_node_map is 1 insn shorter).
+
+| function | verdict | argument (raw-listing blocks) |
+|---|---|---|
+| mist_update_rel_freq | EQUIVALENT-PROVEN | 28 = 28 insns: the two trap guards (idx < 0x66 and the field <= 7) are tested in the other order, both lead to the same brk #0x5512; table lookup and store identical. |
+| mist_dflt_init | EQUIVALENT-PROVEN | One hunk: `cmp x25,#0x1f; b.hi` (x > 31) vs `cmp x25,#0x20; b.hs` (x >= 32) = same unsigned condition; 322 = 322 insns, all other lines equal after reloc-name resolution. |
+| parse_cluster_node_map | EQUIVALENT-PROVEN | x8 = x28 + zext(w19)*2 (stock) vs x28 + x28*2 (ours) with x28 = zext(w19): equal; stack spill slots ([sp+0x14/0x18/0x28] vs [sp+0x1c/0x20]) renamed consistently, idx loaded into w21/x21 instead of reloaded from the slot for the printk arguments; the of_get_next_available_child loop, of_get_property(qcom,cpulist), of_find_property(qcom,cpufreq-memfreq-tbl), kmalloc(8*(n/2+1)) and the of_property_read_u32_index loop are equal; symcmp5b only A2/A3 atom aliasing (the same 0x47 bound written with `uxtw` vs `lsl`). |
+
+Evidence files: `work\a17\review\g55a_ev\ev\mist.<function>.{stock.c,ours.c,diff,pdiff}`.

@@ -46,7 +46,8 @@ char *matt_types_to_str(u8 type)
 
 void adaptive_bit_unit_to_str(char *s, int len, long long bps)
 {
-	long long div, integer, frac;
+	long long integer, frac;
+	int div;	/* stock keeps the divisor in an int: 1e12 truncates to -727379968 (tera bug, trace text only) */
 	int unit;
 
 	if (bps <= 999) {
@@ -55,7 +56,7 @@ void adaptive_bit_unit_to_str(char *s, int len, long long bps)
 	}
 	if (bps >= 1000000000000LL) {
 		unit = TERA_CONV;
-		div = 1000000000000LL;
+		div = (int)1000000000000LL;
 	} else if (bps >= 1000000000LL) {
 		unit = GIGA_CONV;
 		div = 1000000000LL;
@@ -200,10 +201,10 @@ void matt_dump_skb(const uint8_t *fn, struct sk_buff *skb)
 	struct matthdr *mh = (struct matthdr *)skb->data;
 	struct matt_skb_cb *cb = MATT_SKB_CB(skb);
 
-#line 175
+#line 174
 	MATT_TRACE(0, 9, "[%s] matt num:%u offset:%u reserved:%u flags:%d type:%d len:%d", fn, ntohl(mh->num),
 		   ntohl(mh->offset), ntohl(mh->reserved), mh->flags, mh->type, ntohs(mh->len));
-#line 191
+#line 189
 	MATT_TRACE(0, 9, "[%s] matt cb seq(%u,%u) gso_segs:%u gso_size:%u flags:%d type:%d skb len:%u hlen:%u dlen:%u gso:%u non_linear:%u cloned:%u destructor:%p",
 		   fn, cb->offset_start, cb->offset_end, cb->gso_segs, cb->gso_size, cb->flags, cb->types, skb->len,
 		   skb_headlen(skb), skb->data_len, skb_is_gso(skb), skb_is_nonlinear(skb), skb_cloned(skb), skb->destructor);

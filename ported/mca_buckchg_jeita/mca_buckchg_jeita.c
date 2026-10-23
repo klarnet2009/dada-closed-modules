@@ -46,6 +46,8 @@
 #include <mca/common/mca_hwid.h>
 #include "hwid.h"
 #include <mca/protocol/protocol_class.h>
+/* GLOBAL OS4.0.0.7 export of mca_strategy_fg_class (not in the shared stubs_g2j header) */
+int strategy_class_fg_set_dynamic_fv(int fv);
 
 #ifndef MCA_LOG_TAG
 #define MCA_LOG_TAG "mca_buckchg_jeita"
@@ -290,9 +292,13 @@ static void mca_buckchg_jeita_update(struct mca_buckchg_jeita_dev *info)
 			mca_vote(info->iterm_voter, "jeita", true, iterm);
 	}
 
+	/* GLOBAL OS4.0.0.7: push the (delta_fv corrected) float voltage to the gauge every update when the DT asks for it */
+	if (info->support_dynamic_fv)
+		strategy_class_fg_set_dynamic_fv(vterm);
+
 	if (!fastcharge_mode && info->base_flip_same) {
 		info->cold_zone = info->proc_data.cur_jeita_index == 1;
-#line 558
+#line 560
 		mca_log_info("cur index %d/%d last_chg_curr %d cold_zone %d\n",
 			i, info->proc_data.cur_jeita_index, last_chg_curr, info->cold_zone);
 	}
@@ -435,8 +441,8 @@ static void mca_buckchg_base_jeita_update(struct mca_buckchg_jeita_dev *info)
 	else
 		base_over_curr_count = 0;
 	if (base_over_curr_count >= 4 && effective_curr != 0) {
+		base_over_curr_count = 0;	/* G52a: emulator trace: stock clears the counter before the vote */
 		mca_vote(info->fcc_voter, "swocp", true, effective_curr - 100);
-		base_over_curr_count = 0;
 		runswocp = true;
 #line 212
 		mca_log_err("reduce fcc %d by swocp\n", effective_curr - 100);
@@ -569,11 +575,11 @@ static void mca_buckchg_flip_jeita_update(struct mca_buckchg_jeita_dev *info)
 	}
 
 	chg_curr = info->flip_proc_data.max_chg_curr;
+	last_fastcharge_mode = fastcharge_mode;	/* G52a: stock (flip update) stores it BEFORE the "cur index" log, unlike the base update */
 #line 336
 	mca_log_info("cur index %d/%d max_chg_curr %d chg_curr %d hys_affect %d\n",
 		i, info->flip_proc_data.cur_jeita_index, info->flip_proc_data.max_chg_curr, chg_curr, hys_affect);
 
-	last_fastcharge_mode = fastcharge_mode;
 	if (data_change) {
 		if (!hys_affect)
 			info->flip_proc_data.cur_jeita_index = i;
@@ -587,7 +593,7 @@ static int mca_buckchg_jeita_flip_charge_limit(struct mca_votable *votable,
 	if (!data)
 		return -1;
 
-#line 569
+#line 571
 	mca_log_err("set flip limit current %d\n", effective_result);
 
 	return platform_class_loadsw_set_ibat_limit(LOADSW_ROLE_MASTER, effective_result);
@@ -627,13 +633,13 @@ static void mca_buckchg_jeita_monitor_work(struct work_struct *work)
 
 	if (!info->voter_ok) {
 		interval = MCA_BUCKCHG_JEITA_INIT_VOTER_INTERVAL;
-#line 608
+#line 610
 		mca_log_info("voter not ok\n");
 		goto out;
 	}
 
 	if (!info->online) {
-#line 613
+#line 615
 		mca_log_info("adapter is plugout\n");
 		return;
 	}
@@ -654,7 +660,7 @@ static int mca_buckchg_parse_volt_para(struct device_node *node,
 	const char *tmp_string = NULL;
 
 	if (strcmp(name, "null") == 0) {
-#line 633
+#line 635
 		mca_log_info("no need parse volt para\n");
 		return 0;
 	}
@@ -662,7 +668,7 @@ static int mca_buckchg_parse_volt_para(struct device_node *node,
 		JEITA_VOLT_DATA_MAX_GROUP,
 		BUCKCHG_VOLTAGE_PARA_MAX);
 	if (array_len < 0) {
-#line 640
+#line 642
 		mca_log_err("parse %s failed\n", name);
 		return -1;
 	}
@@ -670,7 +676,7 @@ static int mca_buckchg_parse_volt_para(struct device_node *node,
 	volt_para->size = array_len / BUCKCHG_VOLTAGE_PARA_MAX;
 	volt_para->volt_data = kcalloc(volt_para->size, sizeof(*volt_data), GFP_KERNEL);
 	if (!volt_para->volt_data) {
-#line 647
+#line 649
 		mca_log_err("volt para no mem\n");
 		return -ENOMEM;
 	}
@@ -697,7 +703,7 @@ static int mca_buckchg_parse_volt_para(struct device_node *node,
 	}
 
 	for (i = 0; i < volt_para->size; i++)
-#line 673
+#line 675
 		mca_log_debug("volt_para %d %d\n", volt_data[i].voltage, volt_data[i].max_current);
 
 	return 0;
@@ -719,7 +725,7 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 		JEITA_DATA_MAX_GROUP,
 		JEITA_TEMP_PARA_MAX);
 	if (array_len < 0) {
-#line 835
+#line 837
 		mca_log_err("parse jeita failed\n");
 		return -1;
 	}
@@ -727,7 +733,7 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 	jeita_info->size = array_len / JEITA_TEMP_PARA_MAX;
 	jeita_info->jeita_data = kcalloc(jeita_info->size, sizeof(*jeita_info->jeita_data), GFP_KERNEL);
 	if (!jeita_info->jeita_data) {
-#line 842
+#line 844
 		mca_log_err("temp para no mem\n");
 		return -ENOMEM;
 	}
@@ -778,7 +784,7 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 	}
 
 	for (i = 0; i < jeita_info->size; i++)
-#line 892
+#line 894
 		mca_log_err("jeita para %d %d %d %d %d %d %d %d\n",
 			jeita_data[i].temp_low, jeita_data[i].temp_high, jeita_data[i].low_temp_hys,
 			jeita_data[i].high_temp_hys, jeita_data[i].max_current, jeita_data[i].vterm,
@@ -786,13 +792,13 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 
 	snprintf(ffc_name, sizeof(ffc_name), "%s", name);
 	snprintf(ffc_name + strlen(ffc_name), sizeof(ffc_name) - strlen(ffc_name), "_ffc");
-#line 899
+#line 901
 	mca_log_err("new name:%s\n", ffc_name);
 	array_len = mca_parse_dts_count_strings(node, ffc_name,
 		JEITA_DATA_MAX_GROUP,
 		JEITA_TEMP_PARA_MAX);
 	if (array_len < 0) {
-#line 904
+#line 906
 		mca_log_err("parse jeita para ffc failed\n");
 		return -1;
 	}
@@ -801,7 +807,7 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 
 	jeita_info->jeita_ffc_data = kcalloc(jeita_info->fcc_size, sizeof(*jeita_info->jeita_ffc_data), GFP_KERNEL);
 	if (!jeita_info->jeita_ffc_data) {
-#line 912
+#line 914
 		mca_log_err("temp para no mem\n");
 		return -ENOMEM;
 	}
@@ -851,7 +857,7 @@ static int mca_buckchg_jeita_parse_para(struct device_node *node,
 		}
 	}
 	for (i = 0; i < jeita_info->fcc_size; i++)
-#line 961
+#line 963
 		mca_log_err("jeita ffc para %d %d %d %d %d %d %d %d\n",
 			jeita_ffc_data[i].temp_low, jeita_ffc_data[i].temp_high, jeita_ffc_data[i].low_temp_hys,
 			jeita_ffc_data[i].high_temp_hys, jeita_ffc_data[i].max_current, jeita_ffc_data[i].vterm,
@@ -876,7 +882,7 @@ static int mca_buckchg_parse_dynamic_iterm_range(struct device_node *node,
 	array_len = mca_parse_dts_count_strings(node, name,
 		10, DYNAMIC_ITERM_RANGE_MAX);
 	if (array_len < 0) {
-#line 693
+#line 695
 		mca_log_info("no dynamic iterm range: %s\n", name);
 		return -1;
 	}
@@ -915,7 +921,7 @@ static int mca_buckchg_parse_dynamic_iterm_range(struct device_node *node,
 	}
 
 	for (i = 0; i < para->size; i++)
-#line 732
+#line 734
 		mca_log_info("dynamic iterm range %d: %d-%d, k=%d, b=%d\n", i,
 			para->range[i].temp_low, para->range[i].temp_high, para->range[i].k, para->range[i].b);
 
@@ -941,7 +947,7 @@ static int mca_buckchg_parse_dynamic_iterm_by_name(struct device_node *node,
 	array_len = mca_parse_dts_count_strings(node, name,
 		DYNAMIC_ITERM_SINGLE_PARA_MAX, DYNAMIC_ITERM_SINGLE_PARA_MAX);
 	if (array_len < 0) {
-#line 755
+#line 757
 		mca_log_info("no %s config\n", name);
 		return -1;
 	}
@@ -995,7 +1001,7 @@ static int mca_buckchg_get_dynamic_iterm(struct mca_dynamic_iterm_para *para,
 			iterm = para->range[i].k * temp + para->range[i].b;
 			if (iterm < 0)
 				iterm = 0;
-#line 807
+#line 809
 			mca_log_info("dynamic iterm: temp=%d, k=%d, b=%d, iterm=%d\n",
 				temp, para->range[i].k, para->range[i].b, iterm);
 			return iterm;
@@ -1008,16 +1014,15 @@ static int mca_buckchg_get_dynamic_iterm(struct mca_dynamic_iterm_para *para,
 static void mca_buckchg_jeita_parse_dt_override(struct mca_buckchg_jeita_dev *info)
 {
 	struct device_node *node;
-	u32 weak_cfg[2] = { 0 };
 	int ret;
 
 	node = of_get_child_by_name(info->dev->of_node, "buckchg_jeita_override");
 	if (!node) {
-#line 1085
+#line 1090
 		mca_log_info("child node 'buckchg_jeita_override' not found, using parent config\n");
 		return;
 	}
-#line 1089
+#line 1094
 	mca_log_info("applying buckchg_jeita override from child node\n");
 
 	mca_parse_dts_u32(node, "vbat_high_hyst", &(info->vbat_high_hyst), info->vbat_high_hyst);
@@ -1027,32 +1032,36 @@ static void mca_buckchg_jeita_parse_dt_override(struct mca_buckchg_jeita_dev *in
 		info->jeita_hot_termination_hyst);
 	mca_parse_dts_u32(node, "support_weak_chg_vterm", &(info->support_weak_chg_vterm), 0);
 	if (info->support_weak_chg_vterm) {
+		u32 weak_cfg[2] = { 0 };
+
 		ret = mca_parse_dts_u32_array(node, "weak_chg_vterm_cfg", weak_cfg, 2);
 		if (ret < 0) {
-#line 1102
+#line 1107
 			mca_log_err("parse weak_chg_vterm_cfg failed %d\n", ret);
 			info->support_weak_chg_vterm = 0;
 		} else {
 			info->weak_chg_delta_vterm = weak_cfg[0];
 			info->weak_chg_iterm = weak_cfg[1];
-#line 1107
+#line 1112
 			mca_log_info("weak_chg_vterm: delta_vterm=%d, iterm=%d\n",
 				info->weak_chg_delta_vterm, info->weak_chg_iterm);
 		}
 	}
 
+	/* GLOBAL OS4.0.0.7: the override node replaces the flag (read before jeita_para, as the stock does) */
+	info->support_dynamic_fv = of_property_read_bool(node, "support-dynamic-fv");
 	if (of_property_read_bool(node, "jeita_para")) {
 		if (!mca_buckchg_jeita_parse_para(node, "jeita_para", &info->jeita_para))
-#line 1114
+#line 1121
 			mca_log_info("overridden jeita_para\n");
 	}
 
 	if (!mca_buckchg_parse_dynamic_iterm_by_name(node, &info->dynamic_iterm)) {
 		info->support_dynamic_iterm = true;
-#line 1120
+#line 1127
 		mca_log_info("dynamic iterm support enabled by override\n");
 	}
-#line 1123
+#line 1130
 	mca_log_info("buckchg_jeita override parse completed\n");
 }
 
@@ -1078,7 +1087,7 @@ static int mca_buckchg_jeita_parse_dt(struct mca_buckchg_jeita_dev *info)
 	if (hwid && info->has_gbl_batt_para && hwid->country_version != CountryCN)
 		node = of_find_node_by_name(NULL, "mca_buckchg_jeita_gbl_para");
 	if (!node) {
-#line 998
+#line 1000
 		mca_log_err("node in null\n");
 		return -1;
 	}
@@ -1087,33 +1096,36 @@ static int mca_buckchg_jeita_parse_dt(struct mca_buckchg_jeita_dev *info)
 	if (info->support_weak_chg_vterm) {
 		ret = mca_parse_dts_u32_array(node, "weak_chg_vterm_cfg", weak_cfg, 2);
 		if (ret < 0) {
-#line 1008
+#line 1010
 			mca_log_err("parse weak_chg_vterm_cfg failed %d\n", ret);
 			info->support_weak_chg_vterm = 0;
 		} else {
 			info->weak_chg_delta_vterm = weak_cfg[0];
 			info->weak_chg_iterm = weak_cfg[1];
-#line 1013
+#line 1015
 			mca_log_info("weak_chg_vterm: delta_vterm=%d, iterm=%d\n",
 				info->weak_chg_delta_vterm, info->weak_chg_iterm);
 		}
 	}
 
+	info->support_dynamic_fv = of_property_read_bool(node, "support-dynamic-fv");
+#line 1021
+	mca_log_info("support_dynamic_fv=%d\n", info->support_dynamic_fv);
 	info->has_tmp_batt_para = of_property_read_bool(node, "has-tmp-batt-para");
 	if (info->has_tmp_batt_para) {
 		platform_fg_ops_get_device_name(FG_IC_MASTER, &dev_name);
 		if (!dev_name) {
-#line 1022
+#line 1027
 			mca_log_err("get device name fail, wait for it\n");
 			ret = -EINVAL;
 			goto out;
 		}
-#line 1025
+#line 1030
 		mca_log_err("project O9 tmp test: device name: %s\n", dev_name);
 		if (!strcmp("2@BP", dev_name)) {
 			node = of_find_node_by_name(NULL, "mca_buckchg_jeita_tmp_para");
 			if (!node) {
-#line 1030
+#line 1035
 				mca_log_err("has-tmp-batt-para node in null\n");
 				ret = -1;
 				goto out;
@@ -1124,23 +1136,23 @@ static int mca_buckchg_jeita_parse_dt(struct mca_buckchg_jeita_dev *info)
 	info->has_second_batt_para = of_property_read_bool(node, "has-second-batt-para");
 	if (info->has_second_batt_para) {
 		if (hwid && !mca_is_warsaw_p2_before(hwid)) {
-#line 1039
+#line 1044
 			mca_log_err("not warsaw p2 before or yanan p1 before, skip second batt para\n");
 			info->has_second_batt_para = 0;
 		} else {
 			platform_fg_ops_get_batt_cell_info(FG_IC_MASTER, &cell_name);
 			if (!cell_name) {
-#line 1044
+#line 1049
 				mca_log_err("get main cell name fail\n");
 				ret = -EINVAL;
 				goto out;
 			}
-#line 1047
+#line 1052
 			mca_log_err("main_cell_name %s\n", cell_name);
 			if (!strcmp("coslight", cell_name)) {
 				node = of_find_node_by_name(NULL, "mca_buckchg_jeita_second_para");
 				if (!node) {
-#line 1052
+#line 1057
 					mca_log_err("has-second-batt-para node in null\n");
 					ret = -1;
 					goto out;
@@ -1153,7 +1165,7 @@ static int mca_buckchg_jeita_parse_dt(struct mca_buckchg_jeita_dev *info)
 	info->support_base_flip = of_property_read_bool(node, "support-base-flip");
 	info->base_flip_same = of_property_read_bool(node, "base-flip-same");
 	if (info->support_base_flip) {
-#line 1063
+#line 1068
 		mca_log_err("support base flip, start config buckchg jeita\n");
 		mca_buckchg_jeita_parse_para(node, "base_jeita_para", base_jeita_info);
 		ret = mca_buckchg_jeita_parse_para(node, "flip_jeita_para", flip_jeita_info);
@@ -1161,7 +1173,7 @@ static int mca_buckchg_jeita_parse_dt(struct mca_buckchg_jeita_dev *info)
 
 	if (!mca_buckchg_parse_dynamic_iterm_by_name(node, &info->dynamic_iterm)) {
 		info->support_dynamic_iterm = true;
-#line 1070
+#line 1075
 		mca_log_info("dynamic iterm support enabled\n");
 	}
 out:
@@ -1175,7 +1187,7 @@ static int mca_buckchg_jeita_process_event(int event, int value, void *data)
 	if (!info)
 		return -1;
 
-#line 1135
+#line 1142
 	mca_log_info("receive event %d, value %d\n", event, value);
 	switch (event) {
 	case MCA_EVENT_USB_CONNECT:
@@ -1213,7 +1225,7 @@ static int mca_strategy_buckchg_jeita_get_normal_vterm(struct mca_buckchg_jeita_
 
 	ret = strategy_class_fg_ops_get_temperature(&temp);
 	if (ret) {
-#line 1172
+#line 1179
 		mca_log_err("get battery temp failed\n");
 		return 0;
 	}
@@ -1225,7 +1237,7 @@ static int mca_strategy_buckchg_jeita_get_normal_vterm(struct mca_buckchg_jeita_
 			break;
 	}
 	if (i == info->jeita_para.size) {
-#line 1183
+#line 1190
 		mca_log_err("can not find jeita para\n");
 		return 0;
 	}
@@ -1243,7 +1255,7 @@ static int mca_strategy_buckchg_jeita_get_ffc_iterm(struct mca_buckchg_jeita_dev
 
 	ret = strategy_class_fg_ops_get_temperature(&temp);
 	if (ret) {
-#line 1200
+#line 1207
 		mca_log_err("get battery temp failed\n");
 		return 0;
 	}
@@ -1255,7 +1267,7 @@ static int mca_strategy_buckchg_jeita_get_ffc_iterm(struct mca_buckchg_jeita_dev
 			break;
 	}
 	if (i == info->jeita_para.fcc_size) {
-#line 1211
+#line 1218
 		mca_log_err("can not find jeita fcc para\n");
 		return 0;
 	}
@@ -1273,7 +1285,7 @@ static int mca_strategy_buckchg_jeita_get_ffc_vterm(struct mca_buckchg_jeita_dev
 
 	ret = strategy_class_fg_ops_get_temperature(&temp);
 	if (ret) {
-#line 1228
+#line 1235
 		mca_log_err("get battery temp failed\n");
 		return 0;
 	}
@@ -1285,7 +1297,7 @@ static int mca_strategy_buckchg_jeita_get_ffc_vterm(struct mca_buckchg_jeita_dev
 			break;
 	}
 	if (i == info->jeita_para.fcc_size) {
-#line 1239
+#line 1246
 		mca_log_err("can not find jeita fcc para\n");
 		return 0;
 	}
@@ -1320,15 +1332,18 @@ static int mca_strategy_buckchg_jeita_get_status(int status, void *value, void *
 	case STRATEGY_STATUS_TYPE_JEITA_VFLOAT:
 		*cur_val = info->vfloat;
 		break;
-	case STRATEGY_STATUS_TYPE_JEITA_HIGH_TEMP_RANGE:
+	case STRATEGY_STATUS_TYPE_JEITA_HIGH_TEMP_RANGE: {
+		/* G25b: STOCK reads cur_jeita_index once into a callee-saved register [w21 in .text, used for log, tbnz and cmp].
+		 * G52a: own non-escaping local (the address-taken `temp` made clang spill it) and the load comes BEFORE the store to *cur_val as in stock */
+		int idx = info->proc_data.cur_jeita_index;
 		*cur_val = 0;
-#line 1279
+#line 1286
 		mca_log_info("jeita high temp range check: cur_jeita_index=%d, size=%d\n",
-			info->proc_data.cur_jeita_index, info->jeita_para.size);
-		if (info->proc_data.cur_jeita_index >= 0 &&
-			info->proc_data.cur_jeita_index >= info->jeita_para.size - 2)
+			idx, info->jeita_para.size);
+		if (idx >= 0 && idx >= info->jeita_para.size - 2)
 			*cur_val = 1;
 		break;
+	}
 	case STRATEGY_STATUS_TYPE_JEITA_DYNAMIC_ITERM:
 		if (!info->support_dynamic_iterm)
 			return 0;
@@ -1375,7 +1390,7 @@ static int mca_jeita_smartchg_delta_fv_callback(void *data, int effective_result
 		effective_result = min(effective_result, 20);
 
 	info->smartchg_data.delta_fv = effective_result;
-#line 1329
+#line 1336
 	mca_log_err("effective_result: %d\n", effective_result);
 
 	return 0;
@@ -1386,7 +1401,7 @@ static int mca_buckchg_jeita_smartchg_baa_update_jeita_data(
 {
 	int max_volt_idx = jeita_data->volt_para.size - 1;
 
-#line 1339
+#line 1346
 	mca_log_info("jeita_term_para idx: %d, temp: %d:%d => %d:%d, vterm: %d => %d, iterm: %d => %d\n",
 		para->t_range.idx, para->t_range.min, para->t_range.max,
 		jeita_data->temp_low, jeita_data->temp_high,
@@ -1396,7 +1411,7 @@ static int mca_buckchg_jeita_smartchg_baa_update_jeita_data(
 	jeita_data->vterm = para->vterm;
 	jeita_data->iterm = para->iterm;
 	if (jeita_data->volt_para.size > 0) {
-#line 1348
+#line 1355
 		mca_log_info("volt_data[%d].voltage: %d => %d\n",
 			max_volt_idx, jeita_data->volt_para.volt_data[max_volt_idx].voltage, jeita_data->vterm);
 		jeita_data->volt_para.volt_data[max_volt_idx].voltage = jeita_data->vterm;
@@ -1413,7 +1428,7 @@ static int mca_buckchg_jeita_smartchg_update_baa_para(void *data, char *baa_para
 	int index = 0;
 
 	if (!data || !baa_para) {
-#line 1364
+#line 1371
 		mca_log_err("data or baa_para is NULL\n");
 		return -1;
 	}
@@ -1423,7 +1438,7 @@ static int mca_buckchg_jeita_smartchg_update_baa_para(void *data, char *baa_para
 	for (int i = 0; i < ffc_size; i++) {
 		index = jeita_term_para[i].t_range.idx;
 		if (index < 0 || index >= info->jeita_para.fcc_size) {
-#line 1373
+#line 1380
 			mca_log_err("jeita_para.fcc_size: %d, invalid idx: %d\n", info->jeita_para.fcc_size, index);
 		} else {
 			mca_buckchg_jeita_smartchg_baa_update_jeita_data(
@@ -1437,7 +1452,7 @@ static int mca_buckchg_jeita_smartchg_update_baa_para(void *data, char *baa_para
 	for (int i = 0; i < normal_size; i++) {
 		index = jeita_term_para[i].t_range.idx;
 		if (index < 0 || index >= info->jeita_para.size) {
-#line 1386
+#line 1393
 			mca_log_err("jeita_para.size: %d, invalid idx: %d\n", info->jeita_para.size, index);
 		} else {
 			mca_buckchg_jeita_smartchg_baa_update_jeita_data(
@@ -1472,7 +1487,7 @@ static int mca_buckchg_jeita_probe(struct platform_device *pdev)
 	info->dev = &pdev->dev;
 	ret = mca_buckchg_jeita_parse_dt(info);
 	if (ret) {
-#line 1421
+#line 1428
 		mca_log_err("parse dts failed, ret: %d\n", ret);
 		if (ret != -1) {
 			dev_err(&pdev->dev, "%s buckchg_jeita parse_dt_cnt = %d\n", __func__, ++parse_dt_cnt);
@@ -1503,7 +1518,7 @@ static int mca_buckchg_jeita_probe(struct platform_device *pdev)
 	if (!info->voter_ok)
 		schedule_delayed_work(&info->monitor_work,
 			msecs_to_jiffies(MCA_BUCKCHG_JEITA_INIT_VOTER_INTERVAL));
-#line 1458
+#line 1465
 	mca_log_err("probe ok\n");
 	return 0;
 }

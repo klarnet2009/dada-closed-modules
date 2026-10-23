@@ -160,7 +160,7 @@ int matt_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 
 int matt_rcv(struct sk_buff *skb)
 {
-	union matt_sockaddr sa = {}, da = {};
+	union matt_sockaddr da = {}, sa = {};	/* g61a: stock frame: sa below da */
 	struct matt_skb_cb *cb = MATT_SKB_CB(skb);
 	struct matt_input_ctx *in;
 	struct matthdr *mh;
@@ -206,6 +206,7 @@ int matt_rcv(struct sk_buff *skb)
 	} else {
 		matt_dump_skb("matt_rcv", skb);
 		if (matt_add_backlog(sk, skb)) {
+			segs = max_t(u16, skb_shinfo(skb)->gso_segs, 1);	/* g61a: the stock re-reads gso_segs here */
 			if ((s8)mh->flags >= 0) {
 				in->dropped[STATS_DROP_OVERFLOW].data_num += segs;
 				in->dropped[STATS_DROP_OVERFLOW].data_bytes += skb->len - 16;
@@ -214,13 +215,13 @@ int matt_rcv(struct sk_buff *skb)
 			in->dropped[STATS_DROP_ALL].data_bytes += skb->len - 16;
 			bh_unlock_sock(sk);
 			matt_dump_skb("matt_rcv", skb);
-#line 1709
+#line 1707
 			MATT_TRACE(0, 9, "drop: sk=%p num=%u offset=%u len=%u backlog=%u rmem_alloc=%u limit=%u rcv_nxt=%u nxt_num=%u", sk,
 				   ntohl(mh->num), ntohl(mh->offset), ntohs(mh->len), sk->sk_backlog.len,
-				   atomic_read(&sk->sk_rmem_alloc), sk->sk_rcvbuf, in->rcv_nxt, in->rcv_nxt_num);
+				   atomic_read(&sk->sk_rmem_alloc), READ_ONCE(sk->sk_rcvbuf), in->rcv_nxt, in->rcv_nxt_num);
 			goto drop;
 		}
-#line 1693
+#line 1691
 		MATT_TRACE(0, 9, "add_backlog: sk=%p num=%u offset=%u len=%u truesize=%u backlog=%u rmem_alloc=%u rcv_nxt=%u num=%u", sk,
 			   ntohl(mh->num), ntohl(mh->offset), ntohs(mh->len), skb->truesize, sk->sk_backlog.len,
 			   atomic_read(&sk->sk_rmem_alloc), in->rcv_nxt, in->rcv_nxt_num);

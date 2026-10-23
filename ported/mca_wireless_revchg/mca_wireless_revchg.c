@@ -48,6 +48,8 @@
 #define MCA_DFX_WLS_TRX_UVLO 0x20
 #define MCA_DFX_WLS_TRX_IIC_ERR 0x21
 #define MCA_STATUS_TYPE_REV_TEST 7
+/* GLOBAL OS4.0.0.7: event 85 (MCA_EVENT_BATT_EMERG), absent in the a17B stub header */
+#define MCA_EVENT_BATT_EMERG 0x55
 #define MCA_EVENT_WLS_REVCHG 0x10	/* OS4 value of the "wireless revchg" strategy event (stubs header: 4) */
 #define MCA_CP_VUSB_PRESENT_STAT 5	/* OS4 cp int-stat channel (stubs header: 0) */
 #define MCA_REV_EN_BOOST ((EN_SRC)2)	/* stubs header: REV_EN_BOOST = 0 */
@@ -1603,7 +1605,7 @@ static void mca_wireless_reverse_chg_handler(struct mca_wireless_revchg *info)
 	char event[MCA_EVENT_NOTIFY_SIZE] = { 0 };
 	struct mca_event_notify_data event_data = { 0 };
 	u8 err_code;
-	u8 dfx_code = 0x3f;
+	u8 dfx_code = 0x40;	/* G22d: stock .text mov w8,#0x40 (= CHARGE_DFX_MAX_NUM of the GLOBAL enum, 63 in CN); only shown in the err_code log if get_tx_err_code does not write it */
 	int pen_soc = 255;
 	u64 pen_mac = 0;
 	int reverse_chg_en = 1;
@@ -2091,6 +2093,11 @@ static int mca_wireless_rev_process_event(int event, int value, void *data)
 		mca_log_info("adsp restore, disable vote\n");
 		mca_vote(info->usbin_rev_disable_voter, "abnormal", true, 0);
 		break;
+	case MCA_EVENT_BATT_EMERG:
+#line 1945
+		mca_log_info("batt emerg, disable vote\n");
+		mca_vote(info->usbin_rev_disable_voter, "batt_emerg", true, 1);
+		break;
 	default:
 		break;
 	}
@@ -2247,7 +2254,7 @@ static ssize_t strategy_wireless_rev_sysfs_store(struct device *dev,
 	case MCA_REV_CHG_REVERSE_CHG_MODE:
 		if (kstrtoint(buf, 10, &val))
 			return -EINVAL;
-#line 2099
+#line 2103
 		mca_log_info("store reverse_chg_mode = %d\n", val);
 
 		if (!val || info->proc_data.reverse_chg_sts != REVERSE_STATE_TRANSFER) {
@@ -2259,7 +2266,7 @@ static ssize_t strategy_wireless_rev_sysfs_store(struct device *dev,
 			if (!val)
 				info->proc_data.reverse_chg_sts = REVERSE_STATE_ENDTRANS;
 		} else {
-#line 2108
+#line 2112
 			mca_log_info("store reverse_chg_mode no operation\n");
 		}
 
@@ -2314,7 +2321,7 @@ static int mca_wireless_rev_parse_dt(struct mca_wireless_revchg *info)
 	int ret = 0;
 
 	if (!node) {
-#line 2161
+#line 2165
 		mca_log_err("device tree node missing\n");
 		return -EINVAL;
 	}
@@ -2337,7 +2344,7 @@ static int mca_wireless_usbin_rev_disable_voter_cb(struct mca_votable *votable,
 		return -1;
 
 	info->force_stop = effective_result;
-#line 2183
+#line 2187
 	mca_log_info("force_stop: %d\n", info->force_stop);
 
 	if (info->rev_boost_src == CHARGER_ADAPTER && info->force_stop)
@@ -2366,11 +2373,11 @@ static int mca_wireless_rev_shutdown_cb(struct notifier_block *nb, unsigned long
 	int fw_update_cnt = 0;
 
 	if (code == SYS_POWER_OFF || code == SYS_RESTART) {
-#line 2211
+#line 2215
 		mca_log_err("start shutdown\n");
 		while (info->proc_data.fw_updating && fw_update_cnt++ < REVERSE_FW_UPDATE_CNT_NUM) {
 			msleep(1000);
-#line 2214
+#line 2218
 			mca_log_err("fw is updating: %d\n", info->proc_data.fw_updating);
 		}
 	}
@@ -2384,11 +2391,11 @@ static int mca_wireless_revchg_probe(struct platform_device *pdev)
 	static int probe_cnt;
 	int ret = 0;
 
-#line 2227
+#line 2231
 	mca_log_err("probe_cnt = %d\n", ++probe_cnt);
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info) {
-#line 2230
+#line 2234
 		mca_log_err("out of memory\n");
 		return -ENOMEM;
 	}
@@ -2426,7 +2433,7 @@ static int mca_wireless_revchg_probe(struct platform_device *pdev)
 	schedule_delayed_work(&info->poweron_update_work, msecs_to_jiffies(POWER_ON_UPDATE_TIMER));
 #endif
 	strategy_wireless_rev_create_group(info->dev);
-#line 2267
+#line 2271
 	mca_log_err("probe %s\n", "OK");
 	return ret;
 }

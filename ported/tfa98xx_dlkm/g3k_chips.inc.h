@@ -1,6 +1,6 @@
 /*
  * g3k: chip support added from the disassembly of the Xiaomi stock tfa98xx_dlkm (driver v6.13._xiaomi):
- * tfa9878 (register tables identical to the Samsung SM-T545 v6.6.3 tfa_init.c), tfa9875, tfa9865, tfa986x.
+ * tfa9878 (register tables identical to the a third-party kernel tree tfa_init.c), tfa9875, tfa9865, tfa986x.
  * Included at the end of tfa_init.c (needs its static helpers).
  * UNVERIFIED parts are marked "g3k-guess".
  */
@@ -96,7 +96,7 @@ static enum Tfa98xx_Error tfa9878_specific(struct tfa_device *tfa)
 		tfa_reg_write(tfa, 0x63, 0x055a);
 		tfa_reg_write(tfa, 0x65, 0x0542);
 		tfa_reg_write(tfa, 0x71, 0x303e);
-		tfa_reg_write(tfa, 0x83, 0x009a);
+		tfa_reg_write(tfa, 0x83, 0x009a);	/* G53a: stock does write 0x83 for 0x0a78 (shared tail with 0x1a78); G41a removed it wrongly */
 		break;
 	case 0x1a78:
 		tfa_reg_write(tfa, 0x01, 0x2e18);
@@ -113,12 +113,14 @@ static enum Tfa98xx_Error tfa9878_specific(struct tfa_device *tfa)
 		tfa_reg_write(tfa, 0x8c, 0x0210);
 		tfa_reg_write(tfa, 0xce, 0x2202);
 		tfa_reg_write(tfa, 0xd5, 0x0000);
-		tfa_irq_init(tfa);
 		break;
 	default:
 		pr_info("\nWarning: Optimal settings not found for device with revid = 0x%x \n", tfa->rev);
 		break;
 	}
+
+	tfa->interrupt_enable[0] = 0x011e;
+	tfa_irq_init(tfa);
 
 	return error;
 }
@@ -322,16 +324,17 @@ static int tfa986x_set_bitfield(struct tfa_device *tfa, uint16_t bf, uint16_t va
 static enum Tfa98xx_Error g3k_986x_unlock(struct tfa_device *tfa)
 {
 	unsigned short value = 0;
+	enum Tfa98xx_Error err;
 
 	tfa_set_bf(tfa, 0x0000, 0);
 	tfa_set_bf(tfa, 0x0460, 0);
 	tfa_wait4manstate(tfa, 0x1203, 1, 50);
 	tfa_reg_write(tfa, 0x0F, 0x5A6B);
 	tfa_reg_read(tfa, 0xFB, &value);
-	tfa_reg_write(tfa, 0xA0, value ^ 0x005A);
+	err = tfa_reg_write(tfa, 0xA0, value ^ 0x005A);	/* G53a: the stock returns this write's error from tfa9865_specific (raw: mov w20,w0 at 0x12b54) */
 	tfa98xx_key2(tfa, 0);
 
-	return Tfa98xx_Error_Ok;
+	return err;
 }
 
 /* g3k-guess: revision dispatch and the 0x4c65 / 0x3c65 / 0x2a65 / 0xc65 register tables are read from the
@@ -343,7 +346,7 @@ static enum Tfa98xx_Error tfa9865_specific(struct tfa_device *tfa)
 	if (tfa->in_use == 0)
 		return Tfa98xx_Error_NotOpen;
 
-	g3k_986x_unlock(tfa);
+	error = g3k_986x_unlock(tfa);
 
 	switch (tfa->rev) {
 	case 0x4c65:
@@ -390,6 +393,7 @@ static enum Tfa98xx_Error tfa9865_specific(struct tfa_device *tfa)
 		tfa_reg_write(tfa, 0x5a, 0x36bc);
 		tfa_reg_write(tfa, 0x5f, 0x0080);
 		tfa_reg_write(tfa, 0x75, 0x9900);
+		tfa_reg_write(tfa, 0xd2, 0x0000);
 		tfa_reg_write(tfa, 0xda, 0x0002);
 		break;
 	default:
@@ -400,6 +404,7 @@ static enum Tfa98xx_Error tfa9865_specific(struct tfa_device *tfa)
 	tfa_set_bf(tfa, 0x0000, 1);
 	tfa_wait4manstate(tfa, 0x1203, 0, 50);
 	tfa_set_bf(tfa, 0x0460, 1);
+	tfa->interrupt_enable[0] = 0x0f1e;	/* G53a: stock (raw mov w,#0xf1e; strh [tfa,#0x120]) */
 	tfa_irq_init(tfa);
 
 	return error;
@@ -609,6 +614,7 @@ static void g3k_986x_ops_common(struct tfa_device_ops *ops)
 	ops->faim_protect = tfa_faim_protect;
 	ops->set_osc_powerdown = tfa_set_osc_powerdown;
 	ops->update_lpm = tfa_update_lpm;
+	ops->get_mtpb = NULL;	/* G53a: the stock stores NULL (stp x,xzr at ops+0x80); tfa_set_ops_defaults() installs tfa_get_mtpb before */
 }
 
 void tfa9865_ops(struct tfa_device_ops *ops)

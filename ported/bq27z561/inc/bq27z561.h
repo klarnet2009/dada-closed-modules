@@ -279,7 +279,6 @@ enum bq_fg_mac_cmd {
 	FG_MAC_CMD_RA_TABLE	= 0x40C0,
 	FG_MAC_CMD_FEATURE_INFO = 0x40E0,
 	FG_MAC_CMD_FW_RUNTIME	= 0x4441,
-	FG_MAC_CMD_TERM_CURRENTS = 0x456E,
 	FG_MAC_CMD_RECORD_VOLTAGE_LEVEL = 0x448A,
 	FG_MAC_CMD_UPDATE_VERSION = 0x440C,
 };
@@ -733,14 +732,38 @@ static const u8 fg_dump_regs[] = {
 struct fg_batt_info {
 	int curr;
 	int volt;
-	int vcell_max;
 	int temp;
+	int original_temp;
 	int rsoc;
 	int rm;
 	int fcc;
 	int cycle_count;
 	int soh;
 };
+_Static_assert(sizeof(struct fg_batt_info) == 36, "fg_batt_info");
+
+/* stock BTF struct fg_batt_abnormal_info (size 72; same in CN 0.6 and GLOBAL 0.7); member names from the BTF */
+struct fg_batt_abnormal_info {
+	int ocd_count;
+	int ocd_last_cycle;
+	int hocd_count;
+	int hocd_last_cycle;
+	int cuv_count;
+	int cuv_last_cycle;
+	int hcuv_count;
+	int hcuv_last_cycle;
+	int hscd_count;
+	int hscd_last_cycle;
+	int cov_count;
+	int cov_last_cycle;
+	int hcov_count;
+	int hcov_last_cycle;
+	int occ_count;
+	int occ_last_cycle;
+	int hocc_count;
+	int hocc_last_cycle;
+};
+_Static_assert(sizeof(struct fg_batt_abnormal_info) == 72, "fg_batt_abnormal_info");
 
 #endif /* __BQ27Z561_H */
 

@@ -1,4 +1,4 @@
-/* need_update_k[81]: vendor, product, rev_from, rev_to, firmware image (symbol), size. Names/sizes only. */
+/* need_update_k[82]: vendor, product, rev_from, rev_to, firmware image (symbol), size. Names/sizes only. */
 	{ "SKhynix", "HN8T174EJKX075", "X304", "X306", (u64)Hynix_V7_UFS_4_X306, 786432 },
 	{ "SKhynix", "HN8T174EJKX075", "X302", "X306", (u64)Hynix_V7_UFS_4_X306, 786432 },
 	{ "SKhynix", "HN8T174EJKX075", "X301", "X306", (u64)Hynix_V7_UFS_4_X306, 786432 },
@@ -80,3 +80,4 @@
 	{ "SKhynix", "HN8T05DEHKX073", "A003", "A042", (u64)HYNIX_128GB_A042, 655360 },
 	{ "KIOXIA", "THGJFLT2G46BATPB", "0100", "0200", (u64)KIOXIA_UFS4_0200, 786432 },
 	{ "SKhynix", "HN8T281EJKX158", "X001", "X003", (u64)Hynix_V9_UFS_41_X003, 786432 },
+	{ "SKhynix", "HN8T281EJKX158", "X002", "X003", (u64)Hynix_V9_UFS_41_X003, 786432 },

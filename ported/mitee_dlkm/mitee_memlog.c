@@ -187,11 +187,6 @@ static int do_mitee_memlog_read(struct mitee_memlog_state *s, char __user *buf,
 			get = alloc - log->b_sz;
 		}
 
-		if (get > put) {
-			s->b_get = put;
-			return -EFAULT;
-		}
-
 		if (is_b_buf_empty(s)) {
 			g_read_b_buf = true;
 			return 0;
@@ -239,11 +234,6 @@ static int do_mitee_memlog_read(struct mitee_memlog_state *s, char __user *buf,
 		if (alloc - get > log->sz) {
 			pr_notice("mitee: log overflow, lose some msg.");
 			get = alloc - log->sz;
-		}
-
-		if (get > put) {
-			s->get = put;
-			return -EFAULT;
 		}
 
 		if (is_buf_empty(s))
@@ -427,6 +417,17 @@ union memlog_args {
 	} out;
 };
 
+/* the stock registers the log buffer in the Qualcomm minidump (inlined helper, its name is in the log text) */
+static inline void add_log_memory_to_dump_region(void *va, phys_addr_t pa, size_t size)
+{
+	struct md_region md_entry = { .name = { 'M', 'I', 'T', 'E', 'E', 'L', 'O', 'G' }, .id = 0,
+		.virt_addr = (uintptr_t)va, .phys_addr = pa, .size = size };
+
+	if (msm_minidump_add_region(&md_entry) < 0)
+		pr_err("%s: Failed to add %s data in Minidump, add region failed!\n",
+		       __func__, "MITEELOG");
+}
+
 int mitee_memlog_probe(struct platform_device *pdev)
 {
 	struct mitee_memlog_state *s;
@@ -508,16 +509,7 @@ int mitee_memlog_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	/* the stock registers the log buffer in the Qualcomm minidump */
-	{
-	struct md_region md_entry = { .name = { 'M', 'I', 'T', 'E', 'E', 'L', 'O', 'G' }, .id = 0,
-		.virt_addr = (uintptr_t)va, .phys_addr = pa, .size = size };
-
-	if (msm_minidump_add_region(&md_entry) < 0)
-		pr_err("%s: Failed to add %s data in Minidump, add region failed!\n",
-		       "add_log_memory_to_dump_region", "MITEELOG");
-
-	}
+	add_log_memory_to_dump_region(va, pa, size);
 	return 0;
 
 	/*

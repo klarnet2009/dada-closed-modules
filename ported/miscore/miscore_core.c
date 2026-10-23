@@ -409,9 +409,9 @@ void miscore_handle_link_change(struct nlattr *nla)
 		if (miscore_link_num > MISCORE_MAX_LINK - 1)
 			goto out;
 		for (i = 0; i < MISCORE_MAX_LINK; i++) {
-			if (miscore_link_info[i].network_para.if_index == 0) {
-				if (empty_index == -1)
-					empty_index = i;
+			/* stock order: once a free slot is found the free-slot test is skipped, so an entry equal to if_index is matched even when 0 */
+			if (empty_index == -1 && miscore_link_info[i].network_para.if_index == 0) {
+				empty_index = i;
 			} else if (miscore_link_info[i].network_para.if_index == if_index) {
 				MISCORE_DBG("if_index:%d already exist, i=%d\n", if_index, i);
 				goto err;
@@ -555,12 +555,12 @@ static unsigned int miscore_input_hook4(void *priv, struct sk_buff *skb,
 				    skb->len);
 			sk = udp_get_sock(skb);
 			ref = sk != NULL;
-			if (!sk)
-				return NF_ACCEPT;
 		}
-	} else if (iph->protocol != IPPROTO_TCP || !sk) {
+	} else if (iph->protocol != IPPROTO_TCP) {
 		return NF_ACCEPT;
 	}
+	if (!sk)
+		return NF_ACCEPT;
 	if (iph->protocol == IPPROTO_TCP && !sk_fullsock(sk))
 		return NF_ACCEPT;
 	spin_lock_bh(&miscore_link_lock);
@@ -630,12 +630,12 @@ static unsigned int miscore_input_hook6(void *priv, struct sk_buff *skb,
 				    &ip6h->daddr, &ip6h->saddr, ip6h->nexthdr, skb->len);
 			sk = udp6_get_sock(skb);
 			ref = sk != NULL;
-			if (!sk)
-				return NF_ACCEPT;
 		}
-	} else if (ip6h->nexthdr != IPPROTO_TCP || !sk) {
+	} else if (ip6h->nexthdr != IPPROTO_TCP) {
 		return NF_ACCEPT;
 	}
+	if (!sk)
+		return NF_ACCEPT;
 	if (ip6h->nexthdr == IPPROTO_TCP && !sk_fullsock(sk))
 		return NF_ACCEPT;
 	spin_lock_bh(&miscore_link_lock);

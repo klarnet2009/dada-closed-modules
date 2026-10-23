@@ -1214,7 +1214,7 @@ static const struct kernel_param_ops param_soc_api_enable = {
 	.set = set_soc_api_enable,
 	.get = get_soc_api_enable,
 };
-module_param_cb(mist_soc_api_enable, &param_soc_api_enable, NULL, 0644);
+module_param_cb(mist_soc_api_enable, &param_soc_api_enable, &mist_soc_api_enable, 0644);  /* stock: kernel_param.arg = &mist_soc_api_enable (G55a) */
 
 static int dump_his_load_info(int idx, struct seq_file *m, void *v)
 {

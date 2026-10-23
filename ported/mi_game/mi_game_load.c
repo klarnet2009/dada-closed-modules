@@ -476,6 +476,8 @@ static void xr_set_next_freq(void *nouse, unsigned long a1, unsigned long a2, un
 		f = glk_limit_freq(policy, flt);
 	else
 		f = glk;
+	if (atomic_read(&is_doing_gc))	/* G14c: no frequency clamp while the gc runs */
+		f = policy->max;
 	*next_freq = f;
 hook:
 	if (mist_perf_api_enable())
@@ -506,7 +508,9 @@ int game_load_init(void)
 		n++;
 	}
 	cluster_number = n;
-	BUG_ON(game_load_header);
+#line 899 "kernel/sched/xiaomi_sched/qcom/mi_game/mi_game_load.c"
+	WARN_ON(game_load_header);
+#line 514 "mi_game_load.c"
 	init_irq_work(&glk_cpufreq_irq_work, glk_irq_work);
 	game_load_header = register_sysctl_sz("migt/glk", game_load_table, ARRAY_SIZE(game_load_table));
 	register_plat_func(0x11, xr_set_next_freq);

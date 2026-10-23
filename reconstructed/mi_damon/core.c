@@ -1346,13 +1346,14 @@ static void damon_split_regions_of(struct damon_target *t, int nr_subs)
 {
 	struct damon_region *r, *next;
 	unsigned long sz_region, sz_sub = 0;
+	unsigned int min_sz = damon_min_vma;	/* G55a: stock loads damon_min_vma once (ldr w8) for the whole split */
 	int i;
 
 	damon_for_each_region_safe(r, next, t) {
 		sz_region = damon_sz_region(r);
 
 		for (i = 0; i < nr_subs - 1 &&
-				sz_region > 2 * (unsigned int)damon_min_vma; i++) {
+				sz_region > 2 * min_sz; i++) {
 			/*
 			 * Randomly select size of left sub-region to be at
 			 * least 10 percent and at most 90% of original region

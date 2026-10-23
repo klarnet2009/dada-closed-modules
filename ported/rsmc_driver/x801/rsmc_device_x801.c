@@ -106,7 +106,7 @@ struct rsmc_spi_ctx {
 	bool rsmc_spi_exit;
 	atomic_t spi_irq;
 };
-struct rsmc_spi_ctx g_rsmc_spi_ctx PA_PROMOTED(g_rsmc_spi_ctx, 12781679984733999977) = {0};
+struct rsmc_spi_ctx g_rsmc_spi_ctx PA_PROMOTED(g_rsmc_spi_ctx, 4271056241063157391) = {0};
 
 struct rsmc_fw_ctx {
 	u8 *fw_buffer;

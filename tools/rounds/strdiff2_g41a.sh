@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# strdiff2.sh <mod> : message strings (>=8 chars, containing a space or %) only in stock / only in built, built "%s(): %s(): " normalised
+bash "$(dirname "$0")/sv.sh" "cd <work-dir> for k in stock built; do strings -a -n 6 \$k/$1.ko | grep -E '[ %]' | grep -v '^\\$' | sed 's/%s(): %s(): /%s(): /' | sort -u > o/s2_\$k.txt; done; echo \"--- only stock (\$(comm -23 o/s2_stock.txt o/s2_built.txt | wc -l))\"; comm -23 o/s2_stock.txt o/s2_built.txt | cut -c1-120 | head -\${N:-60}; echo \"--- only built (\$(comm -13 o/s2_stock.txt o/s2_built.txt | wc -l))\"; comm -13 o/s2_stock.txt o/s2_built.txt | cut -c1-120 | head -\${N:-60}"

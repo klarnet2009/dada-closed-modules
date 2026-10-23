@@ -1,5 +1,9 @@
 # tas25xx_dlkm - EQUIVALENT (OS4 stock) with one documented hack: the 2 export CRCs are set by `crc_patch.py`
 
+## G15c (19.10.2026) - re-verified against the GLOBAL OS4.0.0.7 stock (first line unchanged)
+Stock-vs-stock CN 0.6 -> global: STRICT-EQUIVALENT. Real Kleaf build vs the GLOBAL stock: compare_ko_v2 fails ONLY on the 2 export CRCs (tas25xx_register_misc / tas25xx_deregister_misc: stock 434026465 / 2141213295, built 524176839 / 2796875677) = the documented hack: the package build applies crc_patch.py after the build (STRICT-EQUIVALENT only after the patch; the G7d package has them patched, ours_vs_gl.csv: STRICT-EQUIVALENT). Everything else PASS, kCFI 0 mismatches (112 functions). No ti,tas25xx node in any dada DT: not bound on dada.
+
+
 Reference: OS4 `<work-dir>` (vermagic 6.6.57-android15-8, modinfo `name=tas25xx_dlkm`; 17.10.2026).
 This directory is the HyperOS 3 reconstruction `work/re/src/tas25xx/` (read its STATUS.md for the full story: TI UDA_0.0.21_7_K6.1 driver + Xiaomi receiver-switch pinctrl addition) renamed to the OS4 file name
 (`ddk_module` / `out = tas25xx_dlkm.ko`, `tas25xx_dlkm_defconfig` ThinLTO).

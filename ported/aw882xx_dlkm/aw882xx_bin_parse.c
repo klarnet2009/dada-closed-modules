@@ -1080,61 +1080,68 @@ static __always_inline int aw_dev_parse_drv_type_v_1_0_0_0(struct aw_device *aw_
 	return ret;
 }
 
-static int aw_dev_parse_dev_type_v_1_0_0_0(struct aw_device *aw_dev,
-		struct aw_cfg_hdr *prof_hdr)
+/*
+ * g4v: the stock (OS4) v1.0.0.0 parser first collects the indices of the matching
+ * entries (device or default type, same chip id) into an array sorted by dev_profile
+ * (insertion sort, equal profiles go before the existing one, at most 32 entries)
+ * and then parses them in that order.  Single message "no valid device scenario
+ * resolved" for both "nothing matched" and "no usable scene".  Form of the sort is
+ * reconstructed from the disassembly.
+ */
+#define AW_SCENE_IDX_MAX 32
+
+static int aw_dev_parse_scene_v_1_0_0_0(struct aw_device *aw_dev,
+		struct aw_cfg_hdr *prof_hdr, int is_default)
 {
-	int i = 0;
-	int ret = -1;
+	int i, k, ret;
+	unsigned int j;
+	unsigned int num = 0;
 	int cur_scene_id = 0;
+	unsigned int sorted[AW_SCENE_IDX_MAX] = { 0 };
 	struct aw_cfg_dde_v_1_0_0_0 *cfg_dde =
 		(struct aw_cfg_dde_v_1_0_0_0 *)((char *)prof_hdr + prof_hdr->a_hdr_offset);
 
 	aw_dev_info(aw_dev->dev, "enter");
 
 	for (i = 0; i < prof_hdr->a_ddt_num; i++) {
-		if ((cfg_dde[i].type == AW_DEV_TYPE_ID) &&
-			(aw_dev->i2c->adapter->nr == cfg_dde[i].dev_bus) &&
-			(aw_dev->i2c->addr == cfg_dde[i].dev_addr) &&
-			(aw_dev->chip_id == cfg_dde[i].chip_id)) {
-			ret = aw_dev_parse_drv_type_v_1_0_0_0(aw_dev,
-					prof_hdr, &cfg_dde[i], &cur_scene_id);
-			if (ret < 0)
-				return ret;
+		if (is_default) {
+			if (cfg_dde[i].type != AW_DEV_DEFAULT_TYPE_ID ||
+				aw_dev->channel != cfg_dde[i].dev_index)
+				continue;
+		} else {
+			if (cfg_dde[i].type != AW_DEV_TYPE_ID ||
+				aw_dev->i2c->adapter->nr != cfg_dde[i].dev_bus ||
+				aw_dev->i2c->addr != cfg_dde[i].dev_addr)
+				continue;
 		}
+		if (aw_dev->chip_id != cfg_dde[i].chip_id)
+			continue;
+
+		for (j = 0; j < num; j++) {
+			if (cfg_dde[i].dev_profile <= cfg_dde[sorted[j]].dev_profile) {
+				for (k = num; k > j; k--)
+					sorted[k] = sorted[k - 1];
+				break;
+			}
+		}
+		sorted[j] = i;
+		num++;
 	}
 
-	if (cur_scene_id == 0) {
-		aw_dev_info(aw_dev->dev, "get dev type num is %d", cur_scene_id);
+	if (num == 0) {
+		aw_dev_err(aw_dev->dev, "no valid device scenario resolved");
 		return -EINVAL;
 	}
 
-	return 0;
-}
-
-static int aw_dev_parse_dev_default_type_v_1_0_0_0(struct aw_device *aw_dev,
-		struct aw_cfg_hdr *prof_hdr)
-{
-	int i = 0;
-	int ret;
-	int cur_scene_id = 0;
-	struct aw_cfg_dde_v_1_0_0_0 *cfg_dde =
-		(struct aw_cfg_dde_v_1_0_0_0 *)((char *)prof_hdr + prof_hdr->a_hdr_offset);
-
-	aw_dev_info(aw_dev->dev, "enter");
-
-	for (i = 0; i < prof_hdr->a_ddt_num; i++) {
-		if ((cfg_dde[i].type == AW_DEV_DEFAULT_TYPE_ID) &&
-			(aw_dev->channel == cfg_dde[i].dev_index) &&
-			(aw_dev->chip_id == cfg_dde[i].chip_id)) {
-			ret = aw_dev_parse_drv_type_v_1_0_0_0(aw_dev,
-					prof_hdr, &cfg_dde[i], &cur_scene_id);
-			if (ret < 0)
-				return ret;
-		}
+	for (j = 0; j < num; j++) {
+		ret = aw_dev_parse_drv_type_v_1_0_0_0(aw_dev,
+				prof_hdr, &cfg_dde[sorted[j]], &cur_scene_id);
+		if (ret < 0)
+			return ret;
 	}
 
 	if (cur_scene_id == 0) {
-		aw_dev_err(aw_dev->dev, "get dev default type failed, get num[%d]", cur_scene_id);
+		aw_dev_err(aw_dev->dev, "no valid device scenario resolved");
 		return -EINVAL;
 	}
 
@@ -1210,15 +1217,9 @@ static int aw_dev_parse_by_hdr_v_1_0_0_0(struct aw_device *aw_dev,
 {
 	int ret;
 
-	if (is_default) {
-		ret = aw_dev_parse_dev_default_type_v_1_0_0_0(aw_dev, cfg_hdr);
-		if (ret < 0)
-			return ret;
-	} else {
-		ret = aw_dev_parse_dev_type_v_1_0_0_0(aw_dev, cfg_hdr);
-		if (ret < 0)
-			return ret;
-	}
+	ret = aw_dev_parse_scene_v_1_0_0_0(aw_dev, cfg_hdr, is_default);
+	if (ret < 0)
+		return ret;
 
 	ret = aw_dev_parse_skt_type_v_1_0_0_0(aw_dev, cfg_hdr);
 	if (ret < 0)

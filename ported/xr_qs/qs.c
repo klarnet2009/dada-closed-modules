@@ -131,21 +131,24 @@ static void restore_rt_sched(struct task_struct *p, struct qs_struct *qs)
 	qs->prio_backup = 0;
 }
 
-static void correct_qos_sched(struct qievent_struct *data)
+static __always_inline void correct_qos_sched(struct qievent_struct *data)
 {
 	struct task_struct *p = data->to;
 	struct sched_param param = { 0 };
 	struct qs_struct *qs;
+	bool last;
 
-	get_task_struct(p);
+	[[clang::always_inline]] __refcount_add(1, &p->usage, NULL);
 	qs = task_to_qs(p);
 	if (qs && qs->rt_sched &&
 	    (p->policy == SCHED_NORMAL || p->policy == SCHED_BATCH)) {
 		param.sched_priority = MAX_RT_PRIO - 1 - data->prio;
 		sched_setscheduler_nocheck(p, SCHED_FIFO | SCHED_RESET_ON_FORK, &param);
-		trace_qs_correct_rt_sched(p, data->prio);
+		[[clang::always_inline]] trace_qs_correct_rt_sched(p, data->prio);
 	}
-	put_task_struct(p);
+	[[clang::always_inline]] last = __refcount_sub_and_test(1, &p->usage, NULL);
+	if (last)
+		__put_task_struct(p);
 }
 
 
@@ -572,14 +575,15 @@ out:
 	put_task_struct(data->to);
 }
 
-static void qos_inherit_callback(struct qievent_struct *data)
+static __always_inline void qos_inherit_callback(struct qievent_struct *data)
 {
 	struct task_struct *task = data->to;
 	u32 qos = data->to_qos.qos;
 	struct qs_struct *qs;
 	int policy, prio, vip;
+	bool last;
 
-	get_task_struct(task);
+	[[clang::always_inline]] __refcount_add(1, &task->usage, NULL);
 	qs = task_to_qs(task);
 	if (unlikely(!qs)) {
 		[[clang::__noinline__]] put_task_struct(task);
@@ -608,14 +612,14 @@ static void qos_inherit_callback(struct qievent_struct *data)
 			param.sched_priority = MAX_RT_PRIO - 1 - prio;
 			sched_setscheduler_nocheck(task, policy | SCHED_RESET_ON_FORK, &param);
 		}
-		trace_qs_set_rt_sched(task, policy, prio);
+		[[clang::always_inline]] trace_qs_set_rt_sched(task, policy, prio);
 		if (!qs->rt_sched)
 			qs->rt_sched = 1;
 	} else if (qos & BIT(5)) {
 		vip = get_vip_prio(task);
 		if (data->vip_prio > vip) {
 			set_vip_prio(task, data->vip_prio, false);
-			trace_qs_set_vip_sched(data->from, data->to, data->vip_prio, data->to_qos.qos);
+			[[clang::always_inline]] trace_qs_set_vip_sched(data->from, data->to, data->vip_prio, data->to_qos.qos);
 		}
 		if (!qs->vip_sched)
 			qs->vip_sched = 1;
@@ -623,7 +627,9 @@ static void qos_inherit_callback(struct qievent_struct *data)
 rtg:
 	if (!(qos & 0xc0))
 		set_rtg_grp(data, qs, qos & 0xf, false);
-	put_task_struct(task);
+	[[clang::always_inline]] last = __refcount_sub_and_test(1, &task->usage, NULL);
+	if (last)
+		__put_task_struct(task);
 }
 
 static void restore_qos_sched(struct qievent_struct *data, unsigned long action)
@@ -784,25 +790,15 @@ static int qievent_callback(struct notifier_block *nb, unsigned long action, voi
 	if (unlikely(in_interrupt()))
 		goto out;
 
-	if (action == QIEVENT_TASK_EXIT) {
-		struct task_struct *p;
-
-		if (!g_qs_enable)
-			goto out;
-		p = e->to;
-		if (!p)
-			goto out;
-		spin_lock(&g_qs_lock);
-		clear_draw_rtg(p);
-		spin_unlock(&g_qs_lock);
-		goto out;
-	}
-
-	if (e->to->flags & PF_EXITING) {
+	/* global OS4.0.0.7 (stock 0x31e8..0x31fc): only the PF_EXITING test is skipped for TASK_EXIT; the game VIP test runs for ALL actions */
+	if (action != QIEVENT_TASK_EXIT && (e->to->flags & PF_EXITING)) {
 		ret = -1;
 		goto out;
 	}
+	if (plat_game_vip_check(e->to))
+		goto out;
 
+	asm("" : "+r"(action));	/* G20c try: no specialisation of the switch (cmp #6) */
 	switch (action) {
 	case QIEVENT_QOS_SET:
 		if (!g_qs_enable)
@@ -832,6 +828,19 @@ static int qievent_callback(struct notifier_block *nb, unsigned long action, voi
 			break;
 		correct_qos_sched(e);
 		break;
+	case QIEVENT_TASK_EXIT: {
+		struct task_struct *p;
+
+		if (!g_qs_enable)
+			break;
+		p = e->to;
+		if (!p)
+			break;
+		spin_lock(&g_qs_lock);
+		[[clang::always_inline]] clear_draw_rtg(p);
+		spin_unlock(&g_qs_lock);
+		break;
+	}
 	}
 out:
 	return ret;

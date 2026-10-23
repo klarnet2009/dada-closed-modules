@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-/* platform_fg_ic_ops.h - OS4 (HyperOS 4.0) API of mca_platform_fg_ic_ops.ko (g6: ops layout from the OS4 stock BTF, 77 callbacks / 616 bytes; local copy, the shared stubs_mcaB header keeps the OS3 layout) */
+/* platform_fg_ic_ops.h - OS4 (HyperOS 4.0) API of mca_platform_fg_ic_ops.ko (g6: ops layout from the OS4 stock BTF, 77 callbacks / 616 bytes (G14b: GLOBAL 0.7 has 79 callbacks / 632 bytes); local copy, the shared stubs_mcaB header keeps the OS3 layout) */
 #ifndef __PLATFORM_FG_IC_OPS_H__
 #define __PLATFORM_FG_IC_OPS_H__
 
@@ -89,6 +89,9 @@ struct fuelguage_ic_ops {
 	int (*fg_ic_get_csd_flag)(void *data, int *);
 	int (*fg_ic_get_batt_qmax)(void *data, int *);
 	int (*fg_ic_get_cc_coulomb_integral)(void *data, int *);
+	/* GLOBAL OS4.0.0.7 (stock BTF: size 616 -> 632) */
+	int (*fg_ic_get_batt_sn)(void *data, char *);
+	int (*fg_ic_set_dynamic_fv)(void *data, int);
 };
 
 int platform_fg_ic_ops_register(unsigned int ic_role, void *data, struct fuelguage_ic_ops *platform_fg_ops);
@@ -168,5 +171,7 @@ int platform_fg_ops_get_batt_qmax(unsigned int ic_role, int *qmax);
 int platform_fg_ops_get_fast_mode_times(unsigned int ic_role, int *fast_mode_times);
 int platform_fg_ops_set_fast_mode_times(unsigned int ic_role, int fast_mode_times);
 int platform_fg_ops_get_cc_coulomb_integral(unsigned int ic_role, int *cc);
+int platform_fg_ops_get_batt_sn(unsigned int ic_role, char *batt_sn);
+int platform_fg_ops_set_dynamic_fv(unsigned int ic_role, int fv);
 
 #endif

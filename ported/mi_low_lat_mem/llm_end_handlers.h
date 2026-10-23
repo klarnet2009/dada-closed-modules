@@ -39,12 +39,12 @@ static __always_inline void llm_snapshot(struct llm_snap *s, bool want4, bool wa
 		if (want4) {
 			s->t4 = rec->t4;
 			s->p4 = rec->n4;
-			s->c4 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
+			s->c4 = LLM_LOAD((u32 *)((u8 *)MCI_PTR(0x30) + 0x18));
 		}
 		if (want9) {
 			s->t9 = rec->t9;
 			s->p9 = rec->n9;
-			s->c9 = smp_load_acquire((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
+			s->c9 = LLM_LOAD((u32 *)((u8 *)MCI_PTR(0x58) + 0x18));
 		}
 	}
 }
@@ -64,15 +64,24 @@ static __always_inline int llm_proc_type(void)
 	return qos ? 0 : t;
 }
 
-static __always_inline const char *llm_app_name(void)
+/* G14d: global OS4.0.0.7: the app name of the current memcg record is copied (rcu_read_lock, ldar) into a 64-byte local buffer preset to "unknown" */
+static noinline __used void get_current_app_name(char *dst)
 {
-	char *vend = current_write_memcg ? *(char **)((char *)current_write_memcg + 0x8f8) : NULL;
+	struct mem_cgroup *m;
+	char *vend;
 
-	return vend ? vend + 0x40 : "unknown";
+	if (!dst)
+		return;
+	rcu_read_lock();
+	m = READ_ONCE(current_write_memcg);
+	vend = m ? *(char **)((char *)m + 0x8f8) : NULL;
+	if (vend && vend + 0x40)
+		strscpy(dst, vend + 0x40, 64);
+	rcu_read_unlock();
 }
 
-#define LLM_SCENE_NAME(scene)	((char *)dfx.raw + 0x8c + (scene) * 20)
-#define LLM_PROC_NAME(proc)	((char *)dfx.raw + 0xf0 + (proc) * 20)
+#define LLM_SCENE_NAME(scene)	((*(char (*)[5][20])(dfx.raw + 0x8c))[scene])
+#define LLM_PROC_NAME(proc)	((*(char (*)[3][20])(dfx.raw + 0xf0))[proc])
 
 /* per (scene, proc, bucket) counter + total / max latency of one handler type (0 cma, 1 dma, 2 order4, 3 order9) */
 static __always_inline void llm_account(short scene, int proc, int type, u64 dt)
@@ -86,7 +95,7 @@ static __always_inline void llm_account(short scene, int proc, int type, u64 dt)
 }
 
 /* claim the fault record and fill it; the MiSight callback sends it (not enabled here) */
-static __always_inline void llm_report_mem_alloc(u64 dt, u32 type, u32 order, u32 len, int scene, int proc, const char *app,
+static __always_inline void dump_trace_and_send_event(u64 dt, u32 type, u32 order, u32 len, int scene, int proc, const char *app,
 						 const char *ver)
 {
 	if (check_report_limit())
@@ -99,25 +108,26 @@ static __always_inline void llm_report_mem_alloc(u64 dt, u32 type, u32 order, u3
 
 static void cma_alloc_end_handler(void *data, unsigned long long stime, unsigned long count)
 {
+	char buf[256];
+	char app[64] = "unknown";
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
 	short scene = s < 5 ? (int)s : -1;
 	struct pool_type_ent *e;
 	struct llm_snap sn;
 	u32 dma9 = 0, dma4 = 0;
-	const char *app;
 	int proc;
 	u64 dt;
 
 	if (scene < 0)
 		return;
-	char buf[256] = {};
+	memset(buf, 0, sizeof(buf));
 	proc = llm_proc_type();
 	dt = sched_clock() - stime;
 	llm_account(scene, proc, 0, dt);
 	if (dt <= (u64)DFX_U32(0x980) * 1000000)
 		return;
-	app = llm_app_name();
+	get_current_app_name(app);
 	llm_snapshot(&sn, true, true);
 	mi_smart_refill_update();
 	list_for_each_entry(e, &mi_smart_refill_pools, list) {
@@ -135,31 +145,32 @@ static void cma_alloc_end_handler(void *data, unsigned long long stime, unsigned
 		 sn.p4, sn.c4, 9, sn.t9, sn.p9, sn.c9, 9, dma9, dma4, cma_alloc_from_orig_cnt, cma_alloc_from_pool_cnt,
 		 LLM_PROC_NAME(proc));
 	tracing_mark_write(buf);
-	llm_report_mem_alloc(dt, 0, 0, count, scene, proc, app, ver);
+	dump_trace_and_send_event(dt, 0, 0, count, scene, proc, app, ver);
 }
 
 static void dma_heap_buffer_alloc_end_handler(void *data, unsigned long long stime, size_t len, struct dma_buf *dma_buf)
 {
+	char buf[256];
+	char app[64] = "unknown";
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
-	short scene = s < 5 ? (int)s : -1;
+	int scene = s < 5 ? (int)s : -1;
 	struct pool_stat_ent *e;
 	struct llm_snap sn;
 	u32 dma9 = 0, dma4 = 0;
 	u64 a9 = 0, b9 = 0, a4 = 0, b4 = 0;
-	const char *app;
 	int proc;
 	u64 dt;
 
-	if (scene < 0)
+	if ((short)scene < 0)
 		return;
-	char buf[256] = {};
+	memset(buf, 0, sizeof(buf));
 	proc = llm_proc_type();
 	dt = sched_clock() - stime;
 	llm_account(scene, proc, 1, dt);
 	if (dt <= (u64)DFX_U32(0x984) * 1000000)
 		return;
-	app = llm_app_name();
+	get_current_app_name(app);
 	llm_snapshot(&sn, true, true);
 	mi_smart_refill_update();
 	list_for_each_entry(e, &mi_smart_refill_pools, list) {
@@ -181,26 +192,26 @@ static void dma_heap_buffer_alloc_end_handler(void *data, unsigned long long sti
 		 current->tgid, len, div_u64(dt, 1000000), LLM_SCENE_NAME(scene), app, ver, current->comm, current->prio, sn.t4,
 		 sn.p4, sn.c4, 9, sn.t9, sn.p9, sn.c9, 9, dma9, dma4, 9, b9, a9, b4, a4, LLM_PROC_NAME(proc));
 	tracing_mark_write(buf);
-	llm_report_mem_alloc(dt, 1, 0, len, scene, proc, app, ver);
+	dump_trace_and_send_event(dt, 1, 0, len, scene, proc, app, ver);
 }
 
 static void mm_direct_reclaim_end_handler(void *data, unsigned int order, u64 stime)
 {
+	char app[64] = "unknown";
 	char ver[32] = "1.0.0";
-	char buf[256] = {};
 	unsigned int s = scene_code - 101;
-	short scene = s < 5 ? (int)s : -1;
+	unsigned short scene = s < 5 ? s : -1;
 	struct llm_snap sn;
-	const char *app;
 	int proc;
 	u64 dt;
 
-	if (scene < 0)
+	if ((short)scene < 0)
 		return;
+	char buf[256] = {};
 	dt = sched_clock() - stime;
 	if (dt <= (u64)DFX_U32(0x994) * 1000000)
 		return;
-	app = llm_app_name();
+	get_current_app_name(app);
 	proc = llm_proc_type();
 	llm_snapshot(&sn, true, true);
 	printk(KERN_INFO "low_lat_mem: mem_alloc_timeout type:direct_reclaim time:%llu ms order:%u scene:%s app:%s ver:%s comm=%s prio=%d (4)%u-%u-%u (%d)%u-%u-%u proc_type:%s\n",
@@ -218,20 +229,16 @@ static void alloc_pages_slowpath_end_handler(void *data, gfp_t *gfp_mask, unsign
 					     u64 stime, unsigned long did_some_progress, unsigned long pages_reclaimed,
 					     int retry_loop_count)
 {
+	char app[64] = "unknown";
 	char ver[32] = "1.0.0";
 	unsigned int s = scene_code - 101;
-	short scene = s < 5 ? (int)s : -1;
+	int scene = s < 5 ? (int)s : -1;
 	struct llm_snap sn;
-	const char *app;
 	u32 tmo, t, p, c;
 	int proc, tix, type;
 	u64 dt;
 
-	if (!(*gfp_mask & __GFP_DIRECT_RECLAIM))
-		return;
-	if (order != 9 && order != 4 && order != 0)
-		return;
-	if (scene < 0)
+	if (!(*(volatile gfp_t *)gfp_mask & __GFP_DIRECT_RECLAIM) || (order != 9 && order != 4 && order != 0) || (short)scene < 0)
 		return;
 	char buf[256] = {};
 	dt = sched_clock() - stime;
@@ -243,7 +250,7 @@ static void alloc_pages_slowpath_end_handler(void *data, gfp_t *gfp_mask, unsign
 		llm_account(scene, proc, tix, dt);
 	if (dt <= (u64)tmo * 1000000)
 		return;
-	app = llm_app_name();
+	get_current_app_name(app);
 	llm_snapshot(&sn, order == 4, order == 9);
 	t = order == 4 ? sn.t4 : sn.t9;
 	p = order == 4 ? sn.p4 : sn.p9;
@@ -255,10 +262,5 @@ static void alloc_pages_slowpath_end_handler(void *data, gfp_t *gfp_mask, unsign
 		 current->tgid, order, div_u64(dt, 1000000), LLM_SCENE_NAME(scene), app, ver, current->comm, current->prio, t, p, c,
 		 LLM_PROC_NAME(proc));
 	tracing_mark_write(buf);
-	if (check_report_limit())
-		return;
-	if (cmpxchg(&mem_fault_reporting, 0, 1))
-		return;
-	fill_mem_alloc_fault_data(&mem_fault_data, dt, type, order, 0, scene, proc, app, ver);
-	pr_warn_ratelimited("low_lat_mem: mem_fault_events is not enabled\n");
+	dump_trace_and_send_event(dt, type, order, 0, scene, proc, app, ver);
 }

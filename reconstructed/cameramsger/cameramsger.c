@@ -87,7 +87,7 @@ struct cam_sched_data {
 };
 
 /* ThinLTO promoted the static to a hidden global with a hashed name */
-struct msger_dev c_msger_dev __asm__("c_msger_dev.llvm.400187243914933332") __attribute__((visibility("hidden")));
+struct msger_dev c_msger_dev __asm__("c_msger_dev.llvm.14414466617366251199") __attribute__((visibility("hidden")));
 unsigned int msger_siwtches = 1;
 /*
  * The stock ThinLTO link merges csdata and the two zero-sized lock_class_key objects of cameramsger_init() at one .bss
@@ -102,7 +102,7 @@ static struct cam_sched_data __rcu *csdata __asm__("cameramsger_init.__key");
 	k__;								\
 })
 
-int debug(int level)
+u8 debug(int level)	/* G55a: stock kCFI type _ZTSFhiE (u8 f(int)), hash 0xef5250c9 */
 {
 	return c_msger_dev.debug == level;
 }
@@ -194,11 +194,11 @@ static ssize_t cameramsger_read(struct file *file, char __user *buf, size_t coun
 	} else {
 		msg_len = strnlen(r->msgs[front].data, cnt);
 		ret = msg_len;
-		if (debug(MSGER_DBG_MSGER))
-			printk(KERN_INFO "cameramsger_read message(msg-idx:%d) read finish, mssage:%s, len:%d, ret:%d, message_len:%lu\n",
-			       front, r->msgs[front].data, (int)cnt, ret, strnlen(r->msgs[front].data, cnt));
 	}
-	r->front = (front + 1) % MSGER_MSG_NUM;
+	if (debug(MSGER_DBG_MSGER))
+		printk(KERN_INFO "cameramsger_read message(msg-idx:%d) read finish, mssage:%s, len:%d, ret:%d, message_len:%lu\n",
+		       front, r->msgs[front].data, (int)cnt, ret, strnlen(r->msgs[front].data, cnt));
+	r->front = (r->front + 1) % MSGER_MSG_NUM;	/* G55a: stock re-reads front after the debug printk */
 out:
 	mutex_unlock(&c_msger_dev.g_lock);
 	return ret;
@@ -499,31 +499,35 @@ static int snd_message(int len)
 		n++;
 	}
 	if (debug(MSGER_DBG_MSGER))
-		printk(KERN_INFO "%s at position:%d - %d - %d", __func__, pos[0], pos[1], pos[2]);
+		printk(KERN_INFO "%s at position:%d - %d - %d\n", __func__, pos[0], pos[1], pos[2]);
 	if (pos[1] - pos[0] < 2 || pos[2] - pos[1] < 2)
 		return -1010;
 	for (i = pos[0] + 1, j = 0; i < pos[1]; i++, j++)
 		first[j] = bp[i];
 	for (i = pos[1] + 1, j = 0; i < pos[2]; i++, j++)
 		second[j] = bp[i];
-	memcpy(data, &c_msger_dev.buf[pos[1] + 1], len - pos[1] - 1);
 	if (debug(MSGER_DBG_MSGER))
-		printk(KERN_INFO "%s sender:%s recever:%s msg:%s\n", __func__, second, first, &c_msger_dev.buf[pos[1] + 1]);
+		printk(KERN_INFO "%s sender:%s recever:%s msg:%s\n", __func__, second, first, bp + pos[1] + 1);
 	idx = find_reader_by_name_or_tgid(first, -1);
 	if (idx == MSGER_MAX_READERS)
 		return -1011;
+	memcpy(data, bp + pos[1] + 1, len - pos[1] - 1);
 	memcpy(hdr.from, second, sizeof(second));
 	memcpy(hdr.to, first, sizeof(first));
 	r = &c_msger_dev.readers[idx];
 	rear = (r->rear + 1) % MSGER_MSG_NUM;
 	if (rear == r->front)
 		r->front = (rear + 1) % MSGER_MSG_NUM;
-	r->msgs[r->rear].hdr = hdr;
-	memcpy(r->msgs[r->rear].data, data, sizeof(data));
+	{
+		struct msger_message *m = &r->msgs[r->rear];	/* G55a: stock computes the address first (array-bounds index <= 16 form) */
+
+		m->hdr = hdr;
+		memcpy(m->data, data, sizeof(data));
+	}
 	r->rear = rear;
 	wake_up_interruptible(&r->wait_queue);
 	if (debug(MSGER_DBG_MSGER))
-		printk(KERN_INFO "%s add message to %d success\n", __func__, r->tid);
+		printk(KERN_INFO "%s add message to %d success\n", "add_message", r->tid);
 	return len;
 }
 
@@ -685,12 +689,12 @@ int cam_sched_w_pids(struct file *file, char *buf, int len, u8 *hit)
 				ns->flags[i] = flag;
 			}
 		}
+		ns->offset = npids;
+		memcpy(ns->pids, pids, sizeof(pids));
+		ns->ctl_cpus = mask;
+		if (debug(MSGER_DBG_SCHED))
+			printk(KERN_INFO "[%s] ctl_cpus:%*pbl \n", __func__, nr_cpu_ids, mask.bits);
 	}
-	ns->offset = npids;
-	memcpy(ns->pids, pids, sizeof(pids));
-	ns->ctl_cpus = mask;
-	if (debug(MSGER_DBG_SCHED))
-		printk(KERN_INFO "[%s] ctl_cpus:%*pbl \n", __func__, nr_cpu_ids, mask.bits);
 	old = rcu_dereference_protected(csdata, 1);
 	rcu_assign_pointer(csdata, ns);
 	synchronize_rcu();
@@ -825,7 +829,7 @@ static void xmi_rvh_select_task_rq_fair(void *unused, struct task_struct *p, int
 		cpumask_andnot(&mask, p->cpus_ptr, &rcu_dereference(csdata)->ctl_cpus);
 		rcu_read_unlock();
 		if (debug(MSGER_DBG_SCHED))
-			printk(KERN_INFO "[%s] %s-%d cpu:%d allowed_cpus:%*pbl\n", __func__, p->comm, p->pid, *target_cpu,
+			printk(KERN_INFO "[%s] %s-%d cpu:%d allowed_cpus:%*pbl\n", "filter_cpu", p->comm, p->pid, *target_cpu,
 			       nr_cpu_ids, cpumask_bits(&mask));
 		if (!cpumask_empty(&mask)) {
 			if ((fl == 4 && h) || !o || (fl == 2 && !h)) {

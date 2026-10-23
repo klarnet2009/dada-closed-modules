@@ -1,5 +1,9 @@
 # cs35l43_dlkm - EQUIVALENT (strict compare_ko_v2: STRICT-EQUIVALENT; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
 
+## G15c (19.10.2026) - re-verified against the GLOBAL OS4.0.0.7 stock (first line unchanged)
+Stock-vs-stock CN 0.6 -> global: STRICT-EQUIVALENT (module not changed). Real Kleaf build of this source against `<work-dir>` (g15c_tools/kb.sh): compare_ko_v2 VERDICT STRICT-EQUIVALENT, kCFI preamble 0 mismatches (97 functions). The dada device tree has cirrus,cs35l43 nodes at 0x40 and 0x42 (global dtbo): this is the smart PA actually used on dada. Hack list unchanged (forged CRC of the provider stub for `cs_dsp_load_coeff`).
+
+
 Old first line (before the strict recheck G9): # cs35l43_dlkm - EQUIVALENT (OS4 stock; one documented hack: forged CRC of the provider stub for the import `cs_dsp_load_coeff`)
 
 Reference: OS4 `<work-dir>`. `compare_ko.py` on the real Kleaf/ThinLTO build (6.6.144): function set 116 OK, function bytes ALL identical, relocations identical, globals identical,

@@ -22,10 +22,11 @@ static unsigned int render_pid = -1U;	/* stock .data value 0xffffffff (G1ah) */
 /* cmd 1: the game signals a frame ("boost coming") */
 static __always_inline void migt_ioctl_boost(struct task_struct *cur)
 {
-	unsigned int uid = cur->cred->uid.val;
+	unsigned int uid;
 	long thresh;
 
 	trigger_mist_load_tracking(migt_wq);
+	uid = cur->cred->uid.val;	/* g62a: the stock reads it after the call (S+88) */
 	if (uid != last_traced_uid) {
 		if (ceiling_freq_limit_work == 1) {
 			cancel_delayed_work_sync(&ceiling_rem);
@@ -109,15 +110,15 @@ static __always_inline void migt_ioctl_ceiling_user(void)
 	int n = ceiling_users[10], uid = last_traced_uid, cnt = min(n, 10), i;
 
 	if (unlikely(migt_debug)) {
-		printk(KERN_INFO "--------ceiling_user list--------\n");
+		printk("--------ceiling_user list--------\n");	/* stock: no level prefix (default loglevel) */
 		for (i = 0; i < cnt; i++)
-			printk(KERN_INFO "%d ", ceiling_users[i]);
+			printk("%d ", ceiling_users[i]);
 	}
 	for (i = 0; i < cnt; i++)
 		if (ceiling_users[i] == uid)
 			return;
 	if (unlikely(migt_debug))
-		printk(KERN_INFO "\nadd uid %d to ceiling users\n", uid);
+		printk("\nadd uid %d to ceiling users\n", uid);
 	if (n >= 10) {
 		for (i = 0; i < cnt - 1; i++)
 			ceiling_users[i] = ceiling_users[i + 1];
@@ -260,7 +261,7 @@ static __always_inline void gt_clear_marks(struct mi_game_task *g)
 	} else {
 		if (g->type & 0x100)
 			restore_vip_prio(t);
-		g->type &= ~0x1d6;
+		g->type &= ~0x31d6;	/* G14c: the two gc bits 0x1000/0x2000 are cleared too */
 	}
 }
 
@@ -292,7 +293,7 @@ static __used int migt_hardwork(void *data)
 		struct mi_game_task *gt;
 		struct list_head *pos;
 		LIST_HEAD(delay_head);
-		int n = 0, i;
+		int n = 0, i, gc_cnt;
 
 		set_current_state(TASK_INTERRUPTIBLE);
 		if (!smp_load_acquire(&migt_has_work_todo)) {
@@ -337,7 +338,9 @@ static __used int migt_hardwork(void *data)
 			}
 			if ((int)g->f116 < 0)
 				goto delay;
+#line 1421 "kernel/sched/xiaomi_sched/qcom/mi_game/mi_game_ca.c"
 			BUG_ON(gt->f116 != user->uid.val);
+#line 343 "migt_f.h"
 			if (mark_rule3_enable)
 				game_setup_wrender_list(task, task->tgid, g, 0);
 			if (mark_rule1_enable && (g->type & 0x810)) {
@@ -385,6 +388,7 @@ delay:
 			list_add(&g->delay_list, &delay_head);
 		}
 		read_unlock_irq(&xu->lock);
+		gc_cnt = 0;
 		for (pos = delay_head.next; pos != &delay_head;) {
 			struct list_head *cur = pos;
 
@@ -393,8 +397,19 @@ delay:
 			if (!gt)
 				continue;
 			list_del_init(&gt->delay_list);
-			if (gt->task)
+			if (gt->task) {
+				/* G14c: gc booster: tag the gc main thread (0x2000) / gc threads (0x1000) by comm */
+				if (GC_NAMES_SET()) {
+					if (!strcmp(gt->task->comm, gc_main_thread_name)) {
+						gt->type |= 0x2000;
+						gc_cnt++;
+					} else if (!strncmp(gt->task->comm, gc_thread_name, strlen(gc_thread_name))) {
+						gt->type |= 0x1000;
+						gc_cnt++;
+					}
+				}
 				put_task_struct(gt->task);
+			}
 		}
 		if (n >= 1) {
 			unsigned int max_i = 0, mindex = 0, sel;
@@ -441,7 +456,7 @@ delay:
 picked:
 				if (migt_debug_l)
 					printk(KERN_INFO "migt-gtc: max %d mindex %d, max_r %llu, m_exec %llu, V: %d\n",
-					       max_i, mindex, max_r, m_exec, 50);
+					       max_i, mindex, m_exec, max_r, 50);	/* G48a: stock args 3/4 = max of fps_exec_est (x3), max of fps_mexec (x24) */
 				sel = max_r >= 50 ? max_i : mindex;
 			} else {
 				sel = 0;
@@ -465,10 +480,27 @@ picked:
 					set_vip_prio(t, 30, 1);
 					if (t && TASK_WTS_PTR(t))
 						top_task_util[1] = TASK_WTS_DEMAND(t) / (sched_ravg_window >> 10);
-				} else if (i < (int)(stask_candidate_num + vip_task_max_num)) {
-					user_array[i].gt->type |= 0x10;
-				} else if (i < (int)(stask_candidate_num + vip_task_max_num + ip_task_max_num)) {
-					user_array[i].gt->type |= 0x4;
+				} else {
+					bool gc_tag = false;
+
+					/* G14c: a gc main thread (0x2000) / gc thread (0x1000) is not ranked as vip/ip; gc threads widen the vip window */
+					if (GC_NAMES_SET() && t) {
+						if (!strcmp(t->comm, gc_main_thread_name)) {
+							user_array[i].gt->type |= 0x2000;
+							gc_cnt++;	/* G14i: stock 0xd18/0xd24 both fall into 0xd2c gc_cnt++ */
+							gc_tag = true;
+						} else if (!strncmp(t->comm, gc_thread_name, strlen(gc_thread_name))) {
+							user_array[i].gt->type |= 0x1000;
+							gc_cnt++;
+							gc_tag = true;
+						}
+					}
+					if (gc_tag)
+						;
+					else if (i < (int)(stask_candidate_num + gc_cnt + vip_task_max_num))
+						user_array[i].gt->type |= 0x10;
+					else if (i < (int)(stask_candidate_num + gc_cnt + vip_task_max_num + ip_task_max_num))
+						user_array[i].gt->type |= 0x4;
 				}
 				if (need_reset_runtime_everytime | force_reset_runtime)
 					user_array[i].gt->wake_render = 0;
@@ -484,8 +516,8 @@ picked:
 free:
 		free_uid(user);
 reset:
-done:
 		*work = 0;
+done:
 		migt_has_work_todo = 0;
 	}
 	printk(KERN_INFO "migt-gtc: migt_ca has exit\n");

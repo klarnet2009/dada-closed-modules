@@ -308,6 +308,6 @@ void mibbr_main(struct sock *sk, const struct rate_sample *rs)
 #line 1172
 		MATT_TRACE(0, 4, "sk=%p bw=%u pacing_gain=%u acked_sacked=%u cwnd_gain=%u wmalc=%u", sk, bw, bbr->pacing_gain, rs->acked_sacked, bbr->cwnd_gain, refcount_read(&sk->sk_wmem_alloc));
 #line 1175
-		MATT_TRACE(0, 4, "sk=%p mode=%u una=%u nxt=%u wseq=%u cwnd=%u inflight=%u srtt=%u mrtt=%u pacing=%lu", sk, bbr->mode, outq->snd_una, outq->snd_nxt, outq->write_seq, outq->snd_cwnd, matt_packets_in_flight(outq), outq->srtt, bbr->min_rtt_us, READ_ONCE(sk->sk_pacing_rate));
+		MATT_TRACE(0, 4, "sk=%p mode=%u una=%u nxt=%u wseq=%u cwnd=%u inflight=%u srtt=%u mrtt=%u pacing=%lu", sk, bbr->mode, outq->snd_una, outq->snd_nxt, outq->write_seq, outq->snd_cwnd, matt_packets_in_flight(outq), outq->srtt, bbr->min_rtt_us, sk->sk_pacing_rate);
 	}
 }

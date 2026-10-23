@@ -39,6 +39,7 @@
 #include <linux/cma.h>
 #include <linux/kthread.h>
 #include <linux/cgroup.h>
+#include <linux/rcupdate.h>
 #include <linux/dma-buf.h>
 #include <trace/hooks/mm.h>
 #include <trace/hooks/dmabuf.h>
@@ -49,6 +50,8 @@
  */
 /* 2464 bytes: names (20-byte slots), statistics, the 8 timeout thresholds (ms) at +0x980 .. +0x99c */
 #define DFX_U32(off)	(*(u32 *)(dfx.raw + (off)))
+/* G14h: the stock "acquire" loads are READ_ONCE() under CONFIG_LTO (ldar patched to ldapr by an alternative), not smp_load_acquire() (plain ldar) */
+#define LLM_LOAD(p)	READ_ONCE(*(p))
 /* 2288 bytes: pre-compact state (target counts +4/+8, pools +0x30/+0x58, retry_times +0x70) */
 #define MCI_U32(off)	(*(u32 *)(mci.raw + (off)))
 extern struct list_head mi_smart_refill_pools;
@@ -79,6 +82,7 @@ struct llm_vendor {
 	void **arr;			/* +0x20: dmabuf_pool_nums pointers to 12-byte records */
 	struct list_head list;		/* +0x28 */
 	u8 pad2[0x90 - 0x38];
+	struct rcu_head rcu;		/* +0x90 (G14d: global OS4.0.0.7 frees the record with kfree_rcu, size 0xa0) */
 };
 #define PARSE_KSTR(buf, val)	kstrtouint(buf, 10, val)
 #define PARSE_SSCANF(buf, val)	(sscanf(buf, "%u", val) != 1 ? -EINVAL : 0)
@@ -217,9 +221,9 @@ extern void cdev_tevent_destroy(struct cdev_tevent *ev);
 #include <linux/delay.h>
 #include <linux/ktime.h>
 #define DFX_ATOMIC(off)		((atomic_t *)(dfx.raw + (off)))
-/* time bucket array of 6 counters: the stock has the array-bounds trap on the index */
-#define DFX_ABKT(off, i)	((*(atomic_t (*)[6])(dfx.raw + (off)))[i])
-#define MCI_POOL_COUNT(off)	smp_load_acquire((u32 *)((u8 *)MCI_PTR(off) + 0x18))
+/* time bucket array of 5 counters (get_time_bucket() returns 0..4): the stock has the array-bounds trap on the index (cmp w0, #5) */
+#define DFX_ABKT(off, i)	((*(atomic_t (*)[5])(dfx.raw + (off)))[i])
+#define MCI_POOL_COUNT(off)	LLM_LOAD((u32 *)((u8 *)MCI_PTR(off) + 0x18))
 /* claim the fault record (cmpxchg on mem_fault_reporting), fill it; sending is done by the misight callback (not enabled here) */
 /* open-coded for_each_zone() of the single node (next_zone() is not exported); MAX_NR_ZONES is 5 here */
 #define llm_for_each_zone(zone)									for (zone = contig_page_data.node_zones; zone;						     zone = zone < zone->zone_pgdat->node_zones + MAX_NR_ZONES - 1 ? zone + 1 : NULL)
@@ -266,7 +270,7 @@ extern int llm_enable;
 extern int calculate_start;
 extern unsigned int *dmabuf_data_tmp;
 extern int dmabuf_pool_nums;
-extern atomic_t largemem_data_tmp[2] __asm__("largemem_data_tmp.llvm.5013616374876433728");
+extern atomic_t largemem_data_tmp[2] __asm__("largemem_data_tmp.llvm.740304511759946376");
 extern struct cma_ref cma_refs[17];
 extern atomic_t cma_refs_count;
 extern struct cma_pfn_to_align cma_pfn_to_align[100];
@@ -279,7 +283,7 @@ extern int shrinking;
 extern int predo_pending;
 extern int mem_fault_reporting;
 extern int scene_code;
-extern u8 sys_scene;
+extern bool sys_scene;
 extern u8 sys_predo;
 extern spinlock_t cma_lock;
 extern struct mutex pending_lock;
@@ -311,6 +315,10 @@ struct mem_alloc_fault_data;
 #ifndef __GENKSYMS__
 extern struct kobject *low_lat_mem_kobject;
 #endif
+/* G14d (global OS4.0.0.7): new cleanup functions of the main TU */
+extern void cma_area_cleanup(void);
+extern void prep_new_page(struct page *page, unsigned int order, gfp_t gfp_flags, unsigned int alloc_flags);
+extern void mi_smart_refill_exit(void);
 /* functions of the main TU that the dfx TU calls */
 extern void predo_trigger(int val);
 #endif

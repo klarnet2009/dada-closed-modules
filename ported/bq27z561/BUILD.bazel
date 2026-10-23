@@ -1,3 +1,4 @@
+# GLOBAL OS4.0.0.7 build (G14g): headers = //re/stubs_g14g (stubs_g14e + fg ops 632 B), providers = forged GLOBAL stubs //re/stubs_a17B/osg. Community-only: never flash, never in a ROM/kernel package.
 load("/<build-dir>", "ddk_module")
 
 package(default_visibility = ["//re:__subpackages__"])
@@ -12,13 +13,13 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_g13l:mca_headers",
-        "//re/stubs_a17B/os4:os4_mca_hwid",
-        "//re/stubs_a17B/os4:os4_mca_log",
-        "//re/stubs_a17B/os4:os4_mca_sysfs",
-        "//re/stubs_a17B/os4:os4_mca_parse_dts",
-        "//re/stubs_a17B/os4:os4_mca_platform_fg_ic_ops",
-        "//re/stubs_a17B/os4:os4_mca_strategy_class",
+        "//re/stubs_g14g:mca_headers",
+        "//re/stubs_a17B/osg:os4_mca_hwid",
+        "//re/stubs_a17B/osg:os4_mca_log",
+        "//re/stubs_a17B/osg:os4_mca_sysfs",
+        "//re/stubs_a17B/osg:os4_mca_parse_dts",
+        "//re/stubs_a17B/osg:os4_mca_platform_fg_ic_ops",
+        "//re/stubs_a17B/osg:os4_mca_strategy_class",
         "//common:all_headers_aarch64",
     ],
 )

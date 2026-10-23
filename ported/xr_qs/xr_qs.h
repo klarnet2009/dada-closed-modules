@@ -27,6 +27,7 @@ extern void restore_vip_prio(struct task_struct *p);
 /* provided by plat_common */
 extern int plat_sched_set_group_id(struct task_struct *p, unsigned int grp_id);
 extern unsigned int plat_sched_get_group_id(struct task_struct *p);
+extern bool plat_game_vip_check(struct task_struct *p);
 
 enum qievent_notif_type {
 	QIEVENT_QOS_SET = 1,

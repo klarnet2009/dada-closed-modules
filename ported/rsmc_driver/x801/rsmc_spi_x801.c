@@ -38,7 +38,7 @@
 #define DELAY_100_MS 100
 #define SPI_READ_RETRY_TIME 5
 
-struct smc_core_data *g_smc_core PA_PROMOTED(g_smc_core, 7801521484132415741) = NULL;
+struct smc_core_data *g_smc_core PA_PROMOTED(g_smc_core, 2072856626960479955) = NULL;
 
 struct smc_core_data *smc_get_core_data_x801(void)
 {
@@ -352,8 +352,8 @@ static int smc_setup_gpio(struct smc_core_data *cd)
 	return 0;
 }
 
-void smc_free_gpio(struct smc_core_data *cd) PA_PROMOTED(smc_free_gpio, 7801521484132415741);
-void smc_free_gpio(struct smc_core_data *cd)
+/* static in the stock source: no kCFI preamble; ThinLTO promotes it (rsmc_unregister_dev_x801 is imported into rsmc_device_unreg_x801) to GLOBAL HIDDEN smc_free_gpio.llvm.<hash> */
+static void smc_free_gpio(struct smc_core_data *cd)
 {
 	if (cd == NULL)
 		return;
@@ -375,8 +375,8 @@ void smc_free_gpio(struct smc_core_data *cd)
 		gpio_free(cd->gpios.irq_gpio);
 }
 
-void rsmc_tcxo_power_free(struct smc_core_data *cd) PA_PROMOTED(rsmc_tcxo_power_free, 7801521484132415741);
-void rsmc_tcxo_power_free(struct smc_core_data *cd)
+/* static in the stock source: no kCFI preamble; ThinLTO promotes it (rsmc_unregister_dev_x801 is imported into rsmc_device_unreg_x801) to GLOBAL HIDDEN rsmc_tcxo_power_free.llvm.<hash> */
+static void rsmc_tcxo_power_free(struct smc_core_data *cd)
 {
 	struct rsmc_power_supply *power = NULL;
 
@@ -1038,7 +1038,7 @@ static const struct spi_device_id g_rsmc_device_id_x801[] = {
 
 MODULE_DEVICE_TABLE(spi, g_rsmc_device_id_x801);
 
-struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 7801521484132415741) = {
+struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 2072856626960479955) = {
 	.probe = smc_probe,
 	.remove = smc_remove,
 	.id_table = g_rsmc_device_id_x801,
@@ -1050,8 +1050,8 @@ struct spi_driver g_rsmc_spi_driver PA_PROMOTED(g_rsmc_spi_driver, 7801521484132
 	},
 };
 
-const char pa_str62[] PA_SYM(".str.62.llvm.7801521484132415741") = KERN_INFO"%s: call spi_register_driver ret %d";
-const char pa_fn_spi_init[] PA_SYM("__func__.rsmc_spi_init_x801.llvm.7801521484132415741") = "rsmc_spi_init_x801";
+const char pa_str62[] PA_SYM(".str.62.llvm.2072856626960479955") = KERN_INFO"%s: call spi_register_driver ret %d";
+const char pa_fn_spi_init[] PA_SYM("__func__.rsmc_spi_init_x801.llvm.2072856626960479955") = "rsmc_spi_init_x801";
 
 int rsmc_spi_init_x801(void)
 {

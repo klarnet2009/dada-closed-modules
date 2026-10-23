@@ -184,8 +184,8 @@ static void android_vh_binder_transaction_init(void *unused, struct binder_trans
 
 /*
  * G11 (from the stock, 243 insns): the binder driver is about to set the priority of the thread that handles t. caller = the sending task
- * (t->from->task, else current), oneway = t->flags & TF_ONE_WAY (t+0x6c). A qos caller: a qos target only gets QIEVENT_QOS_CORRECT, a normal target
- * inherits (do_binder_qos_inherit + iter_qos_inherit; a oneway transaction clears qi->async_binder_todo); a normal caller on a SYNC transaction
+ * (t->from->task, else current), oneway = t->flags & TF_ONE_WAY (t+0x6c). A qos caller: a qos target gets QIEVENT_QOS_CORRECT first, then (qos or not) the
+ * target inherits (do_binder_qos_inherit + iter_qos_inherit; a oneway transaction clears qi->async_binder_todo); a normal caller on a SYNC transaction
  * records the request in its own vendor area (req = t, f30 = target pid, wait state 0) and the target remembers the caller pid (f4).
  */
 static void android_vh_binder_set_priority(void *unused, struct binder_transaction *t, struct task_struct *task)
@@ -227,30 +227,30 @@ static void android_vh_binder_set_priority(void *unused, struct binder_transacti
 			ev.prio = get_task_prio(task);
 			atomic_notifier_call_chain(&g_qievent_notif_chain, QIEVENT_QOS_CORRECT, &ev);
 			spin_unlock_irqrestore(&tqi->lock, flags);
-		} else {
-			v = android_task_vendor_data(current);
-			if (v) {
-				v->iter_a = NULL;
-				v->iter_b = NULL;
-				v->iter_ptr = t;
-				v->iter_depth = 1;
-			}
-			if (!do_binder_qos_inherit(t, caller, task, tflags & 1))
-				iter_qos_inherit(task, t);
-			if (v) {
-				v->iter_a = NULL;
-				v->iter_b = NULL;
-				v->iter_ptr = NULL;
-				v->iter_depth = 0;
-			}
-			if ((tflags & 1) && qi->async_binder_todo)
-				qi->async_binder_todo = false;
 		}
+		/* G48a: stock S+f8 branches to S+14c for a non-qos target and FALLS THROUGH into it after the notification: the inherit block always runs */
+		v = android_task_vendor_data(current);
+		if (v) {
+			v->iter_a = NULL;
+			v->iter_b = NULL;
+			v->iter_ptr = t;
+			v->iter_depth = 1;
+		}
+		if (!do_binder_qos_inherit(t, caller, task, tflags & 1))
+			iter_qos_inherit(task, t);
+		if (v) {
+			v->iter_a = NULL;
+			v->iter_b = NULL;
+			v->iter_ptr = NULL;
+			v->iter_depth = 0;
+		}
+		if ((tflags & 1) && qi->async_binder_todo)
+			qi->async_binder_todo = false;
 		put_task_struct(task);
 		put_task_struct(caller);
 		return;
 	} else if (!(tflags & 1)) {
-		v = android_task_vendor_data(current);
+		v = android_task_vendor_data(caller);	/* G40f: stock uses the caller (x19) here, current only in the qos-caller branch */
 		if (v && v->f1_b4) {
 			spin_lock_irqsave(&v->lock, flags);
 			v->req = t;

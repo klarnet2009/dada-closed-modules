@@ -33,6 +33,7 @@ static int set_migt_freq(const char *val, const struct kernel_param *kp)
 	unsigned int cpu_freq[2] = { 0, 0 };	/* sscanf targets: [0] cpu, [1] freq */
 	char *ceil, *p = (char *)val;
 	int nsep = -1, i, cpu;
+	u8 en;
 
 	strnstr(kp->name, "migt_freq", n);
 	ceil = strnstr(kp->name, "migt_ceiling_freq", n);
@@ -67,13 +68,15 @@ static int set_migt_freq(const char *val, const struct kernel_param *kp)
 			i += 2;
 		} while (i < nsep);
 	}
-	migt_enabled = 0;
+	/* stock: one store of the result (no transient 0 for lockless readers of migt_enabled) */
+	en = 0;
 	for_each_possible_cpu(cpu) {
 		if (per_cpu(migt_info, cpu).boost_freq) {
-			migt_enabled = 1;
+			en = 1;
 			break;
 		}
 	}
+	migt_enabled = en;
 	return 0;
 }
 
@@ -87,7 +90,7 @@ static int set_migt_flag(const char *val, const struct kernel_param *kp)
 {
 	struct task_struct *task;
 	struct pid *pid;
-	int nr = 0;
+	int nr = 0, nl;
 
 	if (sscanf(val, "%d", &nr) != 1)
 		return -EINVAL;
@@ -102,11 +105,12 @@ static int set_migt_flag(const char *val, const struct kernel_param *kp)
 		put_pid(pid);
 		return -EINVAL;
 	}
-	if (strnstr(kp->name, "add_vip_group", strlen(kp->name)))
+	nl = strlen(kp->name);	/* G14j: stock computes the length once (int, sxtw) */
+	if (strnstr(kp->name, "add_vip_group", nl))
 		user_set_game_vip(task, true);
-	if (strnstr(kp->name, "add_ip_group", strlen(kp->name)))
+	if (strnstr(kp->name, "add_ip_group", nl))
 		user_set_game_ip(task, true);
-	if (strnstr(kp->name, "clean_user_group", strlen(kp->name))) {
+	if (strnstr(kp->name, "clean_user_group", nl)) {
 		user_set_game_vip(task, false);
 		user_set_game_ip(task, false);
 	}
@@ -237,7 +241,7 @@ int set_prefer_cpu_with_check(const char *val, const struct kernel_param *kp)
 
 	if (sscanf(val, "%d", &v) != 1)
 		return -EINVAL;
-	if (v < -2 || v > 7) {
+	if (v < -1 || v > 7) {	/* G14j: stock accepts -1..7 (cmn w8,#0xa; b.ls on v-8), ours let -2 pass */
 		printk(KERN_ERR "migt-gtc: set prefer cpu error, not allowed: %d\n", v);
 		return -EINVAL;
 	}
@@ -254,7 +258,7 @@ int set_prefer_cpu_with_check_and_update(const char *val, const struct kernel_pa
 
 	if (sscanf(val, "%d", &v) != 1)
 		return -EINVAL;
-	if (v < -2 || v > 7) {
+	if (v < -1 || v > 7) {	/* G14j: stock accepts -1..7 (cmn w8,#0xa; b.ls on v-8), ours let -2 pass */
 		printk(KERN_ERR "migt-gtc: set prefer cpu error, not allowed: %d\n", v);
 		return -EINVAL;
 	}
@@ -285,7 +289,7 @@ PREFER_PARAM(param_ops_refer_cpu_update, render_prefer_cpu);
 PREFER_PARAM(param_ops_refer_cpu_update, vip_prefer_cpu);
 
 /* list helpers used by the ioctl / wrender code: render list max 50 entries, wrender list max 100 */
-__used struct game_spid *game_add_task(struct hlist_head *head)
+__used noinline struct game_spid *game_add_task(struct hlist_head *head)
 {
 	struct game_spid *e;
 

@@ -13,7 +13,7 @@
 #include <linux/rcupdate.h>
 #include <trace/hooks/sched.h>
 
-#define PLAT_HOOK_MAX	36
+#define PLAT_HOOK_MAX	41
 
 struct walt_related_thread_group;
 struct metis_choose_cpu_args;

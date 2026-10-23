@@ -94,6 +94,11 @@ static int tfa98xx_g3k_attr_get(void *data, u64 *val, int what)
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
 	int value;
 
+	/* G41a: stock pga_gain_get: no lock, no error check, (u32) value */
+	if (what == 3) {
+		*val = (u32)tfa_get_pga_gain(tfa98xx->tfa);
+		return 0;
+	}
 	mutex_lock(&tfa98xx->dsp_lock);
 	switch (what) {
 	case 0: value = tfa_dev_mtp_get(tfa98xx->tfa, TFA_MTP_OTC); break;
@@ -102,6 +107,10 @@ static int tfa98xx_g3k_attr_get(void *data, u64 *val, int what)
 	default: value = tfa_get_pga_gain(tfa98xx->tfa); break;
 	}
 	mutex_unlock(&tfa98xx->dsp_lock);
+	if (what == 2) {	/* G41a: stock temp_get sign-extends the s16 and never fails */
+		*val = (u64)(long)(short)value;
+		return 0;
+	}
 	if (value < 0)
 		return -EIO;
 	*val = value;
@@ -114,6 +123,12 @@ static int tfa98xx_g3k_attr_set(void *data, u64 val, int what)
 	struct tfa98xx *tfa98xx = i2c_get_clientdata(i2c);
 	int err;
 
+	if (what == 3) {	/* G41a: stock pga_gain_set: val > 7 -> -EINVAL, a failing set -> -EINVAL, no lock */
+		if (val & ~7ULL)
+			return -EINVAL;
+		err = tfa_set_pga_gain(tfa98xx->tfa, val);
+		return err < 0 ? -EINVAL : 0;
+	}
 	if (what < 2 && val > 1)
 		return -EINVAL;
 	mutex_lock(&tfa98xx->dsp_lock);
@@ -133,8 +148,69 @@ static int tfa98xx_dbgfs_##sh##_set(void *d, u64 v) { return tfa98xx_g3k_attr_se
 static int __used tfa98xx_dbgfs_##name##_fops_open(struct inode *inode, struct file *file) \
 { return simple_attr_open(inode, file, tfa98xx_dbgfs_##sh##_get, tfa98xx_dbgfs_##sh##_set, "%llu\n"); }
 
-G3K_ATTR(calib_otc, otc, 0)
-G3K_ATTR(calib_mtpex, mtpex, 1)
+/* G40g: stock tfa98xx_dbgfs_{otc,mtpex}_{get,set} print their own errors ("%s(): [0x%x] ..." through pr_fmt); MTPEX accepts ONLY 0
+ * (stock: cbnz x1 -> error, then tfa_dev_mtp_set(EX, 0)) */
+#define G3K_MTP_GET(sh, mtp) \
+static int tfa98xx_dbgfs_##sh##_get(void *d, u64 *v) \
+{ \
+	struct tfa98xx *tfa98xx = i2c_get_clientdata((struct i2c_client *)d); \
+	int value; \
+	mutex_lock(&tfa98xx->dsp_lock); \
+	value = tfa_dev_mtp_get(tfa98xx->tfa, mtp); \
+	mutex_unlock(&tfa98xx->dsp_lock); \
+	if (value < 0) { \
+		pr_err("[0x%x] Unable to check DSP access: %d\n", tfa98xx->i2c->addr, value); \
+		return -EIO; \
+	} \
+	*v = (u32)value; \
+	return 0; \
+}
+G3K_MTP_GET(otc, TFA_MTP_OTC)
+G3K_MTP_GET(mtpex, TFA_MTP_EX)
+
+static int tfa98xx_dbgfs_otc_set(void *d, u64 v)
+{
+	struct tfa98xx *tfa98xx = i2c_get_clientdata((struct i2c_client *)d);
+	int err;
+
+	if (v >= 2) {
+		pr_err("[0x%x] Unexpected value %llu\n", tfa98xx->i2c->addr, v);
+		return -EINVAL;
+	}
+	mutex_lock(&tfa98xx->dsp_lock);
+	err = tfa_dev_mtp_set(tfa98xx->tfa, TFA_MTP_OTC, v);
+	mutex_unlock(&tfa98xx->dsp_lock);
+	if (err) {
+		pr_err("[0x%x] Unable to check DSP access: %d\n", tfa98xx->i2c->addr, err);
+		return -EIO;
+	}
+	return 0;
+}
+
+static int tfa98xx_dbgfs_mtpex_set(void *d, u64 v)
+{
+	struct tfa98xx *tfa98xx = i2c_get_clientdata((struct i2c_client *)d);
+	int err;
+
+	if (v) {
+		pr_err("[0x%x] Can only clear MTPEX (0 value expected)\n", tfa98xx->i2c->addr);
+		return -EINVAL;
+	}
+	mutex_lock(&tfa98xx->dsp_lock);
+	err = tfa_dev_mtp_set(tfa98xx->tfa, TFA_MTP_EX, 0);
+	mutex_unlock(&tfa98xx->dsp_lock);
+	if (err) {
+		pr_err("[0x%x] Unable to check DSP access: %d\n", tfa98xx->i2c->addr, err);
+		return -EIO;
+	}
+	return 0;
+}
+
+#define G3K_ATTR_OPEN(name, sh) \
+static int __used tfa98xx_dbgfs_##name##_fops_open(struct inode *inode, struct file *file) \
+{ return simple_attr_open(inode, file, tfa98xx_dbgfs_##sh##_get, tfa98xx_dbgfs_##sh##_set, "%llu\n"); }
+G3K_ATTR_OPEN(calib_otc, otc)
+G3K_ATTR_OPEN(calib_mtpex, mtpex)
 G3K_ATTR(calib_temp, temp, 2)
 G3K_ATTR(pga_gain, pga_gain, 3)
 
@@ -146,7 +222,7 @@ G3K_FOPS(calib_temp);
 G3K_FOPS(pga_gain);
 
 /* --- Xiaomi mixer controls --- */
-static int tfa98xx_pcm_id, tfa98xx_miid;	/* stock: .bss+0x64 / .bss+0x68, guarded by tfa98xx_mutex */
+static unsigned int tfa98xx_pcm_id, tfa98xx_miid;	/* stock: .bss+0x64 / .bss+0x68, guarded by tfa98xx_mutex */
 
 static int g3k_info_u32(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -172,7 +248,7 @@ static int __used tfa98xx_info_miid(struct snd_kcontrol *kcontrol, struct snd_ct
 static int __used tfa98xx_get_pcm_id(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	mutex_lock(&tfa98xx_mutex);
-	ucontrol->value.integer.value[0] = tfa98xx_pcm_id;
+	ucontrol->value.integer.value[0] = tfa98xx_pcm_id;	/* G53a: stock stores the 64-bit long (str x8,[ucontrol,#0x48]); G41a had it as 32-bit item[0] */
 	mutex_unlock(&tfa98xx_mutex);
 	return 0;
 }
@@ -188,7 +264,7 @@ static int __used tfa98xx_set_pcm_id(struct snd_kcontrol *kcontrol, struct snd_c
 static int __used tfa98xx_get_miid(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
 {
 	mutex_lock(&tfa98xx_mutex);
-	ucontrol->value.integer.value[0] = tfa98xx_miid;
+	ucontrol->value.integer.value[0] = tfa98xx_miid;	/* G53a: stock stores the 64-bit long (str x8,[ucontrol,#0x48]); G41a had it as 32-bit item[0] */
 	mutex_unlock(&tfa98xx_mutex);
 	return 0;
 }
@@ -210,9 +286,9 @@ static int tfa98xx_spksw_gpio_get(struct snd_kcontrol *kcontrol, struct snd_ctl_
 
 	dev_info(&tfa98xx->i2c->dev, "spk_sw level cached = %d, actual = %d\n", tfa98xx->spksw_level, level);
 	if (level < 0) {
-		ucontrol->value.integer.value[0] = tfa98xx->spksw_level;
+		ucontrol->value.enumerated.item[0] = tfa98xx->spksw_level;
 	} else {
-		ucontrol->value.integer.value[0] = level;
+		ucontrol->value.enumerated.item[0] = level;
 		tfa98xx->spksw_level = level;
 	}
 	return 0;

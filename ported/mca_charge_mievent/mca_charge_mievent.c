@@ -125,6 +125,8 @@ struct mievent_upload_type_time {
 #define MIEVENT_CODE_BATTERY_TEMP_COLD	0x362e606a
 #define MIEVENT_CODE_BATTERY_VOLTAGE_DIFFER	0x362e73f2
 #define MIEVENT_CODE_WLS_MAG_CASE_ATTACH	0x362e683b
+/* GLOBAL OS4.0.0.7: one more plug-type event, last entry of the table (index 63) */
+#define MIEVENT_CODE_BATT_SAFE_LVL	0x362e740a
 /* OS4: 13 new plug-type events */
 #define MIEVENT_CODE_RM_FCC_ERR	0x362e740b
 #define MIEVENT_CODE_RECHG_SOC_ERR	0x362e7404
@@ -196,6 +198,7 @@ enum mievent_plug_type {
 	PLUG_TYPE_SOC_JUMP,
 	PLUG_TYPE_VBAT_MEAN_SHUTDOWN,
 	PLUG_TYPE_BATTERY_OVER_VOLTAGE,
+	PLUG_TYPE_BATT_SAFE_LVL,
 	PLUG_TYPE_MAX_NUM,
 };
 
@@ -847,6 +850,16 @@ static struct charge_mievent_info g_charge_mievent_info[MIEVENT_EVENT_NUM] = {
 		.data_count = 0,
 		.para_name = {""},
 	},
+	{
+		.event_code = MIEVENT_CODE_BATT_SAFE_LVL,
+		.event_type = "chgErrInfo",
+		.event_describe = "BattSafeLvl",
+		.upload_type = MIEVENT_UPLOAD_TYPE_PLUG,
+		.type_index = PLUG_TYPE_BATT_SAFE_LVL,
+		.data_type = MIEVENT_DATA_TYPE_INT,
+		.data_count = 3,
+		.para_name = {"level", "vlimit", "ilimit"},
+	},
 };
 
 static struct mievent_upload_type_plug g_upload_type_plug_info[PLUG_TYPE_MAX_NUM] = {
@@ -905,6 +918,7 @@ static struct mievent_upload_type_plug g_upload_type_plug_info[PLUG_TYPE_MAX_NUM
 	{DEFAULT_MAX_COUNT, 0},
 	{DEFAULT_MAX_COUNT, 0},
 	{DEFAULT_MAX_COUNT, 0},
+	{DEFAULT_MAX_COUNT, 0},
 };
 
 static struct mievent_upload_type_time g_upload_type_time_info[TIME_TYPE_MAX_NUM] = {
@@ -930,19 +944,19 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 	struct mca_event_notify_data n_data = { 0 };
 
 	if (event_index >= MIEVENT_EVENT_NUM || event_index < 0) {
-#line 754
+#line 765
 		mca_log_err("event_index[%d] invalid", event_index);
 		return;
 	}
 
 	mievent = &g_charge_mievent_info[event_index];
 	if (size != mievent->data_count) {
-#line 760
+#line 771
 		mca_log_err("data_type is int param size invalid\n");
 		return;
 	} else {
 		if (size && !data) {
-#line 764
+#line 775
 			mca_log_err("data_type is int param null invalid\n");
 			return;
 		}
@@ -950,7 +964,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 
 	if (!strcmp(mievent->event_type, "chgErrInfo") &&
 		mievent->event_code != MIEVENT_CODE_NOT_STANDARD_ADAPTER)
-#line 770
+#line 781
 		__mca_log_err("[ARCH-TF-CHARGER]" "[" MCA_LOG_TAG "]%s:%d %s %s\n", __func__, __LINE__,
 			mievent->event_type, mievent->event_describe);
 
@@ -958,7 +972,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 	if (mievent->upload_type == MIEVENT_UPLOAD_TYPE_PLUG) {
 		if (g_upload_type_plug_info[g_index].count < g_upload_type_plug_info[g_index].max_count) {
 			is_report = true;
-#line 776
+#line 787
 			mca_log_err("event_code[%d][%s] must report fault\n", mievent->event_code, mievent->event_describe);
 		}
 		g_upload_type_plug_info[g_index].count++;
@@ -968,7 +982,7 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 			time_now - g_upload_type_time_info[g_index].time_last >=
 			g_upload_type_time_info[g_index].time_interval) {
 			is_report = true;
-#line 784
+#line 795
 			mca_log_err("event_code[%d] must report fault\n", mievent->event_code, mievent->event_describe);
 			g_upload_type_time_info[g_index].time_last = time_now;
 		}
@@ -982,20 +996,20 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 
 		event = cdev_tevent_alloc(mievent->event_code);
 		if (!event) {
-#line 797
+#line 808
 			mca_log_err("cdev_tevent_alloc failed");
 			return;
 		}
 
 		cdev_tevent_add_str(event, mievent->event_type, mievent->event_describe);
-#line 802
+#line 813
 		mca_log_err("[%d] [%s] [%s]\n", mievent->event_code, mievent->event_type, mievent->event_describe);
 		switch (mievent->data_type) {
 		case MIEVENT_DATA_TYPE_INT:
 			param = (int *)data;
 			for (int i = 0; i < mievent->data_count; i++) {
 				cdev_tevent_add_int(event, mievent->para_name[i], param[i]);
-#line 808
+#line 819
 				mca_log_err("[%s] [%d]\n", mievent->para_name[i], param[i]);
 			}
 			break;
@@ -1003,12 +1017,12 @@ void mca_charge_mievent_report(int event_index, void *data, int size)
 			string = (char **)data;
 			for (int i = 0; i < mievent->data_count; i++) {
 				if (strlen(string[i]) >= MIEVENT_STRING_MAX_LEN) {
-#line 815
+#line 826
 					mca_log_err("[%s] [%s] String Len overflow\n", mievent->para_name[i], string[i]);
 					continue;
 				}
 				cdev_tevent_add_str(event, mievent->para_name[i], string[i]);
-#line 819
+#line 830
 				mca_log_err("[%s] [%s]\n", mievent->para_name[i], string[i]);
 			}
 			break;
@@ -1031,7 +1045,7 @@ void mca_charge_mievent_set_state(enum charge_mievent_state_ele state, int value
 	switch (state) {
 	case MIEVENT_STATE_PLUG:
 		if (value) {
-#line 844
+#line 855
 			mca_log_info("don't plug out can't reset fault status");
 			return;
 		}
@@ -1040,7 +1054,7 @@ void mca_charge_mievent_set_state(enum charge_mievent_state_ele state, int value
 		break;
 	case MIEVENT_STATE_END:
 		if (value >= MIEVENT_EVENT_NUM || value < 0) {
-#line 852
+#line 863
 			mca_log_err("event_index[%d] invalid", value);
 			return;
 		}

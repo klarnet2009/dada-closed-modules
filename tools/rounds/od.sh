@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # od.sh <module> <func> [stock|ours]: normalised one-line-per-insn disassembly of a function (stock or our ThinLTO-emulation object), written to $S/<func>.{s,o}.n and printed with N lines from line F
-R="$(cd "$(dirname "$0")/.." && pwd)"; S=${S:-/c/Users/<user>/AppData/Local/Temp/claude/E--samsung-firmware/2d629e4b-0b3b-4991-b51f-f3ad530161c0/scratchpad/g1al}; mkdir -p $S
+R="$(cd "$(dirname "$0")/.." && pwd)"; S=${S:-<scratch>}; mkdir -p $S
 B=<build-dir>
 m=$1; f=$2
 sv() { ssh -i "<ssh-key-file>" -o BatchMode=yes -o ConnectTimeout=20 <user>@<build-server> "$@"; }

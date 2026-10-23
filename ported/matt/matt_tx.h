@@ -61,8 +61,8 @@ void matt_data_wfree(struct sk_buff *skb)
 		if (!(oval & MATT_MSQF_THROTTLED) || (oval & MATT_MSQF_QUEUED))
 			goto out;
 		nval = (oval & ~MATT_MSQF_THROTTLED) | MATT_MSQF_QUEUED;
-		nval = cmpxchg(&sk->sk_tsq_flags, oval, nval);
-	} while (nval != oval);
+		/* g61a: try_cmpxchg as the stock (tcp_wfree): on failure oval is reloaded and re-tested */
+	} while (!try_cmpxchg(&sk->sk_tsq_flags, &oval, nval));
 
 	local_irq_save(flags);
 	tsq = this_cpu_ptr(&msq_tasklet);

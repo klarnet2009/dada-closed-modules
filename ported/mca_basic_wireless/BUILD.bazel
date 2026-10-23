@@ -12,7 +12,7 @@ ddk_module(
     copts = ["-ffunction-sections", "-fdata-sections"],
     kernel_build = "//common:kernel_aarch64",
     deps = [
-        "//re/stubs_g13a:mca_headers",
+        "//re/stubs_g14e_a:mca_headers",
         "//re/stubs_a17B/os4:os4_mca_log",
         "//re/stubs_a17B/os4:os4_mca_platform_cp_class",
         "//re/stubs_a17B/os4:os4_mca_platform_wireless_class",

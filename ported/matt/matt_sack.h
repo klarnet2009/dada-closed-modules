@@ -53,6 +53,10 @@ static noinline void matt_sacktag_write_queue(struct sock *sk, struct sk_buff *s
 		return;
 #line 1175
 	MATT_TRACE(0, 9, "sack found:num=%d!", num);
+	/* G15d HARDENING (stock has no such check: remote OOB read of up to 1 KB, S1 of matt_review2): drop SACK lists that do not fit in the linear data */
+	/* G22a (review D1): negative num (corrupt sacks_size) must reach the stock sz<8 path (sack_used = 0, highest = 0), so check only num > 0; placed after the trace so the trace is not duplicated per path */
+	if (num > 0 && (unsigned long)((u8 *)wire - skb->data) + (unsigned long)num * 8 > skb_headlen(skb))
+		return;
 	if (sz >= 8) {
 		for (i = 0; i < num; i++) {
 			outq->sacks[i].offset_start = ntohl(wire[i].offset_start);
@@ -87,7 +91,7 @@ static noinline void matt_sacktag_write_queue(struct sock *sk, struct sk_buff *s
 
 				if (!before(cb->offset_start, end)) {
 #line 1075
-					MATT_TRACE(0, 9, "skb is out of sack, endseq:%d seq( %u, %u )", end, cb->offset_start, cb->offset_end);
+					matt_trace_msg(0, 9, "%s: %d: skb is out of sack, endseq:%d seq( %u, %u )", "matt_sacktag_walk", __LINE__, end, cb->offset_start, cb->offset_end);
 					break;
 				}
 				diff = cb->offset_start - start;
@@ -112,16 +116,16 @@ static noinline void matt_sacktag_write_queue(struct sock *sk, struct sk_buff *s
 							new_len += mss;
 						pkt_len = new_len;
 #line 950
-						MATT_TRACE(0, 9, "pkg_len=%u > mss=%u", pkt_len, mss);
+						matt_trace_msg(0, 9, "%s: %d: pkg_len=%u > mss=%u", "matt_match_skb_to_sack", __LINE__, pkt_len, mss);
 					}
 					if (diff < 0 && pkt_len >= cur->len) {
 #line 955
-						MATT_TRACE(0, 2, "should never here, pkg_len=%u skb_len=%u", pkt_len, cur->len);
+						matt_trace_msg(0, 2, "%s: %d: should never here, pkg_len=%u skb_len=%u", "matt_match_skb_to_sack", __LINE__, pkt_len, cur->len);
 						break;
 					}
 #line 961
-					MATT_TRACE(0, 9, "skb(%u, %u) sack(%u, %u) pkg_len=%u mss=%u", cb->offset_start, cb->offset_end, start, end,
-						   pkt_len, mss);
+					matt_trace_msg(0, 9, "%s: %d: skb(%u, %u) sack(%u, %u) pkg_len=%u mss=%u", "matt_match_skb_to_sack",
+						   __LINE__, cb->offset_start, cb->offset_end, start, end, pkt_len, mss);
 					if (matt_fragment(sk, MATT_FRAG_IN_RTX_QUEUE, cur, pkt_len, mss, GFP_ATOMIC) < 0)
 						break;
 					in_sack = diff >= 0;
@@ -158,7 +162,7 @@ static noinline void matt_sacktag_write_queue(struct sock *sk, struct sk_buff *s
 					outq->sacked_out += segs;
 					state->sack_delivered += segs;
 #line 1056
-					MATT_TRACE(0, 9, "find seq( %d, %d ) in sack, sacked_out=%u", cb->offset_start, cb->offset_end, outq->sacked_out);
+					matt_trace_msg(0, 9, "%s: %d: find seq( %d, %d ) in sack, sacked_out=%u", "matt_sacktag_one", __LINE__, cb->offset_start, cb->offset_end, outq->sacked_out);
 				}
 				cb->sacked = sacked;
 				matt_rate_skb_delivered(sk, cur, state->rate);
@@ -181,7 +185,7 @@ static __always_inline void matt_rtx_queue_unlink_and_free(struct sock *sk, stru
 	struct matt_data_stats *ds = &outq->send[STATS_FACKED];
 
 	ds->data_num += max_t(u16, MATT_SKB_CB(skb)->gso_segs, 1);
-	ds->data_bytes += skb->len - sizeof(struct matthdr);
+	ds->data_bytes += (u32)(skb->len - sizeof(struct matthdr));
 #line 741
 	MATT_TRACE(0, 9, "sk=%p skb:[%u->%u]", sk, MATT_SKB_CB(skb)->offset_start, MATT_SKB_CB(skb)->offset_end);
 	__list_del_entry(&skb->tcp_tsorted_anchor);
@@ -198,7 +202,7 @@ static __always_inline void matt_trim_stats(struct matt_data_stats *ds, struct s
 
 	if (!(u16)trimmed || old_segs == segs) {
 		ds->data_num += max_t(u32, segs, 1);
-		ds->data_bytes += skb->len - sizeof(struct matthdr);
+		ds->data_bytes += (u32)(skb->len - sizeof(struct matthdr));
 	} else {
 		ds->data_num += (u16)(old_segs - segs);
 		ds->data_bytes += (u16)trimmed;
@@ -293,21 +297,22 @@ static noinline void matt_clean_rtx_queue(struct sock *sk, u32 ack_offset, struc
 				for (k = 0; k < used; k++) {
 					const struct matt_sack_block *sb = sbase + (s32)k; /* pointer: no array-bounds trap, stock has none */
 #line 668
-					MATT_TRACE(0, 9, "sack#%u seq(%u, %u)", k, sb->offset_start, sb->offset_end);
+					matt_trace_msg(0, 9, "%s: %d: sack#%u seq(%u, %u)", "matt_mso_sacked", __LINE__, k, sb->offset_start, sb->offset_end);
 					if (before(cb->offset_start, sb->offset_start))
 						continue;
-					if (before(sb->offset_end, cb->offset_start))
-						continue;
+					/* g64a: the stock tests the full-ack case BEFORE before(sb->end, cb->start) (differs when sb->end is ~2^31 behind) */
 					if ((s32)(sb->offset_end - cb->offset_end) >= 0) {
-#line 694
-						MATT_TRACE(0, 9, "fullack in sack skb(%u, %u) sack(%u, %u)", cb->offset_start, cb->offset_end,
+#line 695
+						matt_trace_msg(0, 9, "%s: %d: fullack in sack skb(%u, %u) sack(%u, %u)", "matt_mso_sacked", __LINE__, cb->offset_start, cb->offset_end,
 							   sb->offset_start, sb->offset_end);
 						acked = MATT_SKB_CB(skb)->gso_segs;
 						fully = true;
 						goto account;
 					}
-#line 674
-					MATT_TRACE(0, 9, "partack in sack skb(%u, %u) sack(%u, %u)", cb->offset_start, cb->offset_end,
+					if (before(sb->offset_end, cb->offset_start))
+						continue;
+#line 675
+					matt_trace_msg(0, 9, "%s: %d: partack in sack skb(%u, %u) sack(%u, %u)", "matt_mso_sacked", __LINE__, cb->offset_start, cb->offset_end,
 						   sb->offset_start, sb->offset_end);
 					trimmed = sb->offset_end - cb->offset_start;
 					old_segs = MATT_SKB_CB(skb)->gso_segs;
@@ -318,7 +323,7 @@ static noinline void matt_clean_rtx_queue(struct sock *sk, u32 ack_offset, struc
 					}
 					matt_trim_stats(&outq->send[STATS_SACKED], skb, trimmed, old_segs);
 #line 685
-					MATT_TRACE(0, 9, "partack trim out skb(%u, %u)", cb->offset_start, cb->offset_end);
+					matt_trace_msg(0, 9, "%s: %d: partack trim out skb(%u, %u)", "matt_mso_sacked", __LINE__, cb->offset_start, cb->offset_end);
 					acked = old_segs - MATT_SKB_CB(skb)->gso_segs;
 					fully = false;
 					goto account;

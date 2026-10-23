@@ -29,8 +29,11 @@ ddk_module(
         "//re/stubs_a17B/os4:os4_mca_smart_charge",
         "//re/stubs_a17B/os4:os4_mca_strategy_class",
         "//re/stubs_a17B/os4:os4_mca_strategy_fg_class",
+        ":stub_dynfv",  # G14b: provider of the GLOBAL-only import strategy_class_fg_set_dynamic_fv (stub, never shipped)
         "//re/stubs_a17B/os4:os4_mca_sysfs",
         "//re/stubs_a17B/os4:os4_mca_workqueue",
         "//common:all_headers_aarch64",
     ],
 )
+
+ddk_module(name = "stub_dynfv", srcs = ["stub_dynfv.c"], out = "mca_stub_dynfv.ko", kernel_build = "//common:kernel_aarch64", deps = ["//common:all_headers_aarch64"])

@@ -65,8 +65,8 @@ static u32 m_black_mark = 0x20000000; /* stock .data initial value */
 static u32 m_user_offset = 100000; /* stock .data initial value */
 static u32 m_app_start = 10000; /* stock .data initial value */
 static struct tc_list m_tc_list;
-/* ThinLTO-promoted static of the stock (hash not reproducible): non-static object with the stock symbol name */
-mi_idletimer_tg_info m_idletimer_info __asm__("m_idletimer_info.llvm.6912468423217759055") __attribute__((visibility("hidden")));
+/* static in the stock source; ThinLTO promotes it to a GLOBAL HIDDEN m_idletimer_info.llvm.<hash> (the hash is a content hash of the TU, not reproducible) */
+static mi_idletimer_tg_info m_idletimer_info;
 
 static void destroy_app(struct tc_app *app)
 {
@@ -137,10 +137,8 @@ out:
 	return ret;
 }
 
-/* stock: static in the source (no kCFI preamble), ThinLTO-promoted to GLOBAL HIDDEN clear_tc_app.llvm.<hash>. Ours is a real hidden global, so a harmless 4-byte kCFI preamble word precedes it
-   (G9: static + module-asm .globl removes the preamble but module asm blocks the ThinLTO import/inlining of minet_tc_limiter_finit into cleanup_module: tried, 3 iterations, reverted). */
-void clear_tc_app(void) __asm__("clear_tc_app.llvm.6912468423217759055") __attribute__((visibility("hidden"), no_sanitize("kcfi")));
-void clear_tc_app(void)
+/* static in the stock source: no kCFI preamble; ThinLTO promotes it (minet_tc_limiter_finit is imported into cleanup_module) to GLOBAL HIDDEN clear_tc_app.llvm.<hash> */
+static void clear_tc_app(void)
 {
 	struct tc_app *app, *tmp;
 
@@ -189,7 +187,7 @@ void tl_after_filter_in(struct sk_buff *skb, u32 uid)
 	read_unlock_bh(&m_tc_list.lock);
 
 	if (hit)
-		reset_timer(m_idletimer_info.timer, m_idletimer_info.timer->timeout, (int *)&uid);
+		mi_idletimer_tg_target_v1((int *)&uid, m_idletimer_info.timer);
 }
 
 int minet_set_tc_enable(void *data, int len, struct genl_info *info)
@@ -223,7 +221,7 @@ int minet_set_tc_enable(void *data, int len, struct genl_info *info)
 		m_app_start = msg->app_start;
 		WRITE_ONCE(m_tc_enable, 1);
 		reply.cur = msg->version;
-		reset_timer(m_idletimer_info.timer, m_idletimer_info.timer->timeout, NULL);
+		mi_idletimer_tg_target_v1(NULL, m_idletimer_info.timer);
 		minet_info("%s switch on", __func__);
 	} else if (msg->version) {
 		minet_err("%s already enable version:%u can not enable version:%u", __func__, reply.cur, msg->version);

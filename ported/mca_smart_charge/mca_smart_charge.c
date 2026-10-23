@@ -98,13 +98,13 @@ static struct mca_smartchg_if_ops *mca_smartchg_if_get_ops(unsigned int type)
 int mca_smartchg_if_ops_register(struct mca_smartchg_if_ops *ops)
 {
 	if (!ops) {
-#line 91
+#line 92
 		mca_log_err("ops invalid %d\n");
 		return -1;
 	}
 
 	if (ops->type < 0 || ops->type >= MCA_SMARTCHG_IF_CHG_TYPE_END) {
-#line 96
+#line 97
 		mca_log_err("ops->type invalid %d\n", ops->type);
 		return -1;
 	}
@@ -130,6 +130,8 @@ struct mca_sysfs_attr_info smartchg_sysfs_field_tbl[] = {
 	mca_sysfs_attr_rw(smart_charge_sysfs, 0664, MCA_PROP_SCENE, scene),
 	mca_sysfs_attr_rw(smart_charge_sysfs, 0664, MCA_PROP_BOARD_TEMP, board_temp),
 	mca_sysfs_attr_rw(smart_charge_sysfs, 0664, MCA_PROP_SMART_SIC_MODE, smart_sic_mode),
+	mca_sysfs_attr_rw(smart_charge_sysfs, 0664, MCA_PROP_BATT_SAFE_LVL, batt_safe_lvl),	/* GLOBAL 0.7 */
+	mca_sysfs_attr_rw(smart_charge_sysfs, 0664, MCA_PROP_BATT_SAFE_VLIM, batt_safe_vlim),
 };
 
 #define SMARTCHG_SYSFS_ATTRS_SIZE   ARRAY_SIZE(smartchg_sysfs_field_tbl)
@@ -145,12 +147,12 @@ void mca_smartchg_set_scene(int scene)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	if (!info) {
-#line 136
+#line 139
 		mca_log_err("info is null\n");
 		return;
 	}
 
-#line 140
+#line 143
 	mca_log_info("set scene: %d:%d => %d\n", info->scene, info->fake_scene, scene);
 	if (scene >= SMART_CHG_SCENE_NORMAL && scene < SMART_CHG_SCENE_INDEX_MAX) {
 		smart_charge_report_scene(info, scene);
@@ -171,7 +173,7 @@ int mca_smartchg_get_scene(void)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	if (!info) {
-#line 160
+#line 163
 		mca_log_err("info is null\n");
 		return 0;
 	}
@@ -188,12 +190,12 @@ void mca_smartchg_set_board_temp(int board_temp)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	if (!info) {
-#line 176
+#line 179
 		mca_log_err("info is null\n");
 		return;
 	}
 
-#line 180
+#line 183
 	mca_log_info("set board_temp: %d\n", board_temp);
 	info->board_temp = board_temp;
 }
@@ -204,7 +206,7 @@ int mca_smartchg_get_board_temp(void)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	if (!info) {
-#line 190
+#line 193
 		mca_log_err("info is null\n");
 		return 0;
 	}
@@ -226,7 +228,7 @@ int mca_smartchg_get_limit_soc(void)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	if (!info) {
-#line 211
+#line 214
 		mca_log_err("info is null\n");
 		return 0;
 	}
@@ -236,10 +238,33 @@ int mca_smartchg_get_limit_soc(void)
 }
 EXPORT_SYMBOL(mca_smartchg_get_limit_soc);
 
+/* GLOBAL OS4.0.0.7 (G14e): new export, decoded from the stock .text+0x888; called by mca_strategy_fg_comp with 60 when a battery emergency is raised (result ignored there).
+ * Votes the SoC limit through soc_limit_voter (reason "batt_emerg").  FINDING (not run on hardware): in the stock the field soc_limit_voter (+600) is only READ here,
+ * no store to it was found anywhere in the module (search of the whole disassembly), and mca_vote(NULL, ...) returns -EINVAL at its first check (mca_common), so the
+ * 60 % SoC limit is a NO-OP in the stock; kept for equivalence, do NOT add a votable.
+ * G17b (review-batt-emerg D2): the stock returns 0 on EVERY path (`mov w0, wzr` at .text+0x8e0, also for an out-of-range limit and for info == NULL); the vote result is dropped.
+ * Community-only, no safety claim. */
+int mca_smartchg_set_batt_emerg_soc_limit(int limit);
+int mca_smartchg_set_batt_emerg_soc_limit(int limit)
+{
+	struct smart_charge_info *info = global_smartchg_info;
+
+	if (!info) {
+#line 228
+		mca_log_err("info is null\n");
+		return 0;
+	}
+	if (limit >= 1 && limit <= 100)
+		mca_vote(info->soc_limit_voter, "batt_emerg", true, limit);
+	return 0;
+}
+EXPORT_SYMBOL(mca_smartchg_set_batt_emerg_soc_limit);
+
 /* OS4 (new vs the XRING template): smart bypass debounce.  Reconstructed from the stock disassembly. */
 void smart_charge_check_bypass_status(struct smart_charge_info *info)
 {
 	static bool once_flag;
+	bool flag;
 
 	/* stock +0x0: ldrb [x0,#0x650]; cbz -> continue, i.e. return when the flag is NON-zero (G13h: was inverted) */
 	if (info->in_debounce) {
@@ -247,23 +272,25 @@ void smart_charge_check_bypass_status(struct smart_charge_info *info)
 		return;
 	}
 
-	if (once_flag) {
+	flag = once_flag;	/* G51a: stock loads once_flag once (w21) and reuses it across the calls */
+	if (flag) {
 		if (ktime_get_boottime() > info->bypass_debounce_time + 10000000000LL) {
-#line 837
+#line 862
 			mca_log_err("for_bypass exit bypass\n");
 			mca_vote(info->smartchg_fcc_voter, "smart_bypass", false, 0);
-			/* STOCK: stores 1 (not 0) into in_debounce on exit, so the exit path repeats on every call */
+			/* STOCK (G22d, .text+0x90..0xc0): stores 1 into in_debounce on exit (the next call returns at the top
+			 * and clears once_flag), then clears once_flag now (w21 ^ 1) and falls into the "Debounce" log below */
 			info->in_debounce = true;
-			return;
+			once_flag = !flag;
 		}
 	} else {
-#line 832
+#line 857
 		mca_log_err("for_bypass start time\n");
 		info->bypass_debounce_time = ktime_get_boottime();
-		once_flag = !once_flag;
+		once_flag = !flag;
 	}
 
-#line 842
+#line 867
 	mca_log_err("for_bypass Debounce: %lld s",
 		div_s64(ktime_get_boottime() - info->bypass_debounce_time, NSEC_PER_SEC));
 }
@@ -283,24 +310,26 @@ static noinline void update_smart_bypass_temp_section(struct smart_charge_info *
 	}
 	if (idx < 0) {
 		/* STOCK prints the (negative) index, not the temperature */
-#line 804
+#line 829
 		mca_log_err("temp over range invalid, current:%d\n", idx);
 		return;
 	}
 
 	cur = info->smart_bypass_cfg.cur_temp_index;
+	/* G25b: STOCK (.text+0x35ec..0x36e0) logs on EVERY call that found an index [all paths reach 0x36c4], the index shown is the one after the update */
 	if (cur < idx) {
-		if (board_temp < tbl[cur][1] + tbl[cur][3])
-			return;
+		if (board_temp >= tbl[cur][1] + tbl[cur][3]) {
+			cur = idx;
+			info->smart_bypass_cfg.cur_temp_index = idx;
+		}
 	} else if (cur > idx) {
-		if (board_temp >= tbl[cur][0] - tbl[cur][2])
-			return;
-	} else {
-		return;
+		if (board_temp < tbl[cur][0] - tbl[cur][2]) {
+			cur = idx;
+			info->smart_bypass_cfg.cur_temp_index = idx;
+		}
 	}
-	info->smart_bypass_cfg.cur_temp_index = idx;
-#line 818
-	mca_log_err("for_bypass board_temp:%d, cur_temp_index:%d\n", board_temp, idx);
+#line 843
+	mca_log_err("for_bypass board_temp:%d, cur_temp_index:%d\n", board_temp, cur);
 }
 
 static void smart_charge_report_scene(struct smart_charge_info *info, int scene)
@@ -337,7 +366,7 @@ static void smart_charge_report_scene(struct smart_charge_info *info, int scene)
 		}
 
 		if (report_scene != last_report_scene) {
-#line 254
+#line 273
 			mca_log_info("report scene: %d => %d\n", last_report_scene, report_scene);
 			last_report_scene = report_scene;
 
@@ -407,7 +436,7 @@ static void smart_charge_handle_sense_chg(struct smart_charge_info *info)
 			if (posture_st >= SMART_CHG_POSTURE_DESKTOP && posture_st <= SMART_CHG_POSTURE_HOLDER)
 				sic_mode = SMART_CHG_SIC_MODE_SUPERCHG;
 		} else {
-#line 331
+#line 350
 			mca_log_err("unsupport scene: %d\n", info->scene);
 			return;
 		}
@@ -426,13 +455,13 @@ static void smart_charge_handle_sense_chg(struct smart_charge_info *info)
 			else
 				sic_mode = SMART_CHG_SIC_MODE_SUPERCHG;
 		} else {
-#line 349
+#line 368
 			mca_log_err("unsupport scene: %d\n", info->scene);
 			return;
 		}
 		break;
 	default:
-#line 354
+#line 373
 		mca_log_err("unsupport scene: %d\n", info->scene);
 		return;
 	}
@@ -440,7 +469,7 @@ static void smart_charge_handle_sense_chg(struct smart_charge_info *info)
 	if (info->screen_state == 0)
 		sic_mode /= 2;
 
-#line 361
+#line 380
 	mca_log_info("active_stat: %d, online: %d, screen_state: %d, scene: %d, posture: %d, smart_sic_mode: %d -> %d\n",
 		active_stat, info->online, info->screen_state, scene, posture_st, info->smart_sic_mode, sic_mode);
 	if (sic_mode != info->smart_sic_mode) {
@@ -509,14 +538,14 @@ static void smart_charge_soc_limit_workfunc(struct work_struct *work)
 	int curr_soc = 0;
 
 	if (!info->online) {
-#line 429
+#line 448
 		mca_log_err("adapter is plugout, don't handle soc limit\n");
 		return;
 	}
 
 	if (info->soc_limit) {
 		curr_soc = strategy_class_fg_ops_get_soc();
-#line 434
+#line 453
 		mca_log_info("curr_soc = %d, soc_limit_thre = %d, ignore_upload = 0x%x\n", curr_soc, info->soc_limit,
 			info->ignore_upload.AsUINT32);
 		if (curr_soc >= info->soc_limit) {
@@ -542,7 +571,7 @@ static void smart_charge_soc_limit_workfunc(struct work_struct *work)
 				smart_charge_set_soc_limit(info->soc_limit_enable);
 				info->ignore_upload.navigation = 0;
 				info->ignore_upload.endurance_pro = 0;
-#line 459
+#line 478
 				mca_log_info("recover smart_chg endurance_pro and navigation report\n");
 			}
 		}
@@ -550,12 +579,12 @@ static void smart_charge_soc_limit_workfunc(struct work_struct *work)
 			info->ignore_upload.AsUINT32 = 0;
 		schedule_delayed_work(&info->smart_soc_limit_work, msecs_to_jiffies(1000));
 	} else {
-#line 466
+#line 485
 		mca_log_info("disable soc limit\n");
 		info->soc_limit_enable = false;
 		smart_charge_set_soc_limit(info->soc_limit_enable);
 	}
-#line 470
+#line 489
 	mca_log_info("soc_limit_enable = %d\n", info->soc_limit_enable);
 }
 
@@ -573,23 +602,27 @@ static void smartcharging_handle_algorithm_conflict(struct smart_charge_info *in
 	smart_navigation = info->smart_chg_data.smart_chgcfg[SMART_CHG_NAVIGATION].enable;
 	smart_endurance_pro = info->smart_chg_data.smart_chgcfg[SMART_CHG_ENDURANCE_PRO].enable;
 
-	/*endurance protect is prior to all others, then navigation is prior to smart night charge */
-	if (smart_endurance_pro) {
+	/* GLOBAL OS4.0.0.7 (G14e): if batt_emerg_soc_limit were set it would win over everything (soc_limit = 1). G17b (D4): in the GLOBAL 0.7 stock this field is read here once and WRITTEN NOWHERE (nor in ours): dead branch, kept for equivalence */
+	if (info->batt_emerg_soc_limit) {
+		soc_upper_thre = 1;
+#line 509
+		mca_log_info("batt_emerg_soc_limit: %d\n", info->batt_emerg_soc_limit);
+	} else if (smart_endurance_pro) {
 		soc_upper_thre = info->smart_chg_data.smart_chgcfg[SMART_CHG_ENDURANCE_PRO].func_value;
-#line 490
-		mca_log_info("smart_endurance %d, soc_upper_thre:%d", smart_endurance_pro, soc_upper_thre);
+#line 512
+		mca_log_info("smart_endurance %d, soc_upper_thre:%d\n", smart_endurance_pro, soc_upper_thre);
 	} else if (smart_navigation) {
 		soc_upper_thre = info->smart_chg_data.smart_chgcfg[SMART_CHG_NAVIGATION].func_value;
-#line 493
-		mca_log_info("smart_navigation %d, soc_upper_thre:%d", smart_navigation, soc_upper_thre);
+#line 515
+		mca_log_info("smart_navigation %d, soc_upper_thre:%d\n", smart_navigation, soc_upper_thre);
 	} else if (smart_night) {
 		soc_upper_thre = info->smart_chg_data.smart_chgcfg[SMART_CHG_NIGHT].func_value;
-#line 496
-		mca_log_info("smart_night %d, soc_upper_thre:%d", smart_night, soc_upper_thre);
+#line 518
+		mca_log_info("smart_night %d, soc_upper_thre:%d\n", smart_night, soc_upper_thre);
 	} else if (info->mishow && boot_mode && hwid && hwid->platform_version <= 12 &&
 		((1 << hwid->platform_version) & 0x1d3c)) {
 		soc_upper_thre = 80;
-#line 507
+#line 529
 		mca_log_info("mishow %d, soc_upper_thre:%d", info->mishow, soc_upper_thre);
 	} else {
 		soc_upper_thre = 0;
@@ -650,20 +683,20 @@ static void smartcharging_handle_controlmessage(void)
 
 	smart_header = (smart_header & 0xFFFE);
 	smart_header = (smart_header - 1) & smart_header;
-#line 567
+#line 589
 	mca_log_info("smart_header: %d", smart_header);
 	if (!smart_header) {
 		info->smart_chg_data.ret_code = false;
-#line 570
+#line 592
 		mca_log_err("input correct\n");
 	} else {
 		info->smart_chg_data.ret_code = true;
-#line 573
+#line 595
 		mca_log_err("error input invalid\n");
 		return;
 	}
 
-#line 577
+#line 599
 	mca_log_info("smart_chg_control: enable: %d, func_type: 0x%04x, func_value: %d\n",
 		info->smart_chg_control.enable, info->smart_chg_control.func_type << 1,
 		info->smart_chg_control.func_value);
@@ -708,13 +741,13 @@ static void smartcharging_handle_controlmessage(void)
 	} else if (info->smart_chg_control.sense_chg) {
 		info->smart_chg_data.smart_chgcfg[SMART_CHG_SENSE_CHG].enable = info->smart_chg_control.enable;
 		if (info->smart_chg_control.func_value > SMART_CHG_POSTURE_FAKE_CLEAR) {
-#line 621
+#line 643
 			mca_log_info("debug sense charge, set value: %d\n", info->smart_chg_control.func_value);
 			info->smart_chg_data.smart_chgcfg[SMART_CHG_SENSE_CHG].use_fake_value = true;
 			info->smart_chg_data.smart_chgcfg[SMART_CHG_SENSE_CHG].fake_value =
 				info->smart_chg_control.func_value - SMART_CHG_POSTURE_FAKE_CLEAR;
 		} else if (info->smart_chg_control.func_value == SMART_CHG_POSTURE_FAKE_CLEAR) {
-#line 626
+#line 648
 			mca_log_info("debug sense charge, cancel fake value: %d\n", info->smart_chg_control.func_value);
 			info->smart_chg_data.smart_chgcfg[SMART_CHG_SENSE_CHG].use_fake_value = false;
 			info->smart_chg_data.smart_chgcfg[SMART_CHG_SENSE_CHG].fake_value = 0;
@@ -740,7 +773,7 @@ static noinline int smartcharging_receive_control_message(int val)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	info->smart_chg_control.AsUINT32 = val;
-#line 651
+#line 673
 	mca_log_info("smart_chg value is %08x\n", val);
 	smartcharging_handle_controlmessage();
 	return 0;
@@ -760,9 +793,30 @@ static int get_smart_chg_message(void)
 		else
 			control_header &= ~BIT(index);
 	}
-#line 670
+#line 692
 	mca_log_info("control_header = %d\n", control_header);
 	return control_header;
+}
+
+/* GLOBAL OS4.0.0.7 (G14e): clear the battery-safe limits and the stored emergency SN in the charger partition (stock .text+0x10d8; the info argument is unused) */
+static void mca_smart_batt_safe_limit_reset(struct smart_charge_info *info)
+{
+	char sn[32] = { 0 };
+
+	charger_partition_write_batt_safe_ilim(0);
+	charger_partition_write_batt_safe_vlim(0);
+	charger_partition_write_batt_emerg_sn(sn);
+}
+
+/* GLOBAL OS4.0.0.7 (G14e): report the battery-safe level + the "batt_safe" votes of the delta-fv and curr_max voters as DFX event 63 (stock .text+0x113c); nobody votes "batt_safe" on curr_max in the stock (G17b, D3), param[2] is the no-such-client value */
+static void mca_smart_batt_safe_limit_dfx_report(struct smart_charge_info *info)
+{
+	int param[3];
+
+	param[0] = info->batt_safe_lvl;
+	param[1] = mca_get_client_vote(info->smartchg_delta_fv_voter, "batt_safe");
+	param[2] = mca_get_client_vote(info->curr_max_voter, "batt_safe");
+	mca_charge_mievent_report(CHARGE_DFX_BATT_SAFE_LVL, param, 3);
 }
 
 static noinline int handle_smart_batt_message(int val)
@@ -773,7 +827,7 @@ static noinline int handle_smart_batt_message(int val)
 	info->smart_batt_val = val;
 	vote_value = info->smart_batt_val * info->cell_type;
 
-#line 682
+#line 704
 	mca_log_info("smart_batt_val is %d vote_value %d\n", val, vote_value);
 	mca_vote(info->smartchg_delta_fv_voter, "smart_batt", true, vote_value);
 
@@ -792,7 +846,7 @@ static noinline int handle_smart_night_message(int val)
 	struct smart_charge_info *info = global_smartchg_info;
 
 	info->smart_night_val = val;
-#line 700
+#line 722
 	mca_log_info("smart_night_val is %d\n", !!val);
 	if (val)
 		strategy_class_fg_ops_get_rsoc(&info->night_enable_rsoc);
@@ -822,45 +876,42 @@ static void smart_charge_plugin_or_plugout_reset(struct smart_charge_info *info)
 	if (info->online && info->soc_limit && strategy_class_fg_ops_get_soc() >= info->soc_limit) {
 		info->ignore_upload.navigation = 1;
 		info->ignore_upload.endurance_pro = 1;
-#line 751
+#line 773
 		mca_log_info("ignore_upload mievent");
 	}
 }
 
 static void smart_charge_csd_send_pulse(struct smart_charge_info *info)
 {
-	int soc = 0, rsoc = 0;
-	int batt_temp = 0;
-	bool smart_night = false;
+	/* GLOBAL OS4.0.0.7 (G14e): rewritten from the stock (no soc/temperature window any more, CC pulse = bit 0, night pulse = bit 1) */
+	int rsoc = 0;
+	bool smart_night;
 
-	soc = strategy_class_fg_ops_get_soc();
 	strategy_class_fg_ops_get_rsoc(&rsoc);
-	(void)strategy_class_fg_ops_get_temperature(&batt_temp);
-	batt_temp /= 10;
+	strategy_class_fg_ops_get_cyclecount(&info->cycle_count);
 	smart_night = info->smart_chg_data.smart_chgcfg[SMART_CHG_NIGHT].enable;
 
-	if (!info->pulse_mode) {
-		if ((soc >= 50 && soc <= 80) && (batt_temp >= 20 && batt_temp <= 45)) {
-			if (info->plugin_rsoc <= 45 && !info->screen_state && info->cycle_count > 100 && (info->cycle_count % 25 == 0) && rsoc == 50) {
-				info->pulse_mode = 1;
+	if (info->online) {
+		if (info->cycle_count > 100 && info->cycle_count % 10 == 0 && info->plugin_rsoc <= 45 &&
+		    !info->screen_state && rsoc == 50 && !(info->pulse_mode & 1)) {
+			info->pulse_mode |= 1;
+			mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
+		} else if (smart_night) {
+			if (info->night_enable_rsoc <= 45 && rsoc == 50 && !(info->pulse_mode & 2)) {
+				info->pulse_mode |= 2;
 				mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
-			} else if (smart_night == true) {
-				if (info->night_enable_rsoc <= 45 && rsoc == 50) {
-					info->pulse_mode = 2;
-					mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
-				} else if (info->night_enable_rsoc > 45 && rsoc == 76) {
-					info->pulse_mode = 3;
-					mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
-				}
 			}
+		} else if ((info->pulse_mode & 3) == 2) {
+			info->pulse_mode = 0;
+			mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
 		}
-	} else if ((info->cycle_count % 25 != 0) && smart_night == false) {
+	} else {
 		info->pulse_mode = 0;
 		mca_event_block_notify(MCA_EVENT_CHARGE_STATUS, MCA_EVENT_CSD_SEND_PULSE, &info->pulse_mode);
 	}
-#line 787
-	mca_log_info("soc: %d, rsoc: %d, plugin_rsoc: %d, night_enable_rsoc: %d, batt_temp: %d, cycle: %d, night: %d, pulse_mode: %d",
-		soc, rsoc, info->plugin_rsoc, info->night_enable_rsoc, batt_temp, info->cycle_count, smart_night, info->pulse_mode);
+#line 812
+	mca_log_info("rsoc: %d, plugin_rsoc: %d, night_enable_rsoc: %d, cycle: %d, night: %d, pulse_mode: %d",
+		rsoc, info->plugin_rsoc, info->night_enable_rsoc, info->cycle_count, smart_night, info->pulse_mode);
 }
 
 static void smart_charge_handle_bypass_chg(struct smart_charge_info *info)
@@ -871,11 +922,11 @@ static void smart_charge_handle_bypass_chg(struct smart_charge_info *info)
 
 	if (mode) {
 		if (strategy_class_fg_ops_get_soc() < cfg->smart_bypass_entry_soc) {
-#line 857
+#line 882
 			mca_log_err("for_bypass soc not in range, quit bypass mode\n");
 			mode = 0;
 		} else if (info->wls_online) {
-#line 863
+#line 888
 			mca_log_err("for_bypass wlschg online, quit bypass mode\n");
 			mode = 0;
 		} else {
@@ -918,7 +969,7 @@ static void smart_charge_handle_bypass_chg(struct smart_charge_info *info)
 		}
 	}
 
-#line 908
+#line 933
 	mca_log_err("for_bypass [%d->%d] fcc[%d %d]\n", cfg->smart_bypass_mode, mode, fcc, cfg->smart_bypass_fcc);
 	if (cfg->smart_bypass_mode != mode) {
 		cfg->smart_bypass_mode = mode;
@@ -936,7 +987,7 @@ static void handle_mishow_config(void)
 
 	charger_partition_get_mishow(&mishow);
 	info->mishow = mishow;
-#line 720
+#line 742
 	mca_log_info("mishow config is %d\n", info->mishow);
 	if (info->mishow)
 		smartcharging_handle_algorithm_conflict(info);
@@ -953,10 +1004,27 @@ static void smart_charge_workfunc(struct work_struct *work)
 	//To-Do
 	//Battery status monitoring work_func
 	if (!info->online) {
-#line 931
+#line 976
 		mca_log_err("adapter is plugout\n");
 		return;
 	}
+	/* GLOBAL OS4.0.0.7 (G14e): battery-safe level (inferred meaning): once activated, read the stored voltage limit from the charger partition (once) and vote it on the delta-fv voter */
+	if (info->batt_safe_active && info->support_batt_safe_lvl) {
+		static bool partition_read_done;
+
+		if (!partition_read_done && !info->batt_safe_vlim) {
+			if (!charger_partition_read_batt_safe_vlim(&info->batt_safe_vlim)) {
+				partition_read_done = true;
+#line 983
+				mca_log_info("batt_safe: read vlim=%d from partition\n", info->batt_safe_vlim);
+			}
+		}
+		if (info->batt_safe_vlim >= 1)
+			mca_vote(info->smartchg_delta_fv_voter, "batt_safe", true, info->batt_safe_vlim);
+	}
+	/* G17b (review-batt-emerg D1): the stock does this lazy lookup on EVERY online tick, after the batt_safe block (all its branches join here), not only when vlim >= 1 */
+	if (!info->curr_max_voter)
+		info->curr_max_voter = mca_find_votable("curr_max");
 	//battery health4.0 cyclecount decrease ichg
 	strategy_class_fg_ops_get_cyclecount(&info->cycle_count);
 	for (int i = 0; i < CC_ICHG_MAX_GROUP; i++) {
@@ -969,12 +1037,16 @@ static void smart_charge_workfunc(struct work_struct *work)
 	if (delta_ichg != info->smart_delta_ichg) {
 		info->smart_delta_ichg = delta_ichg;
 		mca_vote(info->smartchg_delta_ichg_voter, "batt_health", true, delta_ichg);
-#line 946
+#line 1005
 		mca_log_info("cycle_count %d smart_delta_ichg %d\n", info->cycle_count, info->smart_delta_ichg);
 	}
 	//csd1.0 feature:check battery swelling
-	if (hwid && hwid->country_version == CountryCN && info->support_csd)
-		smart_charge_csd_send_pulse(info);
+	if (info->support_csd_2p0) {
+#line 1010
+		mca_log_info("support csd 2.0\n");
+		if (info->real_type == 12)
+			smart_charge_csd_send_pulse(info);
+	}
 
 	if (info->smart_bypass_cfg.smart_bypass_support)
 		smart_charge_handle_bypass_chg(info);
@@ -1003,7 +1075,7 @@ static int mca_smart_charge_process_event(int event, int value, void *data)
 	if (!info)
 		return -1;
 
-#line 987
+#line 1049
 	mca_log_info("receive event %d, value %d\n", event, value);
 	switch (event) {
 	case MCA_EVENT_WIRELESS_CONNECT:
@@ -1032,6 +1104,18 @@ static int mca_smart_charge_process_event(int event, int value, void *data)
 		info->smart_sic_mode = -1;
 		smart_charge_set_soc_limit(info->soc_limit_enable);
 		info->smart_bypass_cfg.active_status = 0;
+		info->pulse_mode = 0;	/* GLOBAL 0.7 */
+		break;
+	case MCA_EVENT_CHARGE_TYPE_CHANGE:	/* GLOBAL 0.7 */
+		info->real_type = value;
+		break;
+	case MCA_EVENT_BATT_SAFE_LVL:	/* GLOBAL 0.7: event 84 */
+		if (info->support_batt_safe_lvl) {
+			info->batt_safe_active = true;
+			schedule_delayed_work(&info->smart_charge_work, 0);
+#line 1089
+			mca_log_info("batt_safe_lvl: activated, schedule work\n");
+		}
 		break;
 	case MCA_EVENT_BATTERY_DTPT:
 		if (value)
@@ -1058,14 +1142,14 @@ static int smart_charge_fv_control(struct mca_votable *votable,
 	for (int i = 0; i < MCA_SMARTCHG_IF_CHG_TYPE_END; i++) {
 		if_ops = mca_smartchg_if_get_ops(i);
 		if (!if_ops || !if_ops->set_delta_fv) {
-#line 1041
+#line 1114
 			mca_log_info(" %d %p\n", i, if_ops);
 			continue;
 		}
 		if_ops->set_delta_fv(if_ops->data, effective_result);
 	}
 	info->delta_fv = effective_result;
-#line 1047
+#line 1120
 	mca_log_err("smartchg_delta_fv %d\n", effective_result);
 
 	return 0;
@@ -1082,7 +1166,7 @@ static int smart_charge_ichg_control(struct mca_votable *votable,
 
 	info->delta_ichg = effective_result;
 
-#line 1066
+#line 1139
 	mca_log_err("smartchg_delta_ichg %d\n", effective_result);
 	for (int i = 0; i < MCA_SMARTCHG_IF_CHG_TYPE_END; i++) {
 		if_ops = mca_smartchg_if_get_ops(i);
@@ -1102,7 +1186,7 @@ static int smart_charge_set_fcc_control(struct mca_votable *votable,
 	if (!data)
 		return -1;
 
-#line 1085
+#line 1158
 	mca_log_err("smartchg_set_fcc %d\n", effective_result);
 	for (int i = 0; i < MCA_SMARTCHG_IF_CHG_TYPE_END; i++) {
 		if_ops = mca_smartchg_if_get_ops(i);
@@ -1119,7 +1203,7 @@ static int smart_charge_init_voter(struct smart_charge_info *info)
 	info->smartchg_delta_fv_voter = mca_create_votable("smartchg_delta_fv", MCA_VOTE_MAX,
 		smart_charge_fv_control, SMART_CHARGE_DELTA_FV_DEFAULT_VALUE, info);
 	if (IS_ERR(info->smartchg_delta_fv_voter)) {
-#line 1101
+#line 1174
 		mca_log_err("smartchg_delta_fv voteable failed\n");
 		return -1;
 	}
@@ -1127,7 +1211,7 @@ static int smart_charge_init_voter(struct smart_charge_info *info)
 	info->smartchg_delta_ichg_voter = mca_create_votable("smartchg_delta_ichg", MCA_VOTE_MAX,
 		smart_charge_ichg_control, SMART_CHARGE_DELTA_ICHG_DEFAULT_VALUE, info);
 	if (IS_ERR(info->smartchg_delta_ichg_voter)) {
-#line 1108
+#line 1181
 		mca_log_err("smartchg_delta_ichg voteable failed\n");
 		return -1;
 	}
@@ -1135,9 +1219,19 @@ static int smart_charge_init_voter(struct smart_charge_info *info)
 	info->smartchg_fcc_voter = mca_create_votable("smartchg_set_fcc", MCA_VOTE_MIN,
 		smart_charge_set_fcc_control, 0, info);
 	if (IS_ERR(info->smartchg_fcc_voter)) {
-#line 1115
+#line 1188
 		mca_log_err("smartchg_fcc_voter voteable failed\n");
 		return -1;
+	}
+
+	/* GLOBAL OS4.0.0.7 (G14e) */
+	if (info->support_batt_safe_lvl) {
+		info->curr_max_voter = mca_find_votable("curr_max");
+		if (IS_ERR(info->curr_max_voter)) {
+#line 1195
+			mca_log_err("curr_max_voter voteable failed\n");
+			return -1;
+		}
 	}
 
 	return 0;
@@ -1157,7 +1251,7 @@ static ssize_t smart_charge_sysfs_show(struct device *dev,
 		return -1;
 
 	if (!info) {
-#line 1136
+#line 1217
 		mca_log_err("%s dev_driverdata is null\n", __func__);
 		return -1;
 	}
@@ -1203,6 +1297,12 @@ static ssize_t smart_charge_sysfs_show(struct device *dev,
 		val = val < 0 ? 0 : val;
 		count = scnprintf(buf, PAGE_SIZE, "%d\n", val);
 		break;
+	case MCA_PROP_BATT_SAFE_LVL:
+		count = scnprintf(buf, PAGE_SIZE, "%d\n", info->batt_safe_lvl);
+		break;
+	case MCA_PROP_BATT_SAFE_VLIM:
+		count = scnprintf(buf, PAGE_SIZE, "%d\n", info->batt_safe_vlim);
+		break;
 	default:
 		break;
 	}
@@ -1224,7 +1324,7 @@ static ssize_t smart_charge_sysfs_store(struct device *dev,
 		return -1;
 
 	if (!info) {
-#line 1201
+#line 1288
 		mca_log_err("%s dev_driverdata is null\n", __func__);
 		return -1;
 	}
@@ -1258,11 +1358,31 @@ static ssize_t smart_charge_sysfs_store(struct device *dev,
 	case MCA_PROP_BOARD_TEMP:
 		mca_smartchg_set_board_temp(val);
 		break;
+	case MCA_PROP_BATT_SAFE_LVL:	/* GLOBAL 0.7: only when the DT enables it; 0 = reset the stored limits, 1..4 = report */
+		if (!info->support_batt_safe_lvl)
+			break;
+		if (val == 0) {
+			mca_smart_batt_safe_limit_reset(info);
+			break;
+		}
+		if (val < 0 || val > 4)
+			break;
+		info->batt_safe_lvl = val;
+		mca_smart_batt_safe_limit_dfx_report(info);
+		break;
+	case MCA_PROP_BATT_SAFE_VLIM:
+		if (!info->support_batt_safe_lvl)
+			break;
+		if (val < 0)
+			break;
+		info->batt_safe_vlim = val;
+		charger_partition_write_batt_safe_vlim(val);
+		break;
 	default:
 		break;
 	}
 
-#line 1238
+#line 1343
 	mca_log_info("set the %d value = %d\n", attr_info->sysfs_attr_name, val);
 
 	return count;
@@ -1290,7 +1410,7 @@ static int smart_charge_handle_baa_data(struct smart_charge_info *info)
 	int offset = 0;
 
 	if (!basp_header) {
-#line 1265
+#line 1370
 		mca_log_err("mmap_addr is NULL\n");
 		return -1;
 	}
@@ -1308,10 +1428,10 @@ static int smart_charge_handle_baa_data(struct smart_charge_info *info)
 	offset = sizeof(struct smart_basp_header);
 	if_ops = mca_smartchg_if_get_ops(MCA_SMARTCHG_IF_CHG_TYPE_JEITA);
 	if (!if_ops || !if_ops->update_baa_para) {
-#line 1282
+#line 1387
 		mca_log_err("jeita update_baa_para is null\n");
 	} else {
-#line 1284
+#line 1389
 		mca_log_err("jeita update_baa_para offset: %d, size: %d/%d\n",
 			offset, basp_header->jeita_ffc_term_size, basp_header->jeita_normal_term_size);
 		if_ops->update_baa_para(if_ops->data, info->mmap_addr + offset,
@@ -1325,10 +1445,10 @@ static int smart_charge_handle_baa_data(struct smart_charge_info *info)
 	// update wired para
 	if_ops = mca_smartchg_if_get_ops(MCA_SMARTCHG_IF_CHG_TYPE_QC);
 	if (!if_ops || !if_ops->update_baa_para) {
-#line 1297
+#line 1402
 		mca_log_err("wired qc update_baa_para is null\n");
 	} else {
-#line 1299
+#line 1404
 		mca_log_err("wired qc update_baa_para offset: %d, size: %d/%d\n",
 			offset, basp_header->wired_ffc_size, basp_header->wired_normal_size);
 		if_ops->update_baa_para(if_ops->data, info->mmap_addr + offset,
@@ -1348,10 +1468,10 @@ static int smart_charge_handle_baa_data(struct smart_charge_info *info)
 	// update wls para
 	if_ops = mca_smartchg_if_get_ops(MCA_SMARTCHG_IF_CHG_TYPE_WL_QC);
 	if (!if_ops || !if_ops->update_baa_para) {
-#line 1318
+#line 1423
 		mca_log_err("wls qc update_baa_para is null\n");
 	} else {
-#line 1320
+#line 1425
 		mca_log_err("wls qc update_baa_para offset: %d, size: %d/%d\n",
 			offset, basp_header->wls_ffc_size, basp_header->wls_normal_size);
 		if_ops->update_baa_para(if_ops->data, info->mmap_addr + offset,
@@ -1369,7 +1489,7 @@ static int smart_charge_cal_checksum(struct smart_charge_info *info)
 	int i;
 	char *temp_buff = info->mmap_addr;
 
-#line 1337
+#line 1442
 	mca_log_err("header: %d, %d, %d; %d, %d; %d, %d; %d, %d\n",
 		basp_header->checksum, basp_header->type, basp_header->total_len,
 		basp_header->jeita_ffc_term_size, basp_header->jeita_normal_term_size,
@@ -1379,7 +1499,7 @@ static int smart_charge_cal_checksum(struct smart_charge_info *info)
 	for (i = sizeof(int); i < basp_header->total_len; i++)
 		checksum += (uint8_t)temp_buff[i];
 
-#line 1346
+#line 1451
 	mca_log_err("cal checksum %d, origin checksum %d\n", checksum, basp_header->checksum);
 	if (checksum != basp_header->checksum)
 		return -1;
@@ -1390,7 +1510,7 @@ static int smart_charge_cal_checksum(struct smart_charge_info *info)
 static void smart_charge_handle_mmap_data(struct smart_charge_info *info)
 {
 	if (smart_charge_cal_checksum(info)) {
-#line 1356
+#line 1461
 		mca_log_err("checksum failed\n");
 		goto out;
 	}
@@ -1416,7 +1536,7 @@ static int smart_charge_file_open(struct inode *inode, struct file *filp)
 	if (!info->mmap_addr)
 		return -1;
 
-#line 1381
+#line 1486
 	mca_log_err("malloc memery succ\n");
 	filp->private_data = info;
 
@@ -1430,7 +1550,7 @@ static int smart_charge_file_close(struct inode *inode, struct file *filp)
 	info = container_of(inode->i_cdev, struct smart_charge_info, pri_dev);
 	if (info && info->mmap_addr)
 		smart_charge_handle_mmap_data(info);
-#line 1396
+#line 1501
 	mca_log_err("release memery succ\n");
 
 	return 0;
@@ -1442,12 +1562,12 @@ static int smart_charge_mmap(struct file *filp, struct vm_area_struct *vma)
 	int ret;
 
 	if (!info || !info->mmap_addr || info->map_flag) {
-#line 1407
+#line 1512
 		mca_log_err("map addr error\n");
 		return -1;
 	}
 	if (vma->vm_end - vma->vm_start > PAGE_SIZE) {
-#line 1411
+#line 1516
 		mca_log_err("map addr len error\n");
 		return -1;
 	}
@@ -1456,12 +1576,12 @@ static int smart_charge_mmap(struct file *filp, struct vm_area_struct *vma)
 	ret = remap_pfn_range(vma, vma->vm_start, virt_to_phys(info->mmap_addr)>>PAGE_SHIFT,
 		vma->vm_end - vma->vm_start, vma->vm_page_prot);
 
-#line 1419
+#line 1524
 	mca_log_err("vma start 0x%x, prot %d\n", vma->vm_start, vma->vm_page_prot);
 	info->map_flag = 1;
 
 	if (ret)
-#line 1423
+#line 1528
 		mca_log_err("remap pfn failed %d\n", ret);
 
 	return ret;
@@ -1476,18 +1596,18 @@ static long smart_charge_ioctl(struct file *file, unsigned int cmd,
 	switch (cmd) {
 	case SMARTCHG_DATA_CMD:
 		if (!info->mmap_addr) {
-#line 1436
+#line 1541
 			mca_log_err("mmap addr is null\n");
 			return -EINVAL;
 		}
 		ret = copy_from_user(info->mmap_addr, (void __user *)arg, PAGE_SIZE);
-#line 1440
+#line 1545
 		mca_log_info("data ret = %d\n", ret);
 		if (ret)
 			return -EINVAL;
 		break;
 	default:
-#line 1445
+#line 1550
 		mca_log_err("invalid cmd\n");
 		return -EINVAL;
 	}
@@ -1503,7 +1623,7 @@ static int smart_charge_panel_notifier_cb(struct notifier_block *nb,
 	switch (event) {
 	case MCA_EVENT_PANEL_SCREEN_STATE_CHANGE:
 		tmp = *(int *)val;
-#line 1460
+#line 1565
 		mca_log_info("update screen_state: %d => %d\n", info->screen_state, tmp);
 		info->screen_state = tmp;
 		cancel_delayed_work_sync(&info->smart_sense_chg_work);
@@ -1542,24 +1662,39 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 	int len = 0;
 	int ret = 0;
 	int batt_ichg_cfg[CC_ICHG_MAX_GROUP * SMARTCHG_MODE_PARA_MAX];
+	int cell_type_gl = 0;
+	const struct mca_hwid *hwid = mca_get_hwid_info();
+
+	if (!node) {
+#line 1613
+		mca_log_err("no device node\n");
+		return -1;
+	}
 
 	(void)mca_parse_dts_u32(node, "cell_type", &info->cell_type, MCA_CELL_TYPE_1S);
+	/* GLOBAL OS4.0.0.7 (G14e): non-CN hardware may use "cell_type_gl" instead of "cell_type" */
+	(void)mca_parse_dts_u32(node, "cell_type_gl", &cell_type_gl, 0);
+	if (hwid && hwid->country_version != CountryCN && cell_type_gl)
+		info->cell_type = cell_type_gl;
 	mca_parse_dts_u32(node, "enable_fv_dec_by_cc", &info->enable_fv_dec_by_cc, 0);
-	mca_parse_dts_u32(node, "support_csd", &info->support_csd, 0);
+	mca_parse_dts_u32(node, "support_csd_2p0", &info->support_csd_2p0, 0);
+#line 1623
+	mca_log_err("cell_type %d, enable_fv_dec_by_cc %d, support_csd_2p0 %d\n",
+		info->cell_type, info->enable_fv_dec_by_cc, info->support_csd_2p0);
 	info->support_sensechg_v2 = of_property_read_bool(node, "support_sensechg_v2");
 	info->support_sensechg_v3 = of_property_read_bool(node, "support_sensechg_v3");
 	info->support_cc_ichg = of_property_read_bool(node, "support_cc_ichg");
 	if (info->support_cc_ichg) {
 		len = mca_parse_dts_u32_count(node, "cc_ichg_cfg", CC_ICHG_MAX_GROUP, SMARTCHG_MODE_PARA_MAX);
 		if (len < 0) {
-#line 1514
+#line 1631
 			mca_log_err("parse cc_ichg_cfg failed\n");
 			return -1;
 		}
 
 		ret = mca_parse_dts_u32_array(node, "cc_ichg_cfg", batt_ichg_cfg, CC_ICHG_MAX_GROUP * SMARTCHG_MODE_PARA_MAX);
 		if (ret) {
-#line 1520
+#line 1637
 			mca_log_err(" parse cc_ichg_cfg failed\n");
 			return -1;
 		}
@@ -1569,7 +1704,7 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 
 			info->ichg_cc_table[row].cc_max = batt_ichg_cfg[col + SMARTCHG_MODE_CYCLECOUNT];
 			info->ichg_cc_table[row].delta_ichg = batt_ichg_cfg[col + SMARTCHG_MODE_DELTA_ICHG];
-#line 1529
+#line 1646
 			mca_log_err("%d, %d\n", info->ichg_cc_table[row].cc_max, info->ichg_cc_table[row].delta_ichg);
 		}
 	}
@@ -1580,7 +1715,7 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 
 		len = mca_parse_dts_u32_count(node, "smart_bypass_high_lmt_cfg", 10, 5);
 		if (len < 0) {
-#line 1539
+#line 1656
 			mca_log_err("parse smart_bypass_high_lmt_cfg failed\n");
 			return -1;
 		}
@@ -1591,7 +1726,7 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 
 		len = mca_parse_dts_u32_count(node, "smart_bypass_med_lmt_cfg", 10, 5);
 		if (len < 0) {
-#line 1549
+#line 1666
 			mca_log_err("parse smart_bypass_med_lmt_cfg failed\n");
 			return -1;
 		}
@@ -1602,7 +1737,7 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 
 		len = mca_parse_dts_u32_count(node, "smart_bypass_low_lmt_cfg", 10, 5);
 		if (len < 0) {
-#line 1559
+#line 1676
 			mca_log_err("parse smart_bypass_low_lmt_cfg failed\n");
 			return -1;
 		}
@@ -1612,8 +1747,97 @@ static int smart_charge_parse_dt(struct smart_charge_info *info)
 			return -1;
 	}
 
+	info->support_batt_safe_lvl = of_find_property(node, "support_batt_safe_lvl", NULL) != NULL;	/* GLOBAL 0.7 */
+
 	return 0;
 
+}
+
+/* GLOBAL OS4.0.0.7 (G14e): optional DT child node "smart_charge_override" re-parses the same keys (keeps the current value as the default and only
+ * turns flags ON); the stock applies it only when hwid->product_name is "yanan" (not this device). Decoded from the stock probe; community-only. */
+static void smart_charge_parse_dt_override(struct smart_charge_info *info)
+{
+	struct device_node *node = info->dev->of_node;
+	struct device_node *child;
+	int batt_ichg_cfg[CC_ICHG_MAX_GROUP * SMARTCHG_MODE_PARA_MAX] = { 0 };
+	int len;
+	int ret;
+
+	child = of_get_child_by_name(node, "smart_charge_override");
+	if (!child) {
+#line 1700
+		mca_log_info("child node 'smart_charge_override' not found, using parent config\n");
+		return;
+	}
+#line 1704
+	mca_log_info("applying smart_charge override from child node\n");
+
+	mca_parse_dts_u32(child, "cell_type", &info->cell_type, info->cell_type);
+	mca_parse_dts_u32(child, "enable_fv_dec_by_cc", &info->enable_fv_dec_by_cc, info->enable_fv_dec_by_cc);
+	mca_parse_dts_u32(child, "support_csd_2p0", &info->support_csd_2p0, 0);
+	if (of_find_property(child, "support_sensechg_v2", NULL))
+		info->support_sensechg_v2 = true;
+	if (of_find_property(child, "support_sensechg_v3", NULL))
+		info->support_sensechg_v3 = true;
+	if (of_find_property(child, "support_soft_cid", NULL))
+		info->support_soft_cid = true;
+	if (of_find_property(child, "support_cc_ichg", NULL))
+		info->support_cc_ichg = true;
+	info->support_batt_safe_lvl = of_find_property(child, "support_batt_safe_lvl", NULL) != NULL;
+#line 1721
+	mca_log_info("override support_batt_safe_lvl: %d\n", info->support_batt_safe_lvl);
+
+	if (info->support_cc_ichg) {
+		len = mca_parse_dts_u32_count(child, "cc_ichg_cfg", CC_ICHG_MAX_GROUP, SMARTCHG_MODE_PARA_MAX);
+		if (len >= 0) {
+			ret = mca_parse_dts_u32_array(child, "cc_ichg_cfg", batt_ichg_cfg, CC_ICHG_MAX_GROUP * SMARTCHG_MODE_PARA_MAX);
+			if (!ret) {
+				for (int row = 0; row < (len / SMARTCHG_MODE_PARA_MAX); row++) {
+					int col = row * SMARTCHG_MODE_PARA_MAX;
+
+					info->ichg_cc_table[row].cc_max = batt_ichg_cfg[col + SMARTCHG_MODE_CYCLECOUNT];
+					info->ichg_cc_table[row].delta_ichg = batt_ichg_cfg[col + SMARTCHG_MODE_DELTA_ICHG];
+				}
+			}
+		}
+	}
+
+	mca_parse_dts_u32(child, "smart_bypass_support", &info->smart_bypass_cfg.smart_bypass_support,
+		info->smart_bypass_cfg.smart_bypass_support);
+	if (info->smart_bypass_cfg.smart_bypass_support) {
+		mca_parse_dts_u32(child, "smart_bypass_entry_soc", &info->smart_bypass_cfg.smart_bypass_entry_soc,
+			info->smart_bypass_cfg.smart_bypass_entry_soc);
+
+		len = mca_parse_dts_u32_count(child, "smart_bypass_high_lmt_cfg", 10, 5);
+		if (len >= 0) {
+			info->smart_bypass_cfg.smart_bypass_high_lmt_size = len / 5;
+			if (mca_parse_dts_u32_array(child, "smart_bypass_high_lmt_cfg",
+				(u32 *)info->smart_bypass_cfg.smart_bypass_high_lmt_cfg, len) < 0) {
+#line 1753
+				mca_log_err("override parse smart_bypass_high_lmt_cfg failed\n");
+			}
+		}
+
+		len = mca_parse_dts_u32_count(child, "smart_bypass_med_lmt_cfg", 10, 5);
+		if (len >= 0) {
+			info->smart_bypass_cfg.smart_bypass_med_lmt_size = len / 5;
+			if (mca_parse_dts_u32_array(child, "smart_bypass_med_lmt_cfg",
+				(u32 *)info->smart_bypass_cfg.smart_bypass_med_lmt_cfg, len) < 0) {
+#line 1763
+				mca_log_err("override parse smart_bypass_med_lmt_cfg failed\n");
+			}
+		}
+
+		len = mca_parse_dts_u32_count(child, "smart_bypass_low_lmt_cfg", 10, 5);
+		if (len >= 0) {
+			info->smart_bypass_cfg.smart_bypass_low_lmt_size = len / 5;
+			if (mca_parse_dts_u32_array(child, "smart_bypass_low_lmt_cfg",
+				(u32 *)info->smart_bypass_cfg.smart_bypass_low_lmt_cfg, len) < 0) {
+#line 1773
+				mca_log_err("override parse smart_bypass_low_lmt_cfg failed\n");
+			}
+		}
+	}
 }
 
 static int smart_charge_probe(struct platform_device *pdev)
@@ -1621,12 +1845,13 @@ static int smart_charge_probe(struct platform_device *pdev)
 	struct smart_charge_info *info;
 	static int probe_cnt;
 	int ret = 0, online = 0, wireless_online = 0;
+	const struct mca_hwid *hwid = mca_get_hwid_info();
 
-#line 1578
+#line 1785
 	mca_log_info("probe_cnt = %d\n", ++probe_cnt);
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
 	if (!info) {
-#line 1581
+#line 1788
 		mca_log_err("out of memory\n");
 		return -ENOMEM;
 	}
@@ -1636,14 +1861,16 @@ static int smart_charge_probe(struct platform_device *pdev)
 	global_smartchg_info = info;
 	ret = smart_charge_parse_dt(info);
 	if (ret) {
-#line 1590
+#line 1797
 		mca_log_err("parse dt failed\n");
 		return -1;
 	}
+	if (hwid && !strcmp(hwid->product_name, "yanan"))	/* GLOBAL 0.7: override child node only for that product */
+		smart_charge_parse_dt_override(info);
 	smart_charge_sysfs_create_group(info->dev);
 	ret = smart_charge_init_voter(info);
 	if (ret) {
-#line 1596
+#line 1807
 		mca_log_err("init voter err\n");
 		return -1;
 	}
@@ -1665,7 +1892,7 @@ static int smart_charge_probe(struct platform_device *pdev)
 		STRATEGY_STATUS_TYPE_ONLINE, &wireless_online);
 	ret = alloc_chrdev_region(&info->dev_num, 0, 1, "smart_charge");
 	if (ret) {
-#line 1617
+#line 1828
 		mca_log_err("alloc chrdev num failed\n");
 		return ret;
 	}
@@ -1674,7 +1901,7 @@ static int smart_charge_probe(struct platform_device *pdev)
 	info->pri_dev.owner = THIS_MODULE;
 	ret = cdev_add(&info->pri_dev, info->dev_num, 1);
 	if (ret) {
-#line 1625
+#line 1836
 		mca_log_err("cdev add failed\n");
 		goto error1;
 	}
@@ -1684,7 +1911,7 @@ static int smart_charge_probe(struct platform_device *pdev)
 	info->smart_charge_class = class_create(THIS_MODULE, "smart_charge");
 #endif
 	if (!info->smart_charge_class) {
-#line 1634
+#line 1845
 		mca_log_err("create smart charge class failed\n");
 		goto error2;
 	}
@@ -1692,7 +1919,7 @@ static int smart_charge_probe(struct platform_device *pdev)
 	info->sys_dev = device_create(info->smart_charge_class, NULL, info->dev_num,
 		NULL, "smart_charge_cdev");
 	if (!info->sys_dev) {
-#line 1641
+#line 1852
 		mca_log_err("create smart charge device failed\n");
 		goto error3;
 	}
@@ -1704,7 +1931,7 @@ static int smart_charge_probe(struct platform_device *pdev)
 
 	info->fake_scene = SMART_CHARGE_FAKE_SCENE_DEFAULT;
 
-#line 1652
+#line 1863
 	mca_log_info("done\n");
 	return 0;
 

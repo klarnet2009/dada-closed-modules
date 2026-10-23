@@ -19,8 +19,15 @@ int tfa_wait4manstate(struct tfa_device *tfa, uint16_t bf, uint16_t value, int t
 		regval = 0;
 		if (tfa->dev_ops.tfa_reg_read) {
 			err = tfa->dev_ops.tfa_reg_read(tfa, (bf >> 8) & 0xff, &regval);
-			if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail)
-				pr_err("Error getting bf :%d \n", -100 - (int)err);
+			/* G53a (raw 0xf5b4..0xf5fc): err == -100 and err == 0 use the register value; any other error makes
+			 * the "bitfield value" -100 - err, which is printed and compared with `value` (the loop ends when it is >= value) */
+			if ((int)err != -100 && err != Tfa98xx_Error_Ok) {
+				bfval = -100 - (int)err;
+				pr_err("Error getting bf :%d \n", bfval);
+				if (bfval < (int)value)
+					continue;
+				break;
+			}
 		}
 		bfval = (regval & mask) >> pos;
 		if (bfval >= (int)value)
@@ -163,7 +170,8 @@ int tfa_irq_report(struct tfa_device *tfa)
 
 	if (tfa->dev_ops.tfa_reg_read) {
 		err = tfa->dev_ops.tfa_reg_read(tfa, 0x40, &status);
-		if (err != Tfa98xx_Error_Ok && err != Tfa98xx_Error_Fail)
+		/* G53a (raw 0x51e0..0x51f8: cmn w0,#0x80000064; b.mi): the stock bails out only when (int)err < -100, then returns -100 - err */
+		if ((int)err < -100)
 			return -100 - (int)err;
 	}
 

@@ -1,5 +1,9 @@
 # fs19xx_dlkm - EQUIVALENT (strict compare_ko_v2: only metadata differences srcversion + depends order; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
 
+## G15c (19.10.2026) - re-verified against the GLOBAL OS4.0.0.7 stock (first line unchanged)
+Stock-vs-stock CN 0.6 -> global: STRICT-EQUIVALENT. Real Kleaf build vs the GLOBAL stock: compare_ko_v2: everything PASS except buildmeta (srcversion differs: 0E1FBF87... vs 75479956...) and depends order (ours miev,machine_dlkm vs stock machine_dlkm,miev): metadata only, kCFI 0 mismatches (124 functions). No fs19xx/foursemi node in any dada DT: not bound on dada. Hacks unchanged.
+
+
 Old first line (before the strict recheck G9): # fs19xx_dlkm - EQUIVALENT (128 of 128 functions byte-identical to the OS4 stock, compare_ko.py EQUIVALENT; hacks: forged member name for the fsm_get_config CRC, hidden .llvm.<hash> globals, u8 `& 1` load form)
 
 Reference: OS4 `<work-dir>` (FourSemi FS19xx smart PA, v4.0.7). History: 98/128, round 1 117/128, round 2 127/128 (real Kleaf/ThinLTO build, `compare_ko.py`).

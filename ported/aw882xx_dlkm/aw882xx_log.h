@@ -21,6 +21,9 @@
 		pr_err("[Awinic][%s]%s: " format "\n", dev_name(dev), __func__, ##__VA_ARGS__)
 #define aw_dev_info(dev, format, ...) \
 		pr_info("[Awinic][%s]%s: " format "\n", dev_name(dev), __func__, ##__VA_ARGS__)
+/* G53a: log with an explicit function name (the stock inlined static aw_dev_reg_value_check keeps its own __func__) */
+#define aw_dev_info_fn(dev, fn, format, ...) \
+		pr_info("[Awinic][%s]%s: " format "\n", dev_name(dev), fn, ##__VA_ARGS__)
 #define aw_dev_dbg(dev, format, ...) \
 		pr_debug("[Awinic][%s]%s: " format "\n", dev_name(dev), __func__, ##__VA_ARGS__)
 

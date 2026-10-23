@@ -467,6 +467,7 @@ static int optee_do_call_with_arg(struct tee_context *ctx,
 	if (IS_ERR(task)) {
 		pr_err("%s:mitee task alloc failed\n", __func__);
 		up(&optee->sem);
+		up(&optee->sem);	/* G56a r3: the stock releases the semaphore twice on this path (0x100 up, then `b 0xa4` -> the common up at 0xa8): found by emu.py, reproduced */
 		return -ENOMEM;
 	}
 
@@ -541,9 +542,7 @@ static int optee_to_msg_param(struct optee *optee,
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
 			if (tee_shm_is_registered(p->u.memref.shm)) {
-				if (optee->comm_ops->id == ARM_FFA)
-					rc = optee->comm_ops->to_msg_param(mp,
-									   p);
+				rc = optee->comm_ops->to_msg_param(mp, p);
 			} else {
 				rc = to_msg_param_tmp_mem(mp, p);
 			}

@@ -2134,7 +2134,9 @@ static __always_inline unsigned int mi_frame_cmd_set_fps(unsigned int cmd, unsig
 	if (unlikely(!period_traced_pid || !cpu_fps_period)) {
 		ioctl_flag = false;
 		spin_lock_irqsave(&period_list_lock, flags);
-		list_for_each_safe(pos, n, &period_list) {
+		/* stock keeps a `pos != NULL` test in this loop too (cbz x8 / cbnz x24) */
+		for (pos = period_list.next; pos != &period_list && pos; pos = n) {
+			n = pos->next;
 			node = list_entry(pos, struct period_node, list);
 			if (node) {
 				list_del_init(pos);

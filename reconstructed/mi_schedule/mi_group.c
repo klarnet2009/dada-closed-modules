@@ -671,7 +671,7 @@ void change_lsgroup_status(struct task_struct *p, enum MI_APP_TYPE type)
 	mi_tsk->ls_grp->flags = 1 << type;
 }
 
-bool mi_group_ls_group(struct task_struct *p, u64 unused)
+bool mi_group_ls_group(struct task_struct *p, int *unused)
 {
 	get_mi_task_struct(p);
 	return false;

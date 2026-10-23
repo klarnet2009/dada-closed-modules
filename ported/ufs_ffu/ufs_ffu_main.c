@@ -5,7 +5,7 @@
  *
  * Flow: a delayed work (3 jiffies after module init) finds UFS LUN0, locates the partition named "ffu" (partition
  * 5..19 of the disk whose partition 1 is called "switch"), reads a 4 KB header page from it and optionally up to
- * 15 firmware records (48-byte entry + CRC-32), merges them with the built-in table need_update_k[81], and when the
+ * 15 firmware records (48-byte entry + CRC-32), merges them with the built-in table need_update_k[82], and when the
  * INQUIRY vendor/product/revision of the UFS device matches an entry it downloads the image with SCSI WRITE BUFFER
  * (mode 0xE, 512 KB chunks) and reboots with the reason "ffus" (or "ffuf" on failure).
  *
@@ -229,13 +229,13 @@ static int ufs_write(struct scsi_device *sdev, u8 *buf, u32 lba, u32 len)
 	return 0;
 }
 
-/* an entry that came from the partition (index >= 81) failed to flash: wipe the header block */
+/* an entry that came from the partition (index >= 82) failed to flash: wipe the header block */
 static int check_ffu_parition_fw_error(struct scsi_device *sdev, int idx)
 {
 	u8 *buf = kzalloc(4096, GFP_KERNEL);
 	int ret;
 
-	if (idx >= 81) {
+	if (idx >= 82) {
 		ret = ufs_write(sdev, buf, part_info.start, 4096);
 		if (ret)
 			pr_err("[ufs_ffu] write partion info error %d\n", ret);
@@ -353,8 +353,8 @@ static __always_inline struct ffu_fw_info *ffu_load_table(struct scsi_device *sd
 	ffu_count = hdr.ffu_count;
 	pr_notice("[ufs_ffu] ffu_count is %d\n", ffu_count);
 	if (ffu_count) {
-		table = kmalloc((ffu_count + 81) * sizeof(*table), GFP_KERNEL);
-		memset(table, 0, (ffu_count + 81) * sizeof(*table));
+		table = kmalloc((ffu_count + 82) * sizeof(*table), GFP_KERNEL);
+		memset(table, 0, (ffu_count + 82) * sizeof(*table));
 		memcpy(table, need_update_k, sizeof(need_update_k));
 		for (i = 0; i < ffu_count; i++) {
 			u8 *rec = page + 0x100 + i * 0x100;

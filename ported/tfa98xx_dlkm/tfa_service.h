@@ -26,9 +26,9 @@ extern "C" {
 #include "versions.h"
 #endif
 #ifdef TFA98XX_GIT_VERSIONS
-  #define TFA98XX_API_REV_STR "v6.5.3"/*TFA98XX_GIT_VERSIONS*/
+  #define TFA98XX_API_REV_STR "v6.13._xiaomi"/*TFA98XX_GIT_VERSIONS*/
 #else
-  #define TFA98XX_API_REV_STR "v6.5.3"
+  #define TFA98XX_API_REV_STR "v6.13._xiaomi"
 #endif
 
 #include "tfa_device.h"
